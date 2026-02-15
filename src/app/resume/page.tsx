@@ -43,6 +43,87 @@ const EMPTY_EDU: EducationEntry = {
   is_current: false, description: ''
 }
 
+const MONTHS = [
+  '', 'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+]
+
+const CURRENT_YEAR = new Date().getFullYear()
+const YEARS = Array.from({ length: 80 }, (_, i) => CURRENT_YEAR - i)
+
+function parseDate(dateStr: string): { month: string; year: string } {
+  if (!dateStr) return { month: '', year: '' }
+  const parts = dateStr.split('-')
+  return { year: parts[0] || '', month: parts[1] ? String(parseInt(parts[1])) : '' }
+}
+
+function buildDate(year: string, month: string): string {
+  if (!year) return ''
+  if (!month) return `${year}-01-01`
+  return `${year}-${month.padStart(2, '0')}-01`
+}
+
+function formatDate(dateStr: string): string {
+  if (!dateStr) return ''
+  const { month, year } = parseDate(dateStr)
+  if (!year) return ''
+  if (!month || month === '0') return year
+  return `${MONTHS[parseInt(month)]} ${year}`
+}
+
+function DatePicker({ label, value, onChange, disabled }: {
+  label: string
+  value: string
+  onChange: (val: string) => void
+  disabled?: boolean
+}) {
+  const parsed = parseDate(value)
+  const [month, setMonth] = useState(parsed.month)
+  const [year, setYear] = useState(parsed.year)
+
+  useEffect(() => {
+    const p = parseDate(value)
+    setMonth(p.month)
+    setYear(p.year)
+  }, [value])
+
+  const handleChange = (newMonth: string, newYear: string) => {
+    setMonth(newMonth)
+    setYear(newYear)
+    onChange(buildDate(newYear, newMonth))
+  }
+
+  return (
+    <div>
+      <label className="text-gray-400 text-xs block mb-1">{label}</label>
+      <div className="flex gap-2">
+        <select
+          value={month}
+          onChange={e => handleChange(e.target.value, year)}
+          disabled={disabled}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 disabled:opacity-50"
+        >
+          <option value="">Month (optional)</option>
+          {MONTHS.slice(1).map((m, i) => (
+            <option key={i + 1} value={String(i + 1)}>{m}</option>
+          ))}
+        </select>
+        <select
+          value={year}
+          onChange={e => handleChange(month, e.target.value)}
+          disabled={disabled}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 disabled:opacity-50"
+        >
+          <option value="">Year</option>
+          {YEARS.map(y => (
+            <option key={y} value={String(y)}>{y}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  )
+}
+
 export default function ResumePage() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -255,7 +336,7 @@ export default function ResumePage() {
                       <h4 className="font-semibold text-lg">{entry.title}</h4>
                       <p className="text-gray-400">{entry.company}{entry.location ? ` · ${entry.location}` : ''}</p>
                       <p className="text-gray-500 text-sm">
-                        {entry.start_date}{entry.is_current ? ' — Present' : entry.end_date ? ` — ${entry.end_date}` : ''}
+                        {formatDate(entry.start_date)}{entry.is_current ? ' — Present' : entry.end_date ? ` — ${formatDate(entry.end_date)}` : ''}
                         {entry.engagement_type ? ` · ${entry.engagement_type}` : ''}
                       </p>
                       {entry.description && <p className="text-gray-300 mt-2 text-sm">{entry.description}</p>}
@@ -288,7 +369,7 @@ export default function ResumePage() {
                       <h4 className="font-semibold text-lg">{entry.institution}</h4>
                       <p className="text-gray-400">{entry.degree}{entry.field_of_study ? ` in ${entry.field_of_study}` : ''}</p>
                       <p className="text-gray-500 text-sm">
-                        {entry.start_date}{entry.is_current ? ' — Present' : entry.end_date ? ` — ${entry.end_date}` : ''}
+                        {formatDate(entry.start_date)}{entry.is_current ? ' — Present' : entry.end_date ? ` — ${formatDate(entry.end_date)}` : ''}
                       </p>
                       {entry.description && <p className="text-gray-300 mt-2 text-sm">{entry.description}</p>}
                     </div>
@@ -367,17 +448,8 @@ export default function ResumePage() {
                 <option value="project-based">Project-based</option>
               </select>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-gray-400 text-xs block mb-1">Start Date</label>
-                  <input type="date" value={editingWork.start_date} onChange={e => setEditingWork(p => ({ ...p, start_date: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500" />
-                </div>
-                <div>
-                  <label className="text-gray-400 text-xs block mb-1">End Date</label>
-                  <input type="date" value={editingWork.end_date} onChange={e => setEditingWork(p => ({ ...p, end_date: e.target.value }))}
-                    disabled={editingWork.is_current}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 disabled:opacity-50" />
-                </div>
+                <DatePicker label="Start Date" value={editingWork.start_date} onChange={val => setEditingWork(p => ({ ...p, start_date: val }))} />
+                <DatePicker label="End Date" value={editingWork.end_date} onChange={val => setEditingWork(p => ({ ...p, end_date: val }))} disabled={editingWork.is_current} />
               </div>
               <label className="flex items-center gap-2 text-sm text-gray-400">
                 <input type="checkbox" checked={editingWork.is_current} onChange={e => setEditingWork(p => ({ ...p, is_current: e.target.checked, end_date: e.target.checked ? '' : p.end_date }))}
@@ -408,17 +480,8 @@ export default function ResumePage() {
               <input value={editingEdu.field_of_study} onChange={e => setEditingEdu(p => ({ ...p, field_of_study: e.target.value }))} placeholder="Field of Study"
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-gray-400 text-xs block mb-1">Start Date</label>
-                  <input type="date" value={editingEdu.start_date} onChange={e => setEditingEdu(p => ({ ...p, start_date: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500" />
-                </div>
-                <div>
-                  <label className="text-gray-400 text-xs block mb-1">End Date</label>
-                  <input type="date" value={editingEdu.end_date} onChange={e => setEditingEdu(p => ({ ...p, end_date: e.target.value }))}
-                    disabled={editingEdu.is_current}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 disabled:opacity-50" />
-                </div>
+                <DatePicker label="Start Date" value={editingEdu.start_date} onChange={val => setEditingEdu(p => ({ ...p, start_date: val }))} />
+                <DatePicker label="End Date" value={editingEdu.end_date} onChange={val => setEditingEdu(p => ({ ...p, end_date: val }))} disabled={editingEdu.is_current} />
               </div>
               <label className="flex items-center gap-2 text-sm text-gray-400">
                 <input type="checkbox" checked={editingEdu.is_current} onChange={e => setEditingEdu(p => ({ ...p, is_current: e.target.checked, end_date: e.target.checked ? '' : p.end_date }))}
