@@ -5,15 +5,14 @@ const nextConfig = {
       {
         protocol: 'https',
         hostname: '*.supabase.co',
+        port: '',
         pathname: '/storage/v1/object/public/**',
       },
     ],
   },
   experimental: {
-    serverActions: {
-      bodySizeLimit: '10mb',
-    },
+    serverActions: true,
   },
-};
+}
 
-module.exports = nextConfig;
+module.exports = nextConfig
