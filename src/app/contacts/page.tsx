@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 
 interface Contact {
   id: string;
-  user_id: string;
+  owner_id: string;
   first_name: string;
   last_name: string;
   email: string | null;
@@ -66,7 +66,7 @@ export default function ContactsPage() {
     const { data, error } = await supabase
       .from('contacts')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('owner_id', user.id)
       .order('last_name', { ascending: true });
 
     if (error) {
@@ -85,7 +85,7 @@ export default function ContactsPage() {
     const { data, error } = await supabase
       .from('contacts')
       .insert({
-        user_id: user.id,
+        owner_id: user.id,
         first_name: newContact.first_name,
         last_name: newContact.last_name,
         email: newContact.email || null,
