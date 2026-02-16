@@ -96,12 +96,15 @@ export default function NetworkPage() {
 
       const { data, error } = await supabase
         .from("contacts")
-        .select(
-          "*"
-        )
+        .select("*")
         .eq("user_id", user.id);
 
-      if (!error && data) {
+      if (error) {
+        console.log("ERROR:", error.message);
+        alert("Network query error: " + error.message);
+      }
+      if (data) {
+        alert("Found " + data.length + " contacts");
         setContacts(data);
       }
       setLoading(false);
