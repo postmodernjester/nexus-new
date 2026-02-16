@@ -97,7 +97,7 @@ export default function NetworkPage() {
       const { data, error } = await supabase
         .from("contacts")
         .select(
-          "id, full_name, relationship_type, company, role, last_contacted, interaction_frequency"
+          "*"
         )
         .eq("user_id", user.id);
 
