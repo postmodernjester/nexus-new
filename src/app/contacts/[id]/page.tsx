@@ -13,9 +13,7 @@ interface Contact {
 
   owner_id: string;
 
-  first_name: string;
-
-  last_name: string;
+  full_name: string;
 
   email: string | null;
 
@@ -23,21 +21,37 @@ interface Contact {
 
   company: string | null;
 
-  job_title: string | null;
+  role: string | null;
+
+  location: string | null;
 
   relationship_type: string | null;
 
-  linkedin_url: string | null;
+  website: string | null;
 
   avatar_url: string | null;
+
+  how_we_met: string | null;
+
+  met_date: string | null;
+
+  follow_up_status: string | null;
+
+  last_contact_date: string | null;
+
+  next_action_date: string | null;
+
+  next_action_note: string | null;
+
+  communication_frequency: string | null;
+
+  collaboration_depth: string | null;
 
   city: string | null;
 
   state: string | null;
 
   country: string | null;
-
-  website: string | null;
 
   twitter_url: string | null;
 
@@ -46,6 +60,8 @@ interface Contact {
   bio: string | null;
 
   created_at: string;
+
+  updated_at: string | null;
 
 }
 
@@ -67,23 +83,9 @@ interface ContactNote {
 
 const RELATIONSHIP_TYPES = [
 
-  'Colleague',
+  'Colleague', 'Client', 'Friend', 'Mentor', 'Mentee',
 
-  'Client',
-
-  'Friend',
-
-  'Mentor',
-
-  'Mentee',
-
-  'Collaborator',
-
-  'Vendor',
-
-  'Recruiter',
-
-  'Other',
+  'Collaborator', 'Vendor', 'Recruiter', 'Other',
 
 ];
 
@@ -107,8 +109,6 @@ export default function ContactDetailPage() {
 
   const [saving, setSaving] = useState(false);
 
-  // Notes
-
   const [newNote, setNewNote] = useState('');
 
   const [newNoteContext, setNewNoteContext] = useState('');
@@ -129,13 +129,7 @@ export default function ContactDetailPage() {
 
     const { data: { user } } = await supabase.auth.getUser();
 
-    if (!user) {
-
-      router.push('/login');
-
-      return;
-
-    }
+    if (!user) { router.push('/login'); return; }
 
     const { data, error } = await supabase
 
@@ -149,15 +143,7 @@ export default function ContactDetailPage() {
 
       .single();
 
-    if (error || !data) {
-
-      console.error('Error fetching contact:', error);
-
-      router.push('/contacts');
-
-      return;
-
-    }
+    if (error || !data) { router.push('/contacts'); return; }
 
     setContact(data);
 
@@ -179,15 +165,7 @@ export default function ContactDetailPage() {
 
       .order('created_at', { ascending: false });
 
-    if (error) {
-
-      console.error('Error fetching notes:', error);
-
-    } else {
-
-      setNotes(data || []);
-
-    }
+    if (!error) setNotes(data || []);
 
   }
 
@@ -201,9 +179,7 @@ export default function ContactDetailPage() {
 
       .update({
 
-        first_name: editForm.first_name,
-
-        last_name: editForm.last_name,
+        full_name: editForm.full_name,
 
         email: editForm.email || null,
 
@@ -211,19 +187,31 @@ export default function ContactDetailPage() {
 
         company: editForm.company || null,
 
-        job_title: editForm.job_title || null,
+        role: editForm.role || null,
+
+        location: editForm.location || null,
 
         relationship_type: editForm.relationship_type || null,
 
-        linkedin_url: editForm.linkedin_url || null,
+        website: editForm.website || null,
+
+        how_we_met: editForm.how_we_met || null,
+
+        met_date: editForm.met_date || null,
+
+        follow_up_status: editForm.follow_up_status || null,
+
+        last_contact_date: editForm.last_contact_date || null,
+
+        next_action_date: editForm.next_action_date || null,
+
+        next_action_note: editForm.next_action_note || null,
 
         city: editForm.city || null,
 
         state: editForm.state || null,
 
         country: editForm.country || null,
-
-        website: editForm.website || null,
 
         twitter_url: editForm.twitter_url || null,
 
@@ -236,8 +224,6 @@ export default function ContactDetailPage() {
       .eq('id', contactId);
 
     if (error) {
-
-      console.error('Error updating contact:', error);
 
       alert('Failed to save: ' + error.message);
 
@@ -285,8 +271,6 @@ export default function ContactDetailPage() {
 
     if (error) {
 
-      console.error('Error adding note:', error);
-
       alert('Failed to add note: ' + error.message);
 
     } else if (data) {
@@ -307,51 +291,21 @@ export default function ContactDetailPage() {
 
     if (!confirm('Delete this note?')) return;
 
-    const { error } = await supabase
+    const { error } = await supabase.from('contact_notes').delete().eq('id', noteId);
 
-      .from('contact_notes')
-
-      .delete()
-
-      .eq('id', noteId);
-
-    if (error) {
-
-      console.error('Error deleting note:', error);
-
-    } else {
-
-      setNotes(notes.filter((n) => n.id !== noteId));
-
-    }
+    if (!error) setNotes(notes.filter((n) => n.id !== noteId));
 
   }
 
   async function handleDeleteContact() {
 
-    if (!confirm(`Delete ${contact?.first_name} ${contact?.last_name}? This cannot be undone.`))
+    if (!confirm(`Delete ${contact?.full_name}? This cannot be undone.`)) return;
 
-      return;
+    const { error } = await supabase.from('contacts').delete().eq('id', contactId);
 
-    const { error } = await supabase
+    if (!error) router.push('/contacts');
 
-      .from('contacts')
-
-      .delete()
-
-      .eq('id', contactId);
-
-    if (error) {
-
-      console.error('Error deleting contact:', error);
-
-      alert('Failed to delete: ' + error.message);
-
-    } else {
-
-      router.push('/contacts');
-
-    }
+    else alert('Failed to delete: ' + error.message);
 
   }
 
@@ -359,23 +313,31 @@ export default function ContactDetailPage() {
 
     return new Date(dateStr).toLocaleDateString('en-US', {
 
-      year: 'numeric',
-
-      month: 'short',
-
-      day: 'numeric',
-
-      hour: '2-digit',
-
-      minute: '2-digit',
+      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
 
     });
 
   }
 
-  function getInitials(first: string, last: string) {
+  function formatDateShort(dateStr: string | null) {
 
-    return `${first?.[0] || ''}${last?.[0] || ''}`.toUpperCase();
+    if (!dateStr) return null;
+
+    return new Date(dateStr).toLocaleDateString('en-US', {
+
+      year: 'numeric', month: 'short', day: 'numeric',
+
+    });
+
+  }
+
+  function getInitials(name: string) {
+
+    const parts = name.trim().split(/\s+/);
+
+    if (parts.length >= 2) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+
+    return name.slice(0, 2).toUpperCase();
 
   }
 
@@ -405,13 +367,7 @@ export default function ContactDetailPage() {
 
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
 
-          <button
-
-            onClick={() => router.push('/contacts')}
-
-            className="text-gray-400 hover:text-white transition"
-
-          >
+          <button onClick={() => router.push('/contacts')} className="text-gray-400 hover:text-white transition">
 
             ← All Contacts
 
@@ -421,13 +377,7 @@ export default function ContactDetailPage() {
 
             {!editing && (
 
-              <button
-
-                onClick={() => setEditing(true)}
-
-                className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm transition"
-
-              >
+              <button onClick={() => setEditing(true)} className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm transition">
 
                 Edit
 
@@ -435,13 +385,7 @@ export default function ContactDetailPage() {
 
             )}
 
-            <button
-
-              onClick={handleDeleteContact}
-
-              className="bg-red-900/50 hover:bg-red-900 text-red-400 px-4 py-2 rounded-lg text-sm transition"
-
-            >
+            <button onClick={handleDeleteContact} className="bg-red-900/50 hover:bg-red-900 text-red-400 px-4 py-2 rounded-lg text-sm transition">
 
               Delete
 
@@ -465,43 +409,11 @@ export default function ContactDetailPage() {
 
               <h2 className="text-lg font-bold mb-4">Edit Contact</h2>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div>
 
-                <div>
+                <label className="block text-sm text-gray-400 mb-1">Full Name</label>
 
-                  <label className="block text-sm text-gray-400 mb-1">First Name</label>
-
-                  <input
-
-                    type="text"
-
-                    value={editForm.first_name || ''}
-
-                    onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
-
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-
-                  />
-
-                </div>
-
-                <div>
-
-                  <label className="block text-sm text-gray-400 mb-1">Last Name</label>
-
-                  <input
-
-                    type="text"
-
-                    value={editForm.last_name || ''}
-
-                    onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
-
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-
-                  />
-
-                </div>
+                <input type="text" value={editForm.full_name || ''} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
 
               </div>
 
@@ -509,19 +421,9 @@ export default function ContactDetailPage() {
 
                 <div>
 
-                  <label className="block text-sm text-gray-400 mb-1">Job Title</label>
+                  <label className="block text-sm text-gray-400 mb-1">Role / Title</label>
 
-                  <input
-
-                    type="text"
-
-                    value={editForm.job_title || ''}
-
-                    onChange={(e) => setEditForm({ ...editForm, job_title: e.target.value })}
-
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-
-                  />
+                  <input type="text" value={editForm.role || ''} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
 
                 </div>
 
@@ -529,17 +431,7 @@ export default function ContactDetailPage() {
 
                   <label className="block text-sm text-gray-400 mb-1">Company</label>
 
-                  <input
-
-                    type="text"
-
-                    value={editForm.company || ''}
-
-                    onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
-
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-
-                  />
+                  <input type="text" value={editForm.company || ''} onChange={(e) => setEditForm({ ...editForm, company: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
 
                 </div>
 
@@ -551,17 +443,7 @@ export default function ContactDetailPage() {
 
                   <label className="block text-sm text-gray-400 mb-1">Email</label>
 
-                  <input
-
-                    type="email"
-
-                    value={editForm.email || ''}
-
-                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-
-                  />
+                  <input type="email" value={editForm.email || ''} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
 
                 </div>
 
@@ -569,19 +451,17 @@ export default function ContactDetailPage() {
 
                   <label className="block text-sm text-gray-400 mb-1">Phone</label>
 
-                  <input
-
-                    type="tel"
-
-                    value={editForm.phone || ''}
-
-                    onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-
-                  />
+                  <input type="tel" value={editForm.phone || ''} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
 
                 </div>
+
+              </div>
+
+              <div>
+
+                <label className="block text-sm text-gray-400 mb-1">Location</label>
+
+                <input type="text" value={editForm.location || ''} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
 
               </div>
 
@@ -589,221 +469,166 @@ export default function ContactDetailPage() {
 
                 <label className="block text-sm text-gray-400 mb-1">Relationship Type</label>
 
-                <select
+                <select value={editForm.relationship_type || 'Other'} onChange={(e) => setEditForm({ ...editForm, relationship_type: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
 
-                  value={editForm.relationship_type || 'Other'}
-
-                  onChange={(e) => setEditForm({ ...editForm, relationship_type: e.target.value })}
-
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-
-                >
-
-                  {RELATIONSHIP_TYPES.map((type) => (
-
-                    <option key={type} value={type}>{type}</option>
-
-                  ))}
+                  {RELATIONSHIP_TYPES.map((type) => (<option key={type} value={type}>{type}</option>))}
 
                 </select>
 
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+
+                <div>
+
+                  <label className="block text-sm text-gray-400 mb-1">
+                                     <label className="block text-sm text-gray-400 mb-1">How We Met</label>
+                  <input type="text" value={editForm.how_we_met || ''} onChange={(e) => setEditForm({ ...editForm, how_we_met: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Met Date</label>
+                  <input type="date" value={editForm.met_date || ''} onChange={(e) => setEditForm({ ...editForm, met_date: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Last Contact Date</label>
+                  <input type="date" value={editForm.last_contact_date || ''} onChange={(e) => setEditForm({ ...editForm, last_contact_date: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Follow-up Status</label>
+                  <select value={editForm.follow_up_status || ''} onChange={(e) => setEditForm({ ...editForm, follow_up_status: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+                    <option value="">None</option>
+                    <option value="pending">Pending</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="overdue">Overdue</option>
+                    <option value="done">Done</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Next Action Date</label>
+                  <input type="date" value={editForm.next_action_date || ''} onChange={(e) => setEditForm({ ...editForm, next_action_date: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Next Action Note</label>
+                  <input type="text" value={editForm.next_action_note || ''} onChange={(e) => setEditForm({ ...editForm, next_action_note: e.target.value })} placeholder="e.g. Send proposal, follow up on intro..." className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+                </div>
+              </div>
               <div className="grid grid-cols-3 gap-3">
-
                 <div>
-
                   <label className="block text-sm text-gray-400 mb-1">City</label>
-
-                  <input
-
-                    type="text"
-
-                    value={editForm.city || ''}
-
-                    onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
-
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-
-                  />
-
+                  <input type="text" value={editForm.city || ''} onChange={(e) => setEditForm({ ...editForm, city: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
                 </div>
-
                 <div>
-
                   <label className="block text-sm text-gray-400 mb-1">State</label>
-
-                  <input
-
-                    type="text"
-
-                    value={editForm.state || ''}
-
-                    onChange={(e) => setEditForm({ ...editForm, state: e.target.value })}
-
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-
-                  />
-
+                  <input type="text" value={editForm.state || ''} onChange={(e) => setEditForm({ ...editForm, state: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
                 </div>
-
                 <div>
-
                   <label className="block text-sm text-gray-400 mb-1">Country</label>
-
-                  <input
-
-                    type="text"
-
-                    value={editForm.country || ''}
-
-                    onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
-
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-
-                  />
-
+                  <input type="text" value={editForm.country || ''} onChange={(e) => setEditForm({ ...editForm, country: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
                 </div>
-
               </div>
-
               <div>
-
                 <label className="block text-sm text-gray-400 mb-1">Bio / About</label>
-
-                <textarea
-
-                  value={editForm.bio || ''}
-
-                  onChange={(e) => setEditForm({ ...edit
-                         <textarea
-                  value={editForm.bio || ''}
-                  onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
-                  rows={3}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">LinkedIn URL</label>
-                <input
-                  type="url"
-                  value={editForm.linkedin_url || ''}
-                  onChange={(e) => setEditForm({ ...editForm, linkedin_url: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-                />
+                <textarea value={editForm.bio || ''} onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })} rows={3} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">Website</label>
-                  <input
-                    type="url"
-                    value={editForm.website || ''}
-                    onChange={(e) => setEditForm({ ...editForm, website: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-                  />
+                  <input type="url" value={editForm.website || ''} onChange={(e) => setEditForm({ ...editForm, website: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">Twitter URL</label>
-                  <input
-                    type="url"
-                    value={editForm.twitter_url || ''}
-                    onChange={(e) => setEditForm({ ...editForm, twitter_url: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-                  />
+                  <input type="url" value={editForm.twitter_url || ''} onChange={(e) => setEditForm({ ...editForm, twitter_url: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
                 </div>
               </div>
               <div>
                 <label className="block text-sm text-gray-400 mb-1">GitHub URL</label>
-                <input
-                  type="url"
-                  value={editForm.github_url || ''}
-                  onChange={(e) => setEditForm({ ...editForm, github_url: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-                />
+                <input type="url" value={editForm.github_url || ''} onChange={(e) => setEditForm({ ...editForm, github_url: e.target.value })} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
               </div>
               <div className="flex justify-end gap-3 mt-4">
-                <button
-                  onClick={() => { setEditing(false); setEditForm(contact); }}
-                  className="px-4 py-2 text-gray-400 hover:text-white transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveContact}
-                  disabled={saving}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2 rounded-lg font-medium transition"
-                >
+                <button onClick={() => { setEditing(false); setEditForm(contact); }} className="px-4 py-2 text-gray-400 hover:text-white transition">Cancel</button>
+                <button onClick={handleSaveContact} disabled={saving} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2 rounded-lg font-medium transition">
                   {saving ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </div>
           ) : (
             <div className="flex items-start gap-6">
-              {/* Avatar */}
               <div className="w-20 h-20 rounded-full bg-gray-700 flex items-center justify-center text-2xl font-bold text-gray-300 shrink-0">
-                {getInitials(contact.first_name, contact.last_name)}
+                {getInitials(contact.full_name)}
               </div>
-
-              {/* Info */}
               <div className="flex-1">
-                <h1 className="text-2xl font-bold">
-                  {contact.first_name} {contact.last_name}
-                </h1>
+                <h1 className="text-2xl font-bold">{contact.full_name}</h1>
                 <p className="text-gray-400 mt-1">
-                  {[contact.job_title, contact.company].filter(Boolean).join(' at ') || 'No title or company'}
+                  {[contact.role, contact.company].filter(Boolean).join(' at ') || 'No role or company'}
                 </p>
-                {(contact.city || contact.state || contact.country) && (
-                  <p className="text-gray-500 text-sm mt-1">
-                    📍 {[contact.city, contact.state, contact.country].filter(Boolean).join(', ')}
-                  </p>
+                {contact.location && (
+                  <p className="text-gray-500 text-sm mt-1">📍 {contact.location}</p>
                 )}
-                {contact.relationship_type && (
-                  <span className="inline-block mt-2 text-xs px-3 py-1 rounded-full bg-blue-600 text-white">
-                    {contact.relationship_type}
-                  </span>
-                )}
-
-                {/* Contact Links */}
-                <div className="flex flex-wrap gap-3 mt-4 text-sm">
-                  {contact.email && (
-                    <a href={`mailto:${contact.email}`} className="text-blue-400 hover:text-blue-300">
-                      ✉ {contact.email}
-                    </a>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {contact.relationship_type && (
+                    <span className="text-xs px-3 py-1 rounded-full bg-blue-600 text-white">{contact.relationship_type}</span>
                   )}
-                  {contact.phone && (
-                    <a href={`tel:${contact.phone}`} className="text-blue-400 hover:text-blue-300">
-                      📱 {contact.phone}
-                    </a>
-                  )}
-                  {contact.linkedin_url && (
-                    <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
-                      LinkedIn ↗
-                    </a>
-                  )}
-                  {contact.website && (
-                    <a href={contact.website} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
-                      Website ↗
-                    </a>
-                  )}
-                  {contact.twitter_url && (
-                    <a href={contact.twitter_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
-                      Twitter ↗
-                    </a>
-                  )}
-                  {contact.github_url && (
-                    <a href={contact.github_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
-                      GitHub ↗
-                    </a>
+                  {contact.follow_up_status && (
+                    <span className={`text-xs px-3 py-1 rounded-full ${
+                      contact.follow_up_status === 'overdue' ? 'bg-red-600' :
+                      contact.follow_up_status === 'pending' ? 'bg-yellow-600' :
+                      contact.follow_up_status === 'scheduled' ? 'bg-blue-600' : 'bg-green-600'
+                    } text-white`}>
+                      Follow-up: {contact.follow_up_status}
+                    </span>
                   )}
                 </div>
 
-                {contact.bio && (
-                  <p className="text-gray-300 mt-4 text-sm leading-relaxed">{contact.bio}</p>
-                )}
+                {/* Contact Links */}
+                <div className="flex flex-wrap gap-3 mt-4 text-sm">
+                  {contact.email && <a href={`mailto:${contact.email}`} className="text-blue-400 hover:text-blue-300">✉ {contact.email}</a>}
+                  {contact.phone && <a href={`tel:${contact.phone}`} className="text-blue-400 hover:text-blue-300">📱 {contact.phone}</a>}
+                  {contact.website && <a href={contact.website} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">Website ↗</a>}
+                  {contact.twitter_url && <a href={contact.twitter_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">Twitter ↗</a>}
+                  {contact.github_url && <a href={contact.github_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">GitHub ↗</a>}
+                </div>
 
-                <p className="text-gray-600 text-xs mt-4">
-                  Added {formatDate(contact.created_at)}
-                </p>
+                {contact.bio && <p className="text-gray-300 mt-4 text-sm leading-relaxed">{contact.bio}</p>}
+
+                {/* CRM Details */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-6 pt-4 border-t border-gray-800">
+                  {contact.how_we_met && (
+                    <div>
+                      <span className="text-xs text-gray-500 block">How we met</span>
+                      <span className="text-sm text-gray-300">{contact.how_we_met}</span>
+                    </div>
+                  )}
+                  {contact.met_date && (
+                    <div>
+                      <span className="text-xs text-gray-500 block">Met date</span>
+                      <span className="text-sm text-gray-300">{formatDateShort(contact.met_date)}</span>
+                    </div>
+                  )}
+                  {contact.last_contact_date && (
+                    <div>
+                      <span className="text-xs text-gray-500 block">Last contact</span>
+                      <span className="text-sm text-gray-300">{formatDateShort(contact.last_contact_date)}</span>
+                    </div>
+                  )}
+                  {contact.next_action_date && (
+                    <div>
+                      <span className="text-xs text-gray-500 block">Next action</span>
+                      <span className="text-sm text-gray-300">{formatDateShort(contact.next_action_date)}</span>
+                    </div>
+                  )}
+                  {contact.next_action_note && (
+                    <div className="col-span-2">
+                      <span className="text-xs text-gray-500 block">Action note</span>
+                      <span className="text-sm text-gray-300">{contact.next_action_note}</span>
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-gray-600 text-xs mt-4">Added {formatDate(contact.created_at)}</p>
               </div>
             </div>
           )}
@@ -816,7 +641,7 @@ export default function ContactDetailPage() {
             <span className="text-xs text-gray-600 bg-gray-800 px-2 py-1 rounded">Coming Soon</span>
           </div>
           <p className="text-gray-500 text-sm">
-            This section will automatically populate with publicly available information about this person — 
+            This section will automatically populate with publicly available information about this person —
             recent articles, company news, social media activity, and professional mentions found across the web.
           </p>
           <div className="mt-4 border border-dashed border-gray-700 rounded-lg p-8 text-center text-gray-600 text-sm">
@@ -828,7 +653,6 @@ export default function ContactDetailPage() {
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
           <h2 className="text-lg font-bold mb-4">Notes</h2>
 
-          {/* Add Note Form */}
           <div className="border border-gray-700 rounded-lg p-4 mb-6 bg-gray-850">
             <textarea
               value={newNote}
@@ -855,27 +679,19 @@ export default function ContactDetailPage() {
             </div>
           </div>
 
-          {/* Notes List */}
           {notes.length === 0 ? (
-            <p className="text-gray-600 text-sm text-center py-4">
-              No notes yet. Add your first note above.
-            </p>
+            <p className="text-gray-600 text-sm text-center py-4">No notes yet. Add your first note above.</p>
           ) : (
             <div className="space-y-3">
               {notes.map((note) => (
-                <div
-                  key={note.id}
-                  className="border border-gray-800 rounded-lg p-4 group"
-                >
+                <div key={note.id} className="border border-gray-800 rounded-lg p-4 group">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <p className="text-gray-200 text-sm whitespace-pre-wrap">{note.content}</p>
                       <div className="flex items-center gap-3 mt-2">
                         <span className="text-gray-600 text-xs">{formatDate(note.created_at)}</span>
                         {note.context && (
-                          <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded">
-                            {note.context}
-                          </span>
+                          <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded">{note.context}</span>
                         )}
                       </div>
                     </div>
@@ -894,4 +710,4 @@ export default function ContactDetailPage() {
       </div>
     </div>
   );
-}                        
+}
