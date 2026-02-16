@@ -7,15 +7,21 @@ import { supabase } from '@/lib/supabase';
 interface Contact {
   id: string;
   owner_id: string;
-  first_name: string;
-  last_name: string;
+  full_name: string;
   email: string | null;
   phone: string | null;
   company: string | null;
-  job_title: string | null;
+  role: string | null;
+  location: string | null;
   relationship_type: string | null;
-  linkedin_url: string | null;
+  website: string | null;
   avatar_url: string | null;
+  how_we_met: string | null;
+  met_date: string | null;
+  follow_up_status: string | null;
+  last_contact_date: string | null;
+  next_action_date: string | null;
+  next_action_note: string | null;
   created_at: string;
 }
 
@@ -40,14 +46,15 @@ export default function ContactsPage() {
   const [filterType, setFilterType] = useState('All');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newContact, setNewContact] = useState({
-    first_name: '',
-    last_name: '',
+    full_name: '',
     email: '',
     phone: '',
     company: '',
-    job_title: '',
+    role: '',
+    location: '',
     relationship_type: 'Colleague',
-    linkedin_url: '',
+    how_we_met: '',
+    website: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -67,7 +74,7 @@ export default function ContactsPage() {
       .from('contacts')
       .select('*')
       .eq('owner_id', user.id)
-      .order('last_name', { ascending: true });
+      .order('full_name', { ascending: true });
 
     if (error) {
       console.error('Error fetching contacts:', error);
@@ -86,14 +93,15 @@ export default function ContactsPage() {
       .from('contacts')
       .insert({
         owner_id: user.id,
-        first_name: newContact.first_name,
-        last_name: newContact.last_name,
+        full_name: newContact.full_name,
         email: newContact.email || null,
         phone: newContact.phone || null,
         company: newContact.company || null,
-        job_title: newContact.job_title || null,
+        role: newContact.role || null,
+        location: newContact.location || null,
         relationship_type: newContact.relationship_type || null,
-        linkedin_url: newContact.linkedin_url || null,
+        how_we_met: newContact.how_we_met || null,
+        website: newContact.website || null,
       })
       .select()
       .single();
@@ -105,14 +113,15 @@ export default function ContactsPage() {
       setContacts([...contacts, data]);
       setShowAddModal(false);
       setNewContact({
-        first_name: '',
-        last_name: '',
+        full_name: '',
         email: '',
         phone: '',
         company: '',
-        job_title: '',
+        role: '',
+        location: '',
         relationship_type: 'Colleague',
-        linkedin_url: '',
+        how_we_met: '',
+        website: '',
       });
     }
     setSaving(false);
@@ -120,7 +129,7 @@ export default function ContactsPage() {
 
   const filtered = contacts.filter((c) => {
     const matchesSearch =
-      `${c.first_name} ${c.last_name} ${c.company || ''} ${c.job_title || ''}`
+      `${c.full_name} ${c.company || ''} ${c.role || ''} ${c.location || ''}`
         .toLowerCase()
         .includes(search.toLowerCase());
     const matchesType =
@@ -128,8 +137,10 @@ export default function ContactsPage() {
     return matchesSearch && matchesType;
   });
 
-  function getInitials(first: string, last: string) {
-    return `${first?.[0] || ''}${last?.[0] || ''}`.toUpperCase();
+  function getInitials(name: string) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+    return name.slice(0, 2).toUpperCase();
   }
 
   function getTypeColor(type: string | null) {
@@ -228,14 +239,14 @@ export default function ContactsPage() {
               >
                 {/* Avatar */}
                 <div className="w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center text-lg font-bold text-gray-300 shrink-0">
-                  {getInitials(contact.first_name, contact.last_name)}
+                  {getInitials(contact.full_name)}
                 </div>
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-white">
-                      {contact.first_name} {contact.last_name}
+                      {contact.full_name}
                     </span>
                     {contact.relationship_type && (
                       <span
@@ -248,10 +259,13 @@ export default function ContactsPage() {
                     )}
                   </div>
                   <div className="text-gray-400 text-sm truncate">
-                    {[contact.job_title, contact.company]
+                    {[contact.role, contact.company]
                       .filter(Boolean)
-                      .join(' at ') || 'No title or company'}
+                      .join(' at ') || 'No role or company'}
                   </div>
+                  {contact.location && (
+                    <div className="text-gray-500 text-xs mt-0.5">📍 {contact.location}</div>
+                  )}
                 </div>
 
                 {/* Contact methods */}
@@ -285,33 +299,16 @@ export default function ContactsPage() {
             </div>
 
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    First Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={newContact.first_name}
-                    onChange={(e) =>
-                      setNewContact({ ...newContact, first_name: e.target.value })
-                    }
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    Last Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={newContact.last_name}
-                    onChange={(e) =>
-                      setNewContact({ ...newContact, last_name: e.target.value })
-                    }
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  value={newContact.full_name}
+                  onChange={(e) =>
+                    setNewContact({ ...newContact, full_name: e.target.value })
+                  }
+                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                />
               </div>
 
               <div>
@@ -340,22 +337,18 @@ export default function ContactsPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    Job Title
-                  </label>
+                  <label className="block text-sm text-gray-400 mb-1">Role / Title</label>
                   <input
                     type="text"
-                    value={newContact.job_title}
+                    value={newContact.role}
                     onChange={(e) =>
-                      setNewContact({ ...newContact, job_title: e.target.value })
+                      setNewContact({ ...newContact, role: e.target.value })
                     }
                     className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    Company
-                  </label>
+                  <label className="block text-sm text-gray-400 mb-1">Company</label>
                   <input
                     type="text"
                     value={newContact.company}
@@ -368,9 +361,20 @@ export default function ContactsPage() {
               </div>
 
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
-                  Relationship Type
-                </label>
+                <label className="block text-sm text-gray-400 mb-1">Location</label>
+                <input
+                  type="text"
+                  value={newContact.location}
+                  onChange={(e) =>
+                    setNewContact({ ...newContact, location: e.target.value })
+                  }
+                  placeholder="e.g. Washington, DC"
+                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Relationship Type</label>
                 <select
                   value={newContact.relationship_type}
                   onChange={(e) =>
@@ -390,17 +394,27 @@ export default function ContactsPage() {
               </div>
 
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
-                  LinkedIn URL
-                </label>
+                <label className="block text-sm text-gray-400 mb-1">How We Met</label>
+                <input
+                  type="text"
+                  value={newContact.how_we_met}
+                  onChange={(e) =>
+                    setNewContact({ ...newContact, how_we_met: e.target.value })
+                  }
+                  placeholder="e.g. Conference, mutual friend, cold email..."
+                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Website</label>
                 <input
                   type="url"
-                  value={newContact.linkedin_url}
+                  value={newContact.website}
                   onChange={(e) =>
-                    setNewContact({ ...newContact, linkedin_url: e.target.value })
+                    setNewContact({ ...newContact, website: e.target.value })
                   }
-                  placeholder="https://linkedin.com/in/..."
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
             </div>
@@ -414,9 +428,7 @@ export default function ContactsPage() {
               </button>
               <button
                 onClick={handleAddContact}
-                disabled={
-                  saving || !newContact.first_name || !newContact.last_name
-                }
+                disabled={saving || !newContact.full_name}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2 rounded-lg font-medium transition"
               >
                 {saving ? 'Saving...' : 'Add Contact'}
