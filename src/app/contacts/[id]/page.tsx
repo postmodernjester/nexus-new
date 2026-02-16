@@ -11,7 +11,7 @@ interface Contact {
 
   id: string;
 
-  user_id: string;
+  owner_id: string;
 
   first_name: string;
 
@@ -55,7 +55,7 @@ interface ContactNote {
 
   contact_id: string;
 
-  user_id: string;
+  owner_id: string;
 
   content: string;
 
@@ -145,7 +145,7 @@ export default function ContactDetailPage() {
 
       .eq('id', contactId)
 
-      .eq('user_id', user.id)
+      .eq('owner_id', user.id)
 
       .single();
 
@@ -271,7 +271,7 @@ export default function ContactDetailPage() {
 
         contact_id: contactId,
 
-        user_id: user.id,
+        owner_id: user.id,
 
         content: newNote.trim(),
 
