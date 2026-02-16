@@ -97,7 +97,7 @@ export default function NetworkPage() {
       const { data, error } = await supabase
         .from("contacts")
         .select("*")
-        .eq("user_id", user.id);
+        .eq("owner_id", user.id);
 
       if (error) {
         console.log("ERROR:", error.message);
