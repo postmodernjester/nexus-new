@@ -18,7 +18,7 @@ interface Contact {
   created_at: string;
 }
 
-const RELATIONSHIP_TYPES = ['All', 'Colleague', 'Client', 'Vendor', 'Mentor', 'Mentee', 'Friend', 'Collaborator', 'Investor', 'Advisor', 'Other'];
+const RELATIONSHIP_TYPES = ['All', 'Family', 'Close Friend', 'Business Contact', 'Acquaintance', 'Stranger'];
 
 export default function ContactsPage() {
   const router = useRouter();
@@ -28,7 +28,7 @@ export default function ContactsPage() {
   const [filterType, setFilterType] = useState('All');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newType, setNewType] = useState('Friend');
+  const [newType, setNewType] = useState('Acquaintance');
   const [newEmail, setNewEmail] = useState('');
   const [newCompany, setNewCompany] = useState('');
   const [newRole, setNewRole] = useState('');
@@ -67,7 +67,7 @@ export default function ContactsPage() {
     } else if (data) {
       setContacts([...contacts, data]);
       setShowAddModal(false);
-      setNewName(''); setNewType('Friend'); setNewEmail('');
+      setNewName(''); setNewType('Acquaintance'); setNewEmail('');
       setNewCompany(''); setNewRole(''); setNewHowWeMet('');
     }
     setSaving(false);
@@ -84,16 +84,11 @@ export default function ContactsPage() {
 
   function typeColor(type: string | null) {
     const c: Record<string, string> = {
-      'Colleague': 'bg-blue-600',
-      'Client': 'bg-green-600',
-      'Vendor': 'bg-orange-600',
-      'Mentor': 'bg-purple-600',
-      'Mentee': 'bg-indigo-600',
-      'Friend': 'bg-pink-600',
-      'Collaborator': 'bg-teal-600',
-      'Investor': 'bg-yellow-600',
-      'Advisor': 'bg-cyan-600',
-      'Other': 'bg-gray-600',
+      'Family': 'bg-purple-600',
+      'Close Friend': 'bg-pink-600',
+      'Business Contact': 'bg-blue-600',
+      'Acquaintance': 'bg-teal-600',
+      'Stranger': 'bg-gray-600',
     };
     return c[type || ''] || 'bg-gray-600';
   }
@@ -185,13 +180,15 @@ export default function ContactsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-1">How did you meet? <span className="text-gray-600">(optional)</span></label>
-                <input type="text" value={newHowWeMet} onChange={(e) => setNewHowWeMet(e.target.value)} placeholder="e.g. Conference in 2023" className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+                <label className="block text-sm text-gray-400 mb-1">How we met <span className="text-gray-600">(optional)</span></label>
+                <input type="text" value={newHowWeMet} onChange={(e) => setNewHowWeMet(e.target.value)} placeholder="Conference, mutual friend, online..." className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500" />
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => { setShowAddModal(false); setError(''); }} className="px-4 py-2 text-gray-400 hover:text-white transition">Cancel</button>
-              <button onClick={handleAddContact} disabled={saving || !newName.trim()} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2 rounded-lg font-medium transition">{saving ? 'Saving...' : 'Add Contact'}</button>
+              <button onClick={handleAddContact} disabled={saving || !newName.trim()} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2 rounded-lg font-medium transition">
+                {saving ? 'Saving...' : 'Add Contact'}
+              </button>
             </div>
           </div>
         </div>
