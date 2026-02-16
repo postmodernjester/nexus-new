@@ -352,6 +352,9 @@ export default function NetworkPage() {
         )}
 
         {/* Empty state */}
+        <div className="absolute top-2 left-2 text-xs text-yellow-400 z-50">
+          Loaded {contacts.length} contacts
+        </div>
         {contacts.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
