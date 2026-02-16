@@ -10,7 +10,7 @@ export default function Home() {
           NEX<span className="text-nexus-gold">US</span>
         </h1>
         <p className="text-nexus-lightgray text-lg md:text-xl leading-relaxed">
-          A semi-private, intelligent professional network and relationship CRM.
+          A private, intelligent professional network tool and relationship manager.
           No ads. No feed. No noise.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
