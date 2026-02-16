@@ -14,10 +14,11 @@ interface Contact {
   location: string | null;
   relationship_type: string | null;
   avatar_url: string | null;
+  how_we_met: string | null;
   created_at: string;
 }
 
-const RELATIONSHIP_TYPES = ['All', 'Family', 'Close Friend', 'Business Contact', 'Acquaintance', 'Stranger'];
+const RELATIONSHIP_TYPES = ['All', 'Colleague', 'Client', 'Vendor', 'Mentor', 'Mentee', 'Friend', 'Collaborator', 'Investor', 'Advisor', 'Other'];
 
 export default function ContactsPage() {
   const router = useRouter();
@@ -27,9 +28,13 @@ export default function ContactsPage() {
   const [filterType, setFilterType] = useState('All');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newType, setNewType] = useState('Acquaintance');
+  const [newType, setNewType] = useState('Friend');
   const [newEmail, setNewEmail] = useState('');
+  const [newCompany, setNewCompany] = useState('');
+  const [newRole, setNewRole] = useState('');
+  const [newHowWeMet, setNewHowWeMet] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => { fetchContacts(); }, []);
 
@@ -45,19 +50,25 @@ export default function ContactsPage() {
   async function handleAddContact() {
     if (!newName.trim()) return;
     setSaving(true);
+    setError('');
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data, error } = await supabase.from('contacts').insert({
+    const { data, error: insertError } = await supabase.from('contacts').insert({
       owner_id: user.id,
       full_name: newName.trim(),
       relationship_type: newType,
       email: newEmail.trim() || null,
+      company: newCompany.trim() || null,
+      role: newRole.trim() || null,
+      how_we_met: newHowWeMet.trim() || null,
     }).select().single();
-    if (error) { alert('Failed to add contact: ' + error.message); }
-    else if (data) {
+    if (insertError) {
+      setError('Failed to add contact: ' + insertError.message);
+    } else if (data) {
       setContacts([...contacts, data]);
       setShowAddModal(false);
-      setNewName(''); setNewType('Acquaintance'); setNewEmail('');
+      setNewName(''); setNewType('Friend'); setNewEmail('');
+      setNewCompany(''); setNewRole(''); setNewHowWeMet('');
     }
     setSaving(false);
   }
@@ -72,7 +83,18 @@ export default function ContactsPage() {
   function initials(name: string) { const p = name.trim().split(/\s+/); return p.length >= 2 ? (p[0][0] + p[p.length-1][0]).toUpperCase() : name.slice(0,2).toUpperCase(); }
 
   function typeColor(type: string | null) {
-    const c: Record<string, string> = { 'Family': 'bg-red-600', 'Close Friend': 'bg-purple-600', 'Business Contact': 'bg-blue-600', 'Acquaintance': 'bg-gray-600', 'Stranger': 'bg-gray-700' };
+    const c: Record<string, string> = {
+      'Colleague': 'bg-blue-600',
+      'Client': 'bg-green-600',
+      'Vendor': 'bg-orange-600',
+      'Mentor': 'bg-purple-600',
+      'Mentee': 'bg-indigo-600',
+      'Friend': 'bg-pink-600',
+      'Collaborator': 'bg-teal-600',
+      'Investor': 'bg-yellow-600',
+      'Advisor': 'bg-cyan-600',
+      'Other': 'bg-gray-600',
+    };
     return c[type || ''] || 'bg-gray-600';
   }
 
@@ -132,8 +154,11 @@ export default function ContactsPage() {
           <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold">Add Contact</h2>
-              <button onClick={() => setShowAddModal(false)} className="text-gray-500 hover:text-white text-2xl">×</button>
+              <button onClick={() => { setShowAddModal(false); setError(''); }} className="text-gray-500 hover:text-white text-2xl">×</button>
             </div>
+            {error && (
+              <div className="bg-red-900/50 border border-red-700 rounded-lg px-4 py-2 mb-4 text-red-300 text-sm">{error}</div>
+            )}
             <div className="space-y-4">
               <div>
                 <label className="block text-sm text-gray-400 mb-1">Name *</label>
@@ -149,9 +174,23 @@ export default function ContactsPage() {
                 <label className="block text-sm text-gray-400 mb-1">Email <span className="text-gray-600">(optional)</span></label>
                 <input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Company <span className="text-gray-600">(optional)</span></label>
+                  <input type="text" value={newCompany} onChange={(e) => setNewCompany(e.target.value)} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Role <span className="text-gray-600">(optional)</span></label>
+                  <input type="text" value={newRole} onChange={(e) => setNewRole(e.target.value)} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">How did you meet? <span className="text-gray-600">(optional)</span></label>
+                <input type="text" value={newHowWeMet} onChange={(e) => setNewHowWeMet(e.target.value)} placeholder="e.g. Conference in 2023" className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+              </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setShowAddModal(false)} className="px-4 py-2 text-gray-400 hover:text-white transition">Cancel</button>
+              <button onClick={() => { setShowAddModal(false); setError(''); }} className="px-4 py-2 text-gray-400 hover:text-white transition">Cancel</button>
               <button onClick={handleAddContact} disabled={saving || !newName.trim()} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2 rounded-lg font-medium transition">{saving ? 'Saving...' : 'Add Contact'}</button>
             </div>
           </div>
