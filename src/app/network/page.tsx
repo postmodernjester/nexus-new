@@ -150,8 +150,8 @@ export default function NetworkPage() {
       isUser: false,
       radius: 9, // all ~same for now since no sub-contacts yet
       relationship_type: c.relationship_type,
-      company: c.company,
-      role: c.role,
+      company: c.company ?? undefined,
+      role: c.role ?? undefined,
     }));
 
     const nodes: GraphNode[] = [userNode, ...contactNodes];
