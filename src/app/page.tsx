@@ -7,7 +7,7 @@ export default function Home() {
     <main className="min-h-screen flex flex-col items-center justify-center px-6">
       <div className="max-w-2xl text-center space-y-8">
         <h1 className="nexus-heading text-6xl md:text-7xl">
-          NEX<span className="text-nexus-gold">US</span>
+          ZICK_NEX<span className="text-nexus-gold">US</span>
         </h1>
         <p className="text-nexus-lightgray text-lg md:text-xl leading-relaxed">
           A private, intelligent professional network tool and relationship manager.
