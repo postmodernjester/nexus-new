@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { redeemInvite } from '@/lib/connections'
 import Link from 'next/link'
 
 export default function SignUpPage() {
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
@@ -14,12 +15,26 @@ export default function SignUpPage() {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
 
+  // Pre-fill invite code from URL params (?code=NEXUS-XXXXXX or ?connect=userId)
+  useEffect(() => {
+    const code = searchParams.get('code')
+    const connectUserId = searchParams.get('connect')
+    if (code) {
+      setInviteCode(code.toUpperCase())
+    }
+    // If coming from /connect/[userId], the connect param stores the invite code
+    if (connectUserId) {
+      setInviteCode(connectUserId.toUpperCase())
+    }
+  }, [searchParams])
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
     try {
+      // Store invite code in user metadata — auth callback will redeem it server-side
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
@@ -39,14 +54,8 @@ export default function SignUpPage() {
       }
 
       if (data.user) {
-        // If they provided an invite code, try to redeem it immediately
-        if (inviteCode.trim()) {
-          const { error: redeemError } = await redeemInvite(inviteCode.trim())
-          // Don't block signup if redeem fails — they can try again from dashboard
-          if (redeemError) {
-            console.log('Invite redeem deferred:', redeemError)
-          }
-        }
+        // Don't try to redeem here — user isn't confirmed yet.
+        // The auth callback will handle it after email confirmation.
         setSuccess(true)
       }
     } catch (err) {
@@ -73,7 +82,7 @@ export default function SignUpPage() {
             </p>
             {inviteCode.trim() && (
               <p className="text-zinc-500 text-sm mt-3">
-                Your invite code will be applied once you confirm your email and log in.
+                Your invite code <span className="font-mono text-amber-500/70">{inviteCode}</span> will be applied once you confirm your email.
               </p>
             )}
           </div>
