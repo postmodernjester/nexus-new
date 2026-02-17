@@ -148,14 +148,14 @@ export default function NetworkPage() {
       }
 
       // Find mutual connections (connected users)
-      const mutualUserIds = new Set<string>();
+      const mutualUserIds = [] as string[];
       const connectionPairs: { myId: string; theirId: string }[] = [];
       for (const conn of connections) {
         if (conn.inviter_id === user.id) {
-          mutualUserIds.add(conn.invitee_id);
+          mutualUserIds.push(conn.invitee_id);
           connectionPairs.push({ myId: user.id, theirId: conn.invitee_id });
         } else if (conn.invitee_id === user.id) {
-          mutualUserIds.add(conn.inviter_id);
+          mutualUserIds.push(conn.inviter_id);
           connectionPairs.push({ myId: user.id, theirId: conn.inviter_id });
         }
       }
@@ -173,7 +173,7 @@ export default function NetworkPage() {
       }
 
       // Get connected users' contacts (we only show initials + title)
-      const theirContacts = allContacts.filter(c => mutualUserIds.has(c.owner_id) && c.owner_id !== user.id);
+      const theirContacts = allContacts.filter(c => mutualUserIds.includes(c.owner_id) && c.owner_id !== user.id);
 
       // Count connections per contact (how many people know this contact)
       const contactConnectionCount: Record<string, number> = {};
