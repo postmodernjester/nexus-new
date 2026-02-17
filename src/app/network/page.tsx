@@ -398,7 +398,7 @@ export default function NetworkPage() {
       });
 
       // Drag
-      const drag = d3.drag<SVGGElement, NetworkNode>()
+      const drag = d3.drag<any, NetworkNode>()
         .on("start", (event, d) => {
           if (!event.active) simulation.alphaTarget(0.3).restart();
           d.fx = d.x;
