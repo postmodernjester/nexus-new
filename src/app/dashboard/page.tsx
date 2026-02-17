@@ -41,10 +41,10 @@ export default function DashboardPage() {
       }
       
       // Load connection stats
-      const { connections } = await getConnections()
-      setConnectionCount(connections.length)
-      const { invites } = await getPendingInvites()
-      setPendingCount(invites.length)
+      const connections = await getConnections()
+setConnectionCount(connections.length)
+const invites = await getPendingInvites()
+setPendingCount(invites.length)
     }
     getUser()
   }, [router])
