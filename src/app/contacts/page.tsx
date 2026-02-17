@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { createInvite } from '@/lib/connections';
 
 interface Contact {
   id: string;
@@ -35,6 +36,12 @@ export default function ContactsPage() {
   const [newHowWeMet, setNewHowWeMet] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  
+  // Invite state
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [inviteContactName, setInviteContactName] = useState('');
+  const [inviteLoading, setInviteLoading] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => { fetchContacts(); }, []);
 
@@ -71,6 +78,39 @@ export default function ContactsPage() {
       setNewCompany(''); setNewRole(''); setNewHowWeMet('');
     }
     setSaving(false);
+  }
+
+  async function handleInvite(e: React.MouseEvent, contact: Contact) {
+    e.stopPropagation();
+    setInviteLoading(contact.id);
+    const { code, error } = await createInvite(contact.id);
+    setInviteLoading(null);
+    if (code) {
+      setInviteCode(code);
+      setInviteContactName(contact.full_name);
+      setCopied(false);
+    } else {
+      setError(error || 'Failed to generate invite');
+    }
+  }
+
+  async function copyCode() {
+    if (!inviteCode) return;
+    try {
+      await navigator.clipboard.writeText(inviteCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = inviteCode;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   }
 
   const filtered = contacts.filter((c) => {
@@ -138,12 +178,47 @@ export default function ContactsPage() {
                 <div className="hidden sm:flex items-center gap-3 text-gray-500 text-sm">
                   {contact.email && <span>✉ {contact.email}</span>}
                 </div>
+                <button
+                  onClick={(e) => handleInvite(e, contact)}
+                  disabled={inviteLoading === contact.id}
+                  className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded-lg text-sm font-medium transition border border-amber-500/20 hover:border-amber-500/40 disabled:opacity-50"
+                >
+                  {inviteLoading === contact.id ? '...' : '🔗 Invite'}
+                </button>
                 <div className="text-gray-600 group-hover:text-gray-400 transition">→</div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Invite Code Modal */}
+      {inviteCode && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-sm p-6 text-center">
+            <div className="text-4xl mb-3">🔗</div>
+            <h2 className="text-xl font-bold mb-1">Invite {inviteContactName}</h2>
+            <p className="text-gray-400 text-sm mb-6">Share this code with them. They&apos;ll enter it when they sign up for NEXUS.</p>
+            <div className="bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 mb-4 flex items-center justify-center gap-3">
+              <span className="text-2xl font-mono font-bold tracking-wider text-amber-400">{inviteCode}</span>
+            </div>
+            <button
+              onClick={copyCode}
+              className="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold py-2.5 rounded-lg transition mb-3"
+            >
+              {copied ? '✓ Copied!' : 'Copy Code'}
+            </button>
+            <button
+              onClick={() => { setInviteCode(null); setInviteContactName(''); }}
+              className="w-full text-gray-400 hover:text-white py-2 transition text-sm"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Add Contact Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md p-6">
@@ -180,14 +255,11 @@ export default function ContactsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-1">How we met <span className="text-gray-600">(optional)</span></label>
-                <input type="text" value={newHowWeMet} onChange={(e) => setNewHowWeMet(e.target.value)} placeholder="Conference, mutual friend, online..." className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+                <label className="block text-sm text-gray-400 mb-1">How you met <span className="text-gray-600">(optional)</span></label>
+                <input type="text" value={newHowWeMet} onChange={(e) => setNewHowWeMet(e.target.value)} placeholder="e.g. Conference, mutual friend..." className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500" />
               </div>
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => { setShowAddModal(false); setError(''); }} className="px-4 py-2 text-gray-400 hover:text-white transition">Cancel</button>
-              <button onClick={handleAddContact} disabled={saving || !newName.trim()} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2 rounded-lg font-medium transition">
-                {saving ? 'Saving...' : 'Add Contact'}
+              <button onClick={handleAddContact} disabled={saving || !newName.trim()} className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition">
+                {saving ? 'Adding...' : 'Add Contact'}
               </button>
             </div>
           </div>
