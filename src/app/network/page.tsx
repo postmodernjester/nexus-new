@@ -19,7 +19,7 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
 
 interface Contact {
   id: string;
-  user_id: string;
+  owner_id: string;
   full_name: string | null;
   email: string | null;
   phone: string | null;
@@ -63,7 +63,6 @@ export default function NetworkPage() {
     const supabase = createClient();
 
     try {
-      // Get current user
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -73,7 +72,6 @@ export default function NetworkPage() {
         return;
       }
 
-      // Fetch data in parallel
       const [profileRes, connectionsRes, contactsRes, allProfilesRes] =
         await Promise.all([
           supabase
@@ -88,7 +86,7 @@ export default function NetworkPage() {
           supabase
             .from("contacts")
             .select(
-              "id, user_id, full_name, email, phone, company, role, linked_profile_id"
+              "id, owner_id, full_name, email, phone, company, role, linked_profile_id"
             ),
           supabase.from("profiles").select("id, full_name, avatar_url"),
         ]);
@@ -104,26 +102,21 @@ export default function NetworkPage() {
         return;
       }
 
-      // Build profile lookup
       const profileMap: Record<string, Profile> = {};
       allProfiles.forEach((p) => {
         profileMap[p.id] = p;
       });
 
-      // Find MY connections (where I'm inviter or invitee)
       const myConnections = connections.filter(
         (c) => c.inviter_id === user.id || c.invitee_id === user.id
       );
 
-      // Get IDs of users I'm connected to
       const connectedUserIds = myConnections.map((c) =>
         c.inviter_id === user.id ? c.invitee_id : c.inviter_id
       );
 
-      // My contacts
-      const myContacts = allContacts.filter((c) => c.user_id === user.id);
+      const myContacts = allContacts.filter((c) => c.owner_id === user.id);
 
-      // Map contact linked_profile_id to connected user IDs
       const contactIdToUserId: Record<string, string> = {};
       myContacts.forEach((c) => {
         if (
@@ -134,14 +127,11 @@ export default function NetworkPage() {
         }
       });
 
-      // Build nodes and links
       const nodes: GraphNode[] = [];
       const links: GraphLink[] = [];
-
-      // Track person -> nodeId for dedup
       const personToNodeId: Map<string, string> = new Map();
 
-      // 1. SELF node
+      // 1. SELF
       const selfNodeId = `user-${user.id}`;
       nodes.push({
         id: selfNodeId,
@@ -157,7 +147,7 @@ export default function NetworkPage() {
         );
       }
 
-      // 2. CONNECTED USERS (mutual connections)
+      // 2. CONNECTED USERS
       const mutualUserIds: string[] = [];
       connectedUserIds.forEach((uid) => {
         const profile = profileMap[uid];
@@ -170,11 +160,7 @@ export default function NetworkPage() {
           type: "connected_user",
           profileId: uid,
         });
-        links.push({
-          source: selfNodeId,
-          target: nodeId,
-          type: "mutual",
-        });
+        links.push({ source: selfNodeId, target: nodeId, type: "mutual" });
         mutualUserIds.push(uid);
 
         personToNodeId.set(`profile:${uid}`, nodeId);
@@ -186,9 +172,8 @@ export default function NetworkPage() {
         }
       });
 
-      // 3. MY CONTACTS (that aren't already connected users)
+      // 3. MY CONTACTS (skip if already a connected user node)
       myContacts.forEach((c) => {
-        // Skip if this contact is a connected user (already has a node)
         if (contactIdToUserId[c.id]) return;
 
         const nodeId = `contact-${c.id}`;
@@ -201,13 +186,8 @@ export default function NetworkPage() {
           contactId: c.id,
           subtitle: [c.role, c.company].filter(Boolean).join(" @ "),
         });
-        links.push({
-          source: selfNodeId,
-          target: nodeId,
-          type: "direct",
-        });
+        links.push({ source: selfNodeId, target: nodeId, type: "direct" });
 
-        // Register for dedup
         if (c.linked_profile_id) {
           personToNodeId.set(`profile:${c.linked_profile_id}`, nodeId);
         }
@@ -219,20 +199,16 @@ export default function NetworkPage() {
         }
       });
 
-      // 4. THEIR CONTACTS (2nd degree) — with dedup
+      // 4. THEIR CONTACTS (2nd degree) with dedup
       for (const uid of mutualUserIds) {
         const theirContacts = allContacts.filter(
-          (c) => c.user_id === uid && c.user_id !== user.id
+          (c) => c.owner_id === uid && c.owner_id !== user.id
         );
 
         for (const tc of theirContacts) {
-          // Skip if this contact IS me
           if (tc.linked_profile_id === user.id) continue;
-
-          // Skip if this contact IS the connected user themselves
           if (tc.linked_profile_id === uid) continue;
 
-          // Check for existing node by linked_profile_id
           let existingNodeId: string | undefined;
 
           if (tc.linked_profile_id) {
@@ -241,14 +217,12 @@ export default function NetworkPage() {
             );
           }
 
-          // Check by name match
           if (!existingNodeId && tc.full_name) {
             existingNodeId = personToNodeId.get(
               `name:${normalizeNameForMatch(tc.full_name)}`
             );
           }
 
-          // If already exists, just add a link
           if (existingNodeId) {
             const linkExists = links.some(
               (l) =>
@@ -267,7 +241,6 @@ export default function NetworkPage() {
             continue;
           }
 
-          // Create new node
           const nodeId = `their-${tc.id}`;
           const displayName = getDisplayName(tc);
 
@@ -284,7 +257,6 @@ export default function NetworkPage() {
             type: "second_degree",
           });
 
-          // Register for dedup
           if (tc.linked_profile_id) {
             personToNodeId.set(`profile:${tc.linked_profile_id}`, nodeId);
           }
@@ -305,7 +277,6 @@ export default function NetworkPage() {
         return;
       }
 
-      // Render with D3
       renderGraph(nodes, links);
       setLoading(false);
     } catch (err) {
@@ -326,7 +297,6 @@ export default function NetworkPage() {
 
     svg.attr("viewBox", `0 0 ${width} ${height}`);
 
-    // Color scheme
     const colorMap: Record<string, string> = {
       self: "#facc15",
       connected_user: "#60a5fa",
@@ -341,7 +311,6 @@ export default function NetworkPage() {
       their_contact: 7,
     };
 
-    // Simulation
     const sim = d3
       .forceSimulation<GraphNode>(nodes)
       .force(
@@ -355,10 +324,8 @@ export default function NetworkPage() {
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("collision", d3.forceCollide().radius(30));
 
-    // Container for zoom
     const g = svg.append("g");
 
-    // Zoom
     svg.call(
       d3
         .zoom<SVGSVGElement, unknown>()
@@ -368,7 +335,6 @@ export default function NetworkPage() {
         })
     );
 
-    // Links
     const link = g
       .append("g")
       .selectAll("line")
@@ -377,24 +343,21 @@ export default function NetworkPage() {
       .attr("stroke", (d) => {
         if (d.type === "mutual") return "#60a5fa";
         if (d.type === "second_degree") return "#374151";
-        return "#6b7280";
+        return "#4b5563";
       })
-      .attr("stroke-opacity", (d) =>
-        d.type === "second_degree" ? 0.3 : 0.6
-      )
+      .attr("stroke-opacity", (d) => (d.type === "second_degree" ? 0.4 : 0.6))
       .attr("stroke-width", (d) => (d.type === "mutual" ? 2 : 1));
 
-    // Nodes
     const node = g
       .append("g")
-      .selectAll("circle")
+      .selectAll<SVGCircleElement, GraphNode>("circle")
       .data(nodes)
       .join("circle")
       .attr("r", (d) => sizeMap[d.type] || 8)
       .attr("fill", (d) => colorMap[d.type] || "#6b7280")
-      .attr("stroke", "#1f2937")
+      .attr("stroke", "#000")
       .attr("stroke-width", 1.5)
-      .attr("cursor", "grab")
+      .style("cursor", "pointer")
       .call(
         d3
           .drag<SVGCircleElement, GraphNode>()
@@ -414,33 +377,27 @@ export default function NetworkPage() {
           }) as any
       );
 
-    // Labels
-    const label = g
+    const labels = g
       .append("g")
       .selectAll("text")
       .data(nodes)
       .join("text")
       .text((d) => d.label)
       .attr("font-size", (d) =>
-        d.type === "self"
-          ? 14
-          : d.type === "their_contact"
-            ? 9
-            : 11
+        d.type === "self" ? 14 : d.type === "connected_user" ? 12 : 10
       )
       .attr("fill", "#e5e7eb")
       .attr("text-anchor", "middle")
-      .attr("dy", (d) => -(sizeMap[d.type] || 8) - 6)
-      .attr("pointer-events", "none");
+      .attr("dy", (d) => (sizeMap[d.type] || 8) + 14)
+      .style("pointer-events", "none");
 
-    // Tooltip on hover
     node.append("title").text((d) => {
       let text = d.label;
       if (d.subtitle) text += `\n${d.subtitle}`;
+      text += `\nType: ${d.type.replace("_", " ")}`;
       return text;
     });
 
-    // Tick
     sim.on("tick", () => {
       link
         .attr("x1", (d) => (d.source as GraphNode).x || 0)
@@ -450,7 +407,7 @@ export default function NetworkPage() {
 
       node.attr("cx", (d) => d.x || 0).attr("cy", (d) => d.y || 0);
 
-      label.attr("x", (d) => d.x || 0).attr("y", (d) => d.y || 0);
+      labels.attr("x", (d) => d.x || 0).attr("y", (d) => d.y || 0);
     });
   };
 
@@ -459,56 +416,66 @@ export default function NetworkPage() {
   }, [buildGraph]);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <div className="p-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold">Network</h1>
-        {!loading && !error && (
-          <span className="text-sm text-gray-400">{nodeCount} nodes</span>
-        )}
+    <div className="min-h-screen bg-black text-white">
+      <div className="border-b border-gray-800 bg-gray-950">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <a
+              href="/dashboard"
+              className="text-gray-400 hover:text-white transition"
+            >
+              ← Dashboard
+            </a>
+            <h1 className="text-2xl font-bold">Network Graph</h1>
+            {nodeCount > 0 && (
+              <span className="text-gray-500 text-sm">
+                {nodeCount} nodes
+              </span>
+            )}
+          </div>
+          <div className="flex gap-4 text-xs">
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded-full bg-yellow-400 inline-block" />
+              You
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded-full bg-blue-400 inline-block" />
+              Connected
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded-full bg-purple-400 inline-block" />
+              Contacts
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded-full bg-gray-500 inline-block" />
+              2nd Degree
+            </span>
+          </div>
+        </div>
       </div>
 
-      {loading && (
-        <div className="flex items-center justify-center h-[80vh]">
-          <p className="text-gray-400">Loading network…</p>
-        </div>
-      )}
-
-      {error && (
-        <div className="flex items-center justify-center h-[80vh]">
-          <p className="text-gray-400">{error}</p>
-        </div>
-      )}
-
-      <svg
-        ref={svgRef}
-        className="w-full"
-        style={{
-          height: "calc(100vh - 80px)",
-          display: loading || error ? "none" : "block",
-        }}
-      />
-
-      {/* Legend */}
-      {!loading && !error && (
-        <div className="fixed bottom-4 left-4 bg-gray-900/90 rounded-lg p-3 flex gap-4 text-xs">
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full bg-yellow-400" />
-            <span>You</span>
+      <div className="relative" style={{ height: "calc(100vh - 73px)" }}>
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-gray-400 text-lg">Loading network…</div>
           </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full bg-blue-400" />
-            <span>Connected</span>
+        )}
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center">
+              <div className="text-gray-400 text-lg mb-2">{error}</div>
+              <p className="text-gray-600 text-sm">
+                Add contacts and connections to see your network graph.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full bg-purple-400" />
-            <span>Your Contacts</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full bg-gray-500" />
-            <span>2nd Degree</span>
-          </div>
-        </div>
-      )}
+        )}
+        <svg
+          ref={svgRef}
+          className="w-full h-full"
+          style={{ background: "#000" }}
+        />
+      </div>
     </div>
   );
 }
