@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
-export default function SignUpPage() {
+function SignUpForm() {
   const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -16,17 +16,12 @@ export default function SignUpPage() {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
 
-  // Pre-fill invite code from URL params
-  // ?code=NEXUS-XXXXXX → direct invite code entry
-  // ?connect=userId → store the userId separately, redirect after signup to /connect/[userId]
   useEffect(() => {
     const code = searchParams.get('code')
     const connect = searchParams.get('connect')
     if (code) {
       setInviteCode(code.toUpperCase())
     }
-    // If coming from /connect/[userId], store the userId for post-signup redirect
-    // Do NOT use the userId as an invite code — it's a UUID, not a NEXUS-XXXXXX code
     if (connect) {
       setConnectUserId(connect)
     }
@@ -38,7 +33,6 @@ export default function SignUpPage() {
     setLoading(true)
 
     try {
-      // Build the redirect URL — if coming from /connect/[userId], redirect there after email confirmation
       const redirectBase = window.location.origin
       const redirectPath = connectUserId
         ? `/auth/callback?next=/connect/${connectUserId}`
@@ -174,7 +168,6 @@ export default function SignUpPage() {
               />
             </div>
 
-            {/* Only show invite code field if NOT coming from a connect link */}
             {!connectUserId && (
               <div>
                 <label htmlFor="inviteCode" className="block text-sm font-medium text-zinc-300 mb-1.5">
@@ -211,5 +204,17 @@ export default function SignUpPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="text-zinc-400">Loading...</div>
+      </div>
+    }>
+      <SignUpForm />
+    </Suspense>
   )
 }
