@@ -442,12 +442,6 @@ export default function NetworkPage() {
     );
     return () => subscription.unsubscribe();
   }, [supabase]);
-const authUser = session.user;
-      setUser(authUser);
-      setLoading(false);
-    };
-    init();
-  }, [supabase]);
 
   // Fetch and render
   useEffect(() => {
