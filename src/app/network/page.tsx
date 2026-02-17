@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import * as d3 from "d3";
@@ -108,26 +108,49 @@ function nodeSizeFromConnections(count: number, type: string): number {
   return base + Math.min(count * 0.8, 12);
 }
 
-function getJobTitle(contact: any): string {
-  return contact.job_title || contact.role || "";
+function getJobTitle(c: any): string {
+  return c?.job_title || c?.role || "";
+}
+
+function getDisplayName(c: any): string {
+  const firstName = (c.first_name || "").trim();
+  const lastName = (c.last_name || "").trim();
+  const fullName = (c.full_name || "").trim();
+
+  if (firstName && lastName) {
+    return `${firstName.charAt(0).toUpperCase()}. ${lastName}`;
+  }
+  if (fullName) {
+    const parts = fullName.split(" ");
+    if (parts.length >= 2) {
+      return `${parts[0].charAt(0).toUpperCase()}. ${parts.slice(1).join(" ")}`;
+    }
+    return fullName;
+  }
+  if (firstName) return firstName;
+  if (lastName) return lastName;
+  return getJobTitle(c) || "Unknown";
+}
+
+function getFullName(c: any): string {
+  const firstName = (c.first_name || "").trim();
+  const lastName = (c.last_name || "").trim();
+  const fullName = (c.full_name || "").trim();
+  if (fullName) return fullName;
+  if (firstName && lastName) return `${firstName} ${lastName}`;
+  if (firstName) return firstName;
+  if (lastName) return lastName;
+  return "";
 }
 
 function matchesFilter(contact: any, term: string): boolean {
   if (!term) return true;
   const lower = term.toLowerCase();
   const fields = [
-    contact.first_name,
-    contact.last_name,
-    contact.full_name,
-    contact.job_title,
-    contact.role,
-    contact.company,
-    contact.location,
-    contact.email,
-    contact.phone,
-    contact.notes,
-    contact.skills,
-    contact.education,
+    contact.first_name, contact.last_name, contact.full_name,
+    contact.job_title, contact.role, contact.company,
+    contact.location, contact.email, contact.phone,
+    contact.notes, contact.skills, contact.education,
   ];
   return fields.some((f) => f && String(f).toLowerCase().includes(lower));
 }
@@ -142,12 +165,10 @@ export default function NetworkPage() {
   const [centeredNodeId, setCenteredNodeId] = useState<string>("self");
   const [filter, setFilter] = useState("");
   const [allData, setAllData] = useState<any>(null);
-  const [graphData, setGraphData] = useState<{
-    nodes: GraphNode[];
-    links: GraphLink[];
-  }>({ nodes: [], links: [] });
+  const [graphData, setGraphData] = useState<{ nodes: GraphNode[]; links: GraphLink[] }>({ nodes: [], links: [] });
   const router = useRouter();
 
+  // Fetch all data once
   useEffect(() => {
     async function fetchAll() {
       const { data: { session } } = await supabase.auth.getSession();
@@ -158,27 +179,49 @@ export default function NetworkPage() {
         supabase.from("contacts").select("*"),
         supabase.from("connections").select("*").eq("status", "accepted"),
         supabase.from("interactions").select("contact_id, interaction_date"),
-        supabase.from("profiles").select("full_name, job_title, company").eq("id", user.id).single(),
+        supabase.from("profiles").select("id, full_name, job_title, company").eq("id", user.id).single(),
       ]);
+
+      // Also fetch profiles for all connected users
+      const connections: Connection[] = connectionsRes.data || [];
+      const connectedUserIds: string[] = [];
+      for (const conn of connections) {
+        if (conn.inviter_id === user.id) connectedUserIds.push(conn.invitee_id);
+        else if (conn.invitee_id === user.id) connectedUserIds.push(conn.inviter_id);
+      }
+
+      let connectedProfilesMap: Record<string, any> = {};
+      if (connectedUserIds.length > 0) {
+        const { data: connProfiles } = await supabase
+          .from("profiles")
+          .select("id, full_name, job_title, company")
+          .in("id", connectedUserIds);
+        for (const p of connProfiles || []) {
+          connectedProfilesMap[p.id] = p;
+        }
+      }
 
       setAllData({
         user,
         allContacts: contactsRes.data || [],
-        connections: connectionsRes.data || [],
+        connections,
         allInteractions: interactionsRes.data || [],
         myProfile: profileRes.data,
+        connectedProfiles: connectedProfilesMap,
       });
       setLoading(false);
     }
     fetchAll();
   }, [router]);
 
+  // Build graph whenever data or filter changes
   useEffect(() => {
     if (!allData) return;
 
-    const { user, allContacts, connections, allInteractions, myProfile } = allData;
-    const myContacts = allContacts.filter((c: Contact) => c.owner_id === user.id);
+    const { user, allContacts, connections, allInteractions, myProfile, connectedProfiles } = allData;
+    const myContacts: Contact[] = allContacts.filter((c: Contact) => c.owner_id === user.id);
 
+    // Interaction stats
     const interactionMap: Record<string, InteractionStats> = {};
     for (const i of allInteractions) {
       if (!interactionMap[i.contact_id]) {
@@ -190,24 +233,25 @@ export default function NetworkPage() {
       }
     }
 
+    // Mutual connections
     const mutualUserIds: string[] = [];
     const contactIdToUserId: Record<string, string> = {};
     for (const conn of connections) {
-      if (conn.inviter_id === user.id) {
-        mutualUserIds.push(conn.invitee_id);
-      } else if (conn.invitee_id === user.id) {
-        mutualUserIds.push(conn.inviter_id);
+      const otherId = conn.inviter_id === user.id ? conn.invitee_id : conn.inviter_id;
+      if (conn.inviter_id === user.id || conn.invitee_id === user.id) {
+        mutualUserIds.push(otherId);
       }
       if (conn.contact_id) {
-        const otherId = conn.inviter_id === user.id ? conn.invitee_id : conn.inviter_id;
         contactIdToUserId[conn.contact_id] = otherId;
       }
     }
 
-    const theirContacts = allContacts.filter((c: Contact) =>
+    // Their contacts (2nd degree)
+    const theirContacts: Contact[] = allContacts.filter((c: Contact) =>
       mutualUserIds.includes(c.owner_id) && c.owner_id !== user.id
     );
 
+    // Connection counts
     const contactConnectionCount: Record<string, number> = {};
     for (const c of allContacts) {
       contactConnectionCount[c.id] = (contactConnectionCount[c.id] || 0) + 1;
@@ -216,7 +260,7 @@ export default function NetworkPage() {
     const nodes: GraphNode[] = [];
     const links: GraphLink[] = [];
 
-    // 1. Self node
+    // 1. SELF
     const myName = myProfile?.full_name || "You";
     nodes.push({
       id: "self",
@@ -224,33 +268,30 @@ export default function NetworkPage() {
       type: "self",
       radius: nodeSizeFromConnections(myContacts.length + mutualUserIds.length, "self"),
       connectionCount: myContacts.length + mutualUserIds.length,
-      jobTitle: myProfile?.job_title,
-      company: myProfile?.company,
+      jobTitle: myProfile?.job_title || "",
+      company: myProfile?.company || "",
+      fullName: myName,
       user_id: user.id,
     });
 
-    // 2. My contacts — label = "J. Smith", hover = job title + company
+    // 2. MY CONTACTS (skip deduped connected users)
+    // Label: "J. Smith" | Hover: full name, job title, company
     for (const c of myContacts) {
-      if (contactIdToUserId[c.id]) continue;
+      if (contactIdToUserId[c.id]) continue; // dedup — shows as connected_user instead
       if (!matchesFilter(c, filter)) continue;
 
       const stats = interactionMap[c.id];
       const connCount = contactConnectionCount[c.id] || 1;
 
-      const firstName = c.first_name || "";
-      const lastName = c.last_name || "";
-      const initial = firstName.charAt(0).toUpperCase();
-      const displayName = lastName ? `${initial}. ${lastName}` : firstName || "?";
-
       nodes.push({
         id: c.id,
-        label: displayName,
+        label: getDisplayName(c),
         type: "contact",
         radius: nodeSizeFromConnections(connCount, "contact"),
         connectionCount: connCount,
         company: c.company ?? undefined,
         jobTitle: getJobTitle(c),
-        fullName: c.full_name || `${c.first_name} ${c.last_name}`,
+        fullName: getFullName(c),
         owner_id: c.owner_id,
         contactId: c.id,
       });
@@ -266,29 +307,40 @@ export default function NetworkPage() {
       });
     }
 
-    // 3. Connected users
+    // 3. CONNECTED USERS (mutual via invite code)
+    // Label: "J. Smith" | Hover: full name, job title, company
     for (const uid of mutualUserIds) {
+      // Try to get info from linked contact first, then from profile
       const linkedContactId = Object.entries(contactIdToUserId).find(([_, v]) => v === uid)?.[0];
       const linkedContact = linkedContactId ? myContacts.find((c: Contact) => c.id === linkedContactId) : null;
+      const profile = connectedProfiles[uid];
 
-      const firstName = linkedContact?.first_name || "";
-      const lastName = linkedContact?.last_name || "";
-      const initial = firstName.charAt(0).toUpperCase();
-      const name = lastName ? `${initial}. ${lastName}` : (linkedContact?.full_name || "Connected User");
+      // Build a merged data source: contact data takes priority, profile fills gaps
+      const merged = {
+        first_name: linkedContact?.first_name || "",
+        last_name: linkedContact?.last_name || "",
+        full_name: linkedContact?.full_name || profile?.full_name || "",
+        job_title: linkedContact?.job_title || linkedContact?.role || profile?.job_title || "",
+        company: linkedContact?.company || profile?.company || "",
+      };
+
+      const displayName = getDisplayName(merged);
+      const fullName = getFullName(merged);
 
       if (filter && linkedContact && !matchesFilter(linkedContact, filter)) continue;
+      if (filter && !linkedContact && profile && !matchesFilter({ full_name: profile.full_name, job_title: profile.job_title, company: profile.company }, filter)) continue;
 
       const theirContactCount = theirContacts.filter((c: Contact) => c.owner_id === uid).length;
 
       nodes.push({
         id: `user-${uid}`,
-        label: name,
+        label: displayName,
         type: "connected_user",
-        radius: nodeSizeFromConnections(theirContactCount, "connected_user"),
-        connectionCount: theirContactCount,
-        jobTitle: getJobTitle(linkedContact || {}),
-        company: linkedContact?.company ?? undefined,
-        fullName: linkedContact?.full_name || `${firstName} ${lastName}`,
+        radius: nodeSizeFromConnections(theirContactCount + 1, "connected_user"),
+        connectionCount: theirContactCount + 1,
+        jobTitle: merged.job_title,
+        company: merged.company,
+        fullName: fullName,
         user_id: uid,
         contactId: linkedContactId,
       });
@@ -296,23 +348,26 @@ export default function NetworkPage() {
       links.push({
         source: "self",
         target: `user-${uid}`,
-        distance: 120,
+        distance: linkedContact ? (CLOSENESS[linkedContact.relationship_type] || 120) : 120,
         thickness: 4,
         recency: 1,
         isMutual: true,
         isOwn: false,
       });
 
-      // 4. Their contacts — label = job title only
+      // 4. THEIR CONTACTS (2nd degree)
+      // Label: job title only | Hover: job title, company
       for (const tc of theirContacts.filter((c: Contact) => c.owner_id === uid)) {
         if (filter && !matchesFilter(tc, filter)) continue;
 
         const stats = interactionMap[tc.id];
         const connCount = contactConnectionCount[tc.id] || 1;
-        const displayLabel = getJobTitle(tc) || "Contact";
+        const jobTitle = getJobTitle(tc);
+        const displayLabel = jobTitle || (tc.company ? `@ ${tc.company}` : getDisplayName(tc));
 
         const isShared = myContacts.some((mc: Contact) =>
-          mc.first_name === tc.first_name && mc.last_name === tc.last_name
+          (mc.first_name && tc.first_name && mc.first_name === tc.first_name && mc.last_name === tc.last_name) ||
+          (mc.full_name && tc.full_name && mc.full_name === tc.full_name)
         );
 
         nodes.push({
@@ -321,7 +376,7 @@ export default function NetworkPage() {
           type: "their_contact",
           radius: nodeSizeFromConnections(connCount, "their_contact"),
           connectionCount: connCount,
-          jobTitle: getJobTitle(tc),
+          jobTitle: jobTitle,
           company: tc.company ?? undefined,
           owner_id: tc.owner_id,
         });
@@ -341,6 +396,7 @@ export default function NetworkPage() {
     setGraphData({ nodes, links });
   }, [allData, filter]);
 
+  // Render D3
   useEffect(() => {
     if (loading || !svgRef.current || !containerRef.current) return;
     if (graphData.nodes.length === 0) return;
@@ -369,10 +425,11 @@ export default function NetworkPage() {
     const nodes: GraphNode[] = graphData.nodes.map(n => ({ ...n }));
     const links: GraphLink[] = graphData.links.map(l => ({
       ...l,
-      source: typeof l.source === 'object' ? (l.source as GraphNode).id : l.source,
-      target: typeof l.target === 'object' ? (l.target as GraphNode).id : l.target,
+      source: typeof l.source === "object" ? (l.source as GraphNode).id : l.source,
+      target: typeof l.target === "object" ? (l.target as GraphNode).id : l.target,
     }));
 
+    // Pin centered node
     const centeredNode = nodes.find(n => n.id === centeredNodeId);
     if (centeredNode) {
       centeredNode.fx = width / 2;
@@ -394,6 +451,7 @@ export default function NetworkPage() {
 
     simulationRef.current = simulation;
 
+    // Links
     const link = g
       .append("g")
       .selectAll("line")
@@ -403,6 +461,7 @@ export default function NetworkPage() {
       .attr("stroke-width", d => d.thickness)
       .attr("stroke-linecap", "round");
 
+    // Nodes
     const node = g
       .append("g")
       .selectAll<SVGGElement, GraphNode>("g")
@@ -453,6 +512,7 @@ export default function NetworkPage() {
           })
       );
 
+    // Circles — muted colors, no stroke
     node
       .append("circle")
       .attr("r", d => d.radius)
@@ -460,13 +520,14 @@ export default function NetworkPage() {
         switch (d.type) {
           case "self": return "#6B7F8E";
           case "connected_user": return "#8E6B6B";
-          case "contact": return "#7A8A96";
-          case "their_contact": return "#5C6A73";
-          default: return "#7A8A96";
+          case "contact": return "#64748b";
+          case "their_contact": return "#475569";
+          default: return "#64748b";
         }
       })
       .attr("stroke", "none");
 
+    // Labels
     node
       .append("text")
       .text(d => d.label)
@@ -487,13 +548,13 @@ export default function NetworkPage() {
       .attr("font-family", "system-ui, sans-serif")
       .attr("pointer-events", "none");
 
+    // Tick
     simulation.on("tick", () => {
       link
         .attr("x1", (d: any) => d.source.x)
         .attr("y1", (d: any) => d.source.y)
         .attr("x2", (d: any) => d.target.x)
         .attr("y2", (d: any) => d.target.y);
-
       node.attr("transform", d => `translate(${d.x}, ${d.y})`);
     });
 
@@ -513,6 +574,7 @@ export default function NetworkPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
+      {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
         <div className="flex items-center gap-4">
           <button
@@ -546,6 +608,7 @@ export default function NetworkPage() {
         </div>
       </div>
 
+      {/* Legend */}
       <div className="px-6 py-2 flex flex-wrap gap-6 text-xs border-b border-gray-800/50">
         <span className="flex items-center gap-2">
           <span className="w-6 h-0.5 bg-white/60 inline-block"></span>
@@ -559,58 +622,41 @@ export default function NetworkPage() {
         <span className="text-gray-500">Thickness = interaction density</span>
         <span className="text-gray-500">Brightness = recency</span>
         <span className="text-gray-500">Node size = # connections</span>
-        <span className="text-gray-500">Double-click = re-center · Click = open dossier</span>
+        <span className="text-gray-500">Dbl-click = re-center · Click = dossier</span>
       </div>
 
+      {/* Graph */}
       <div ref={containerRef} className="flex-1 relative">
         <svg ref={svgRef} className="w-full h-full" />
 
+        {/* Tooltip */}
         {hoveredNode && (
           <div
             className="fixed z-50 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pointer-events-none shadow-lg max-w-xs"
-            style={{
-              left: tooltipPos.x + 14,
-              top: tooltipPos.y - 12,
-            }}
+            style={{ left: tooltipPos.x + 14, top: tooltipPos.y - 12 }}
           >
             {hoveredNode.type === "self" ? (
               <>
-                <p className="text-sm font-medium text-blue-300">{hoveredNode.label}</p>
-                {hoveredNode.jobTitle && (
-                  <p className="text-xs text-gray-400">{hoveredNode.jobTitle}</p>
-                )}
-                {hoveredNode.company && (
-                  <p className="text-xs text-gray-500">{hoveredNode.company}</p>
-                )}
+                <p className="text-sm font-medium text-blue-300">{hoveredNode.fullName || hoveredNode.label}</p>
+                {hoveredNode.jobTitle && <p className="text-xs text-gray-400">{hoveredNode.jobTitle}</p>}
+                {hoveredNode.company && <p className="text-xs text-gray-500">{hoveredNode.company}</p>}
               </>
             ) : hoveredNode.type === "connected_user" ? (
               <>
                 <p className="text-sm font-medium text-red-300">{hoveredNode.fullName || hoveredNode.label}</p>
-                {hoveredNode.jobTitle && (
-                  <p className="text-xs text-gray-400">{hoveredNode.jobTitle}</p>
-                )}
-                {hoveredNode.company && (
-                  <p className="text-xs text-gray-500">{hoveredNode.company}</p>
-                )}
+                {hoveredNode.jobTitle && <p className="text-xs text-gray-400">{hoveredNode.jobTitle}</p>}
+                {hoveredNode.company && <p className="text-xs text-gray-500">{hoveredNode.company}</p>}
               </>
             ) : hoveredNode.type === "their_contact" ? (
               <>
-                {hoveredNode.jobTitle && (
-                  <p className="text-sm font-medium text-gray-300">{hoveredNode.jobTitle}</p>
-                )}
-                {hoveredNode.company && (
-                  <p className="text-xs text-gray-400">{hoveredNode.company}</p>
-                )}
+                {hoveredNode.jobTitle && <p className="text-sm font-medium text-gray-300">{hoveredNode.jobTitle}</p>}
+                {hoveredNode.company && <p className="text-xs text-gray-400">{hoveredNode.company}</p>}
               </>
             ) : (
               <>
                 <p className="text-sm font-medium text-gray-200">{hoveredNode.fullName || hoveredNode.label}</p>
-                {hoveredNode.jobTitle && (
-                  <p className="text-xs text-gray-400">{hoveredNode.jobTitle}</p>
-                )}
-                {hoveredNode.company && (
-                  <p className="text-xs text-gray-500">{hoveredNode.company}</p>
-                )}
+                {hoveredNode.jobTitle && <p className="text-xs text-gray-400">{hoveredNode.jobTitle}</p>}
+                {hoveredNode.company && <p className="text-xs text-gray-500">{hoveredNode.company}</p>}
               </>
             )}
           </div>
