@@ -11,20 +11,24 @@ export default function SignUpPage() {
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [inviteCode, setInviteCode] = useState('')
+  const [connectUserId, setConnectUserId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
 
-  // Pre-fill invite code from URL params (?code=NEXUS-XXXXXX or ?connect=userId)
+  // Pre-fill invite code from URL params
+  // ?code=NEXUS-XXXXXX → direct invite code entry
+  // ?connect=userId → store the userId separately, redirect after signup to /connect/[userId]
   useEffect(() => {
     const code = searchParams.get('code')
-    const connectUserId = searchParams.get('connect')
+    const connect = searchParams.get('connect')
     if (code) {
       setInviteCode(code.toUpperCase())
     }
-    // If coming from /connect/[userId], the connect param stores the invite code
-    if (connectUserId) {
-      setInviteCode(connectUserId.toUpperCase())
+    // If coming from /connect/[userId], store the userId for post-signup redirect
+    // Do NOT use the userId as an invite code — it's a UUID, not a NEXUS-XXXXXX code
+    if (connect) {
+      setConnectUserId(connect)
     }
   }, [searchParams])
 
@@ -34,7 +38,12 @@ export default function SignUpPage() {
     setLoading(true)
 
     try {
-      // Store invite code in user metadata — auth callback will redeem it server-side
+      // Build the redirect URL — if coming from /connect/[userId], redirect there after email confirmation
+      const redirectBase = window.location.origin
+      const redirectPath = connectUserId
+        ? `/auth/callback?next=/connect/${connectUserId}`
+        : '/auth/callback'
+
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
@@ -42,8 +51,9 @@ export default function SignUpPage() {
           data: {
             full_name: fullName,
             invite_code: inviteCode.trim() || null,
+            connect_user_id: connectUserId || null,
           },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          emailRedirectTo: `${redirectBase}${redirectPath}`,
         },
       })
 
@@ -54,8 +64,6 @@ export default function SignUpPage() {
       }
 
       if (data.user) {
-        // Don't try to redeem here — user isn't confirmed yet.
-        // The auth callback will handle it after email confirmation.
         setSuccess(true)
       }
     } catch (err) {
@@ -80,7 +88,12 @@ export default function SignUpPage() {
               We sent a confirmation link to <span className="text-white font-medium">{email}</span>. 
               Click the link to activate your account.
             </p>
-            {inviteCode.trim() && (
+            {connectUserId && (
+              <p className="text-zinc-500 text-sm mt-3">
+                After confirming, you&apos;ll be automatically connected.
+              </p>
+            )}
+            {inviteCode.trim() && !connectUserId && (
               <p className="text-zinc-500 text-sm mt-3">
                 Your invite code <span className="font-mono text-amber-500/70">{inviteCode}</span> will be applied once you confirm your email.
               </p>
@@ -106,6 +119,12 @@ export default function SignUpPage() {
             {error && (
               <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-red-400 text-sm">
                 {error}
+              </div>
+            )}
+
+            {connectUserId && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-amber-400 text-sm">
+                🤝 You&apos;ll be connected automatically after signing up.
               </div>
             )}
 
@@ -155,28 +174,31 @@ export default function SignUpPage() {
               />
             </div>
 
-            <div>
-              <label htmlFor="inviteCode" className="block text-sm font-medium text-zinc-300 mb-1.5">
-                Invite Code <span className="text-zinc-500 font-normal">(optional)</span>
-              </label>
-              <input
-                id="inviteCode"
-                type="text"
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition font-mono tracking-wider"
-                placeholder="NEXUS-XXXXXX"
-                maxLength={12}
-              />
-              <p className="text-zinc-600 text-xs mt-1">Got a code from someone? Enter it to connect.</p>
-            </div>
+            {/* Only show invite code field if NOT coming from a connect link */}
+            {!connectUserId && (
+              <div>
+                <label htmlFor="inviteCode" className="block text-sm font-medium text-zinc-300 mb-1.5">
+                  Invite Code <span className="text-zinc-500 font-normal">(optional)</span>
+                </label>
+                <input
+                  id="inviteCode"
+                  type="text"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition font-mono tracking-wider"
+                  placeholder="NEXUS-XXXXXX"
+                  maxLength={12}
+                />
+                <p className="text-zinc-600 text-xs mt-1">Got a code from someone? Enter it to connect.</p>
+              </div>
+            )}
 
             <button
               type="submit"
               disabled={loading}
               className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Creating account...' : 'Create Account'}
+              {loading ? 'Creating account...' : connectUserId ? 'Create Account & Connect' : 'Create Account'}
             </button>
           </form>
 
