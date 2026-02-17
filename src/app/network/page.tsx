@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { supabase } from "@/lib/supabase";
 import * as d3 from "d3";
 
 interface Contact {
@@ -67,10 +67,8 @@ function getRecency(lastContacted: string | null): number {
 }
 
 function recencyToColor(recency: number): string {
-  // Single hue (slate blue), brightness varies
-  // recency 1 = bright, recency 0 = very dark
-  const lightness = 25 + recency * 45; // range 25% to 70%
-  const saturation = 20 + recency * 25; // range 20% to 45%
+  const lightness = 25 + recency * 45;
+  const saturation = 20 + recency * 25;
   return `hsl(215, ${saturation}%, ${lightness}%)`;
 }
 
@@ -82,7 +80,6 @@ export default function NetworkPage() {
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const router = useRouter();
-  const supabase = createClientComponentClient();
 
   useEffect(() => {
     async function fetchContacts() {
@@ -99,7 +96,7 @@ export default function NetworkPage() {
         .select("*")
         .eq("owner_id", user.id);
 
-       if (!error && data) {
+      if (!error && data) {
         setContacts(data);
       }
       setLoading(false);
@@ -146,7 +143,7 @@ export default function NetworkPage() {
       id: c.id,
       label: c.full_name,
       isUser: false,
-      radius: 9, // all ~same for now since no sub-contacts yet
+      radius: 9,
       relationship_type: c.relationship_type,
       company: c.company ?? undefined,
       role: c.role ?? undefined,
@@ -254,7 +251,7 @@ export default function NetworkPage() {
           })
       );
 
-    // Labels (small, subtle)
+    // Labels
     const labels = g
       .append("g")
       .selectAll("text")
@@ -281,7 +278,6 @@ export default function NetworkPage() {
       labels.attr("x", (d) => d.x!).attr("y", (d) => d.y!);
     });
 
-    // Cleanup
     return () => {
       simulation.stop();
     };
@@ -342,7 +338,7 @@ export default function NetworkPage() {
               </p>
             )}
             {hoveredNode.relationship_type && (
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 mt-1">
                 {hoveredNode.relationship_type}
               </p>
             )}
@@ -350,16 +346,15 @@ export default function NetworkPage() {
         )}
 
         {/* Empty state */}
-      
         {contacts.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
-              <p className="text-gray-400 mb-2">No connections yet</p>
+              <p className="text-gray-500 mb-2">No connections yet</p>
               <button
                 onClick={() => router.push("/contacts")}
                 className="text-sm text-blue-400 hover:text-blue-300"
               >
-                Add contacts to see your network →
+                Add your first contact →
               </button>
             </div>
           </div>
