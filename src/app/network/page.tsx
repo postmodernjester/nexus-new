@@ -429,13 +429,19 @@ export default function NetworkPage() {
   );
 
   // Init
-  useEffect(() => {
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-if (!session?.user) {
-  window.location.href = "/login";
-  return;
-}
+ useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (!session?.user) {
+          window.location.href = "/login";
+          return;
+        }
+        setUser(session.user);
+        setLoading(false);
+      }
+    );
+    return () => subscription.unsubscribe();
+  }, [supabase]);
 const authUser = session.user;
       setUser(authUser);
       setLoading(false);
