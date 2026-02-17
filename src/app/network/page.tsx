@@ -5,7 +5,6 @@ import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import * as d3 from "d3";
 import Link from "next/link";
 
-// Types
 interface NetworkNode extends d3.SimulationNodeDatum {
   id: string;
   name: string;
@@ -24,7 +23,6 @@ interface NetworkLink extends d3.SimulationLinkDatum<NetworkNode> {
   closeness: number;
 }
 
-// Colors - muted palette
 const COLORS = {
   userNode: "#7C8D9E",
   contactNode: "#A8B2BC",
@@ -49,22 +47,18 @@ export default function NetworkPage() {
   const simulationRef = useRef<d3.Simulation<NetworkNode, NetworkLink> | null>(null);
   const supabase = createClientComponentClient();
 
-  // Fetch all network data
   const fetchNetworkData = useCallback(async (userId: string) => {
-    // 1. My contacts
     const { data: myContacts } = await supabase
       .from("contacts")
       .select("*")
       .eq("owner_id", userId);
 
-    // 2. My connections (accepted)
     const { data: connections } = await supabase
       .from("connections")
       .select("*")
       .or(`inviter_id.eq.${userId},invitee_id.eq.${userId}`)
       .eq("status", "accepted");
 
-    // 3. Connected user IDs
     const mutualUserIds: string[] = [];
     const contactToConnection: Record<string, string> = {};
     if (connections) {
@@ -77,7 +71,6 @@ export default function NetworkPage() {
       }
     }
 
-    // 4. Connected users' profiles
     const connectedProfiles: Record<string, any> = {};
     if (mutualUserIds.length > 0) {
       const { data: profiles } = await supabase
@@ -91,7 +84,6 @@ export default function NetworkPage() {
       }
     }
 
-    // 5. Second-degree contacts (their contacts)
     let secondDegreeContacts: any[] = [];
     if (mutualUserIds.length > 0) {
       const { data: theirContacts } = await supabase
@@ -103,7 +95,6 @@ export default function NetworkPage() {
       }
     }
 
-    // 6. Interaction counts for my contacts
     const { data: interactions } = await supabase
       .from("interactions")
       .select("contact_id, interaction_date")
@@ -132,7 +123,6 @@ export default function NetworkPage() {
     };
   }, [supabase]);
 
-  // Filter contacts by search term across all fields
   const matchesFilter = (contact: any, term: string): boolean => {
     if (!term) return true;
     const lower = term.toLowerCase();
@@ -151,17 +141,13 @@ export default function NetworkPage() {
     return fields.some((f) => f && String(f).toLowerCase().includes(lower));
   };
 
-  // Build graph nodes and links
   const buildGraph = useCallback(
     (data: any, filterTerm: string, centerNodeId: string | null) => {
       const nodes: NetworkNode[] = [];
       const links: NetworkLink[] = [];
-      const nodeMap = new Map<string, NetworkNode>();
 
-      const centerUser = centerNodeId || data.myContacts.length > 0 ? "user" : null;
       const isCenteredOnContact = centerNodeId && centerNodeId !== "user";
 
-      // User node (me)
       const userNode: NetworkNode = {
         id: "user",
         name: "You",
@@ -169,11 +155,9 @@ export default function NetworkPage() {
         connectionCount: (data.myContacts?.length || 0) + data.mutualUserIds.length,
       };
       nodes.push(userNode);
-      nodeMap.set("user", userNode);
 
-      // My contacts (skip those who are connected users - they show as connected-user type)
       const filteredContacts = data.myContacts.filter((c: any) => {
-        if (data.contactToConnection[c.id]) return false; // dedup
+        if (data.contactToConnection[c.id]) return false;
         return matchesFilter(c, filterTerm);
       });
 
@@ -193,7 +177,6 @@ export default function NetworkPage() {
           contactId: contact.id,
         };
         nodes.push(node);
-        nodeMap.set(node.id, node);
 
         links.push({
           source: isCenteredOnContact === `contact-${contact.id}` ? node.id : "user",
@@ -205,11 +188,10 @@ export default function NetworkPage() {
         });
       }
 
-      // Connected users (mutual connections)
       for (const uid of data.mutualUserIds) {
         const profile = data.connectedProfiles[uid];
         const name = profile?.full_name || "Connected User";
-        const matchesConnectedUser = !filterTerm || 
+        const matchesConnectedUser = !filterTerm ||
           (profile && matchesFilter({
             first_name: profile.full_name,
             job_title: profile.job_title,
@@ -218,7 +200,6 @@ export default function NetworkPage() {
 
         if (!matchesConnectedUser) continue;
 
-        // Find the original contact record to get interaction data
         const contactEntry = Object.entries(data.contactToConnection).find(([_, v]) => v === uid);
         const contactId = contactEntry ? contactEntry[0] : undefined;
         const originalContact = contactId ? data.myContacts.find((c: any) => c.id === contactId) : null;
@@ -234,7 +215,6 @@ export default function NetworkPage() {
           userId: uid,
         };
         nodes.push(node);
-        nodeMap.set(node.id, node);
 
         links.push({
           source: "user",
@@ -245,7 +225,6 @@ export default function NetworkPage() {
           closeness: originalContact?.closeness || 2,
         });
 
-        // Second degree contacts (their contacts)
         const theirContacts = data.secondDegreeContacts.filter((c: any) => c.owner_id === uid);
         for (const sc of theirContacts) {
           const matchesSecond = matchesFilter(sc, filterTerm);
@@ -259,7 +238,6 @@ export default function NetworkPage() {
             contactId: sc.id,
           };
           nodes.push(secondNode);
-          nodeMap.set(secondNode.id, secondNode);
 
           links.push({
             source: `connected-${uid}`,
@@ -276,7 +254,6 @@ export default function NetworkPage() {
     []
   );
 
-  // Calculate line opacity from recency
   const getRecencyOpacity = (lastInteraction?: string): number => {
     if (!lastInteraction) return 0.25;
     const daysSince = (Date.now() - new Date(lastInteraction).getTime()) / (1000 * 60 * 60 * 24);
@@ -287,9 +264,8 @@ export default function NetworkPage() {
     return 0.2;
   };
 
-  // Render D3 graph
   const renderGraph = useCallback(
-    (nodes: NetworkNode[], links: NetworkLink[], centerNodeId: string | null) => {
+    (nodes: NetworkNode[], links: NetworkLink[]) => {
       if (!svgRef.current) return;
 
       const svg = d3.select(svgRef.current);
@@ -300,7 +276,6 @@ export default function NetworkPage() {
 
       const g = svg.append("g");
 
-      // Zoom
       const zoom = d3.zoom<SVGSVGElement, unknown>()
         .scaleExtent([0.2, 4])
         .on("zoom", (event) => {
@@ -308,8 +283,6 @@ export default function NetworkPage() {
         });
       svg.call(zoom);
 
-      // Force simulation
-      const centerNode = centerNodeId || "user";
       const simulation = d3.forceSimulation<NetworkNode>(nodes)
         .force("link", d3.forceLink<NetworkNode, NetworkLink>(links)
           .id((d) => d.id)
@@ -324,7 +297,6 @@ export default function NetworkPage() {
 
       simulationRef.current = simulation;
 
-      // Links
       const link = g.append("g")
         .selectAll("line")
         .data(links)
@@ -337,14 +309,12 @@ export default function NetworkPage() {
         })
         .attr("stroke-opacity", (d) => getRecencyOpacity(d.lastInteraction));
 
-      // Node groups
       const node = g.append("g")
         .selectAll("g")
         .data(nodes)
         .join("g")
         .style("cursor", "pointer");
 
-      // Circles - no outline
       node.append("circle")
         .attr("r", (d) => {
           const base = d.type === "user" ? 16 : d.type === "second-degree" ? 6 : 10;
@@ -361,7 +331,6 @@ export default function NetworkPage() {
         })
         .attr("stroke", "none");
 
-      // Labels
       node.append("text")
         .text((d) => d.name)
         .attr("text-anchor", "middle")
@@ -373,7 +342,6 @@ export default function NetworkPage() {
         .attr("fill", "#555")
         .attr("font-family", "system-ui, sans-serif");
 
-      // Hover
       node.on("mouseenter", (event, d) => {
         const [x, y] = d3.pointer(event, svgRef.current);
         setTooltip({ x, y, node: d });
@@ -382,7 +350,6 @@ export default function NetworkPage() {
         setTooltip(null);
       });
 
-      // Single click - open dossier
       node.on("click", (event, d) => {
         if (d.type === "user") return;
         if (d.contactId) {
@@ -390,14 +357,12 @@ export default function NetworkPage() {
         }
       });
 
-      // Double click - re-center
       node.on("dblclick", (event, d) => {
         event.preventDefault();
         event.stopPropagation();
         setCenteredNodeId(d.id);
       });
 
-      // Drag
       const drag = d3.drag<any, NetworkNode>()
         .on("start", (event, d) => {
           if (!event.active) simulation.alphaTarget(0.3).restart();
@@ -415,7 +380,6 @@ export default function NetworkPage() {
         });
       node.call(drag);
 
-      // Tick
       simulation.on("tick", () => {
         link
           .attr("x1", (d) => (d.source as NetworkNode).x || 0)
@@ -428,29 +392,34 @@ export default function NetworkPage() {
     []
   );
 
-  // Init
- useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (!session?.user) {
-          window.location.href = "/login";
-          return;
-        }
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
         setUser(session.user);
         setLoading(false);
+      } else {
+        setTimeout(async () => {
+          const { data: { session: retrySession } } = await supabase.auth.getSession();
+          if (retrySession?.user) {
+            setUser(retrySession.user);
+            setLoading(false);
+          } else {
+            window.location.href = "/login";
+          }
+        }, 1000);
       }
-    );
-    return () => subscription.unsubscribe();
+    };
+    checkUser();
   }, [supabase]);
 
-  // Fetch and render
   useEffect(() => {
     if (!user) return;
 
     const loadAndRender = async () => {
       const data = await fetchNetworkData(user.id);
       const { nodes, links } = buildGraph(data, filter, centeredNodeId);
-      renderGraph(nodes, links, centeredNodeId);
+      renderGraph(nodes, links);
     };
 
     loadAndRender();
@@ -472,7 +441,6 @@ export default function NetworkPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header */}
       <div className="bg-white border-b px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link href="/dashboard" className="text-gray-500 hover:text-gray-700 text-sm">
@@ -481,7 +449,6 @@ export default function NetworkPage() {
           <h1 className="text-lg font-semibold text-gray-800">Network</h1>
         </div>
         <div className="flex items-center gap-3">
-          {/* Filter */}
           <input
             type="text"
             placeholder="Filter by skill, company, location, keyword..."
@@ -508,11 +475,9 @@ export default function NetworkPage() {
         </div>
       </div>
 
-      {/* Graph */}
       <div className="flex-1 relative">
         <svg ref={svgRef} className="w-full h-full" style={{ minHeight: "calc(100vh - 57px)" }} />
 
-        {/* Tooltip */}
         {tooltip && (
           <div
             className="absolute bg-white shadow-lg rounded-lg px-3 py-2 pointer-events-none border border-gray-200 z-50"
@@ -528,7 +493,6 @@ export default function NetworkPage() {
           </div>
         )}
 
-        {/* Legend */}
         <div className="absolute bottom-4 left-4 bg-white/90 rounded-lg px-3 py-2 text-xs text-gray-500 border">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-6 h-0.5 bg-gray-800"></div> My connection
