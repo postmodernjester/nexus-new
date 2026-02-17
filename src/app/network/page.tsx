@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 import * as d3 from "d3";
 import Link from "next/link";
 
@@ -34,6 +35,7 @@ const COLORS = {
 };
 
 export default function NetworkPage() {
+  const router = useRouter();
   const svgRef = useRef<SVGSVGElement>(null);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -45,7 +47,6 @@ export default function NetworkPage() {
   } | null>(null);
   const [centeredNodeId, setCenteredNodeId] = useState<string | null>(null);
   const simulationRef = useRef<d3.Simulation<NetworkNode, NetworkLink> | null>(null);
-  const supabase = createClientComponentClient();
 
   const fetchNetworkData = useCallback(async (userId: string) => {
     const { data: myContacts } = await supabase
@@ -121,7 +122,7 @@ export default function NetworkPage() {
       interactionCounts,
       lastInteractions,
     };
-  }, [supabase]);
+  }, []);
 
   const matchesFilter = (contact: any, term: string): boolean => {
     if (!term) return true;
@@ -393,25 +394,17 @@ export default function NetworkPage() {
   );
 
   useEffect(() => {
-    const checkUser = async () => {
+    const getUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-        setLoading(false);
-      } else {
-        setTimeout(async () => {
-          const { data: { session: retrySession } } = await supabase.auth.getSession();
-          if (retrySession?.user) {
-            setUser(retrySession.user);
-            setLoading(false);
-          } else {
-            window.location.href = "/login";
-          }
-        }, 1000);
+      if (!session) {
+        router.push("/login");
+        return;
       }
+      setUser(session.user);
+      setLoading(false);
     };
-    checkUser();
-  }, [supabase]);
+    getUser();
+  }, [router]);
 
   useEffect(() => {
     if (!user) return;
