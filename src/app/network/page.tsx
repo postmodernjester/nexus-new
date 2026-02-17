@@ -162,7 +162,7 @@ export default function NetworkPage() {
 
       // Get connected users' profiles
       const connectedProfiles: Record<string, string> = {};
-      if (mutualUserIds.size > 0) {
+      if (mutualUserIds.length > 0) {
         const { data: profiles } = await supabase
           .from("profiles")
           .select("id, full_name")
@@ -192,8 +192,8 @@ export default function NetworkPage() {
         id: "self",
         label: myName,
         type: "self",
-        radius: nodeSizeFromConnections(myContacts.length + mutualUserIds.size, "self"),
-        connectionCount: myContacts.length + mutualUserIds.size,
+        radius: nodeSizeFromConnections(myContacts.length + mutualUserIds.length, "self"),
+        connectionCount: myContacts.length + mutualUserIds.length,
         user_id: user.id,
       });
 
