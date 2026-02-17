@@ -431,11 +431,12 @@ export default function NetworkPage() {
   // Init
   useEffect(() => {
     const init = async () => {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) {
-        window.location.href = "/login";
-        return;
-      }
+      const { data: { session } } = await supabase.auth.getSession();
+if (!session?.user) {
+  window.location.href = "/login";
+  return;
+}
+const authUser = session.user;
       setUser(authUser);
       setLoading(false);
     };
