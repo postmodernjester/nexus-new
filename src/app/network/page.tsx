@@ -330,45 +330,47 @@ export default function NetworkPage() {
       const linkedContact = linkedContactId ? myContacts.find((c: Contact) => c.id === linkedContactId) : null;
       const profile = connectedProfiles[uid];
 
-      const merged = {
-        first_name: linkedContact?.first_name || "",
-        last_name: linkedContact?.last_name || "",
-        full_name: linkedContact?.full_name || profile?.full_name || "",
-        job_title: linkedContact?.job_title || linkedContact?.role || profile?.job_title || "",
-        company: linkedContact?.company || profile?.company || "",
-      };
+      const label = linkedContact
+        ? getDisplayName(linkedContact)
+        : profile?.full_name || "Connected User";
 
-      const stats = linkedContactId ? interactionMap[linkedContactId] : undefined;
-      const userTheirContacts = theirContacts.filter((tc: Contact) => tc.owner_id === uid);
-      const connCount = (linkedContact ? contactConnectionCount[linkedContact.id] || 0 : 0) + userTheirContacts.length;
+      const fullName = linkedContact
+        ? getFullName(linkedContact)
+        : profile?.full_name || "";
 
+      const stats = linkedContact ? interactionMap[linkedContact.id] : undefined;
+      const connCount = (contactConnectionCount[linkedContactId || ""] || 0) + 1;
+
+      const nodeId = `user-${uid}`;
       nodes.push({
-        id: `user-${uid}`,
-        label: getDisplayName(merged),
+        id: nodeId,
+        label,
         type: "connected_user",
         radius: nodeSizeFromConnections(connCount, "connected_user"),
         connectionCount: connCount,
-        company: merged.company || undefined,
-        jobTitle: merged.job_title || undefined,
-        fullName: getFullName(merged),
+        company: linkedContact?.company || profile?.company || undefined,
+        jobTitle: linkedContact ? getJobTitle(linkedContact) : profile?.job_title || "",
+        fullName,
         user_id: uid,
         contactId: linkedContactId || undefined,
       });
 
       links.push({
         source: "self",
-        target: `user-${uid}`,
-        distance: linkedContact ? CLOSENESS[linkedContact.relationship_type] || 130 : 130,
+        target: nodeId,
+        distance: linkedContact
+          ? CLOSENESS[linkedContact.relationship_type] || 130
+          : 130,
         thickness: thicknessFromCount(stats?.count || 0),
         recency: computeRecency(stats?.most_recent || null),
         isMutual: true,
         isOwn: true,
       });
 
-      // Track for dedup
-      personToNodeId.set(uid, `user-${uid}`);
-      const normName = normalizeNameForMatch(getFullName(merged));
-      if (normName) personToNodeId.set(normName, `user-${uid}`);
+      // Track connected user for dedup
+      personToNodeId.set(uid, nodeId);
+      const normConnName = normalizeNameForMatch(fullName);
+      if (normConnName) personToNodeId.set(normConnName, nodeId);
     }
 
     // 4. THEIR CONTACTS (2nd degree) — WITH DEDUP
@@ -453,30 +455,37 @@ export default function NetworkPage() {
 
   // D3 rendering
   useEffect(() => {
-    if (!graphData.nodes.length || !svgRef.current || !containerRef.current) return;
+    if (!svgRef.current || !containerRef.current || graphData.nodes.length === 0) return;
 
     const width = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
-    svg.attr("width", width).attr("height", height);
 
     const g = svg.append("g");
 
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.15, 4])
-      .on("zoom", (event) => g.attr("transform", event.transform));
+    // Zoom
+    const zoom = d3.zoom<SVGSVGElement, unknown>().scaleExtent([0.2, 4]).on("zoom", (event) => {
+      g.attr("transform", event.transform);
+    });
     svg.call(zoom);
 
-    const centerNode = graphData.nodes.find((n) => n.id === centeredNodeId) || graphData.nodes[0];
     const sim = d3.forceSimulation<GraphNode>(graphData.nodes)
-      .force("link", d3.forceLink<GraphNode, GraphLink>(graphData.links).id((d) => d.id).distance((d) => d.distance))
-      .force("charge", d3.forceManyBody().strength(-120))
+      .force(
+        "link",
+        d3.forceLink<GraphNode, GraphLink>(graphData.links)
+          .id((d) => d.id)
+          .distance((d) => d.distance)
+      )
+      .force("charge", d3.forceManyBody().strength(-80))
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("collision", d3.forceCollide<GraphNode>().radius((d) => d.radius + 4));
+
     simulationRef.current = sim;
 
-    const link = g.append("g")
+    // Links
+    const link = g
+      .append("g")
       .selectAll("line")
       .data(graphData.links)
       .join("line")
@@ -484,32 +493,41 @@ export default function NetworkPage() {
       .attr("stroke-width", (d) => d.thickness)
       .attr("stroke-linecap", "round");
 
-    const node = g.append("g")
+    // Nodes
+    const node = g
+      .append("g")
       .selectAll("circle")
       .data(graphData.nodes)
       .join("circle")
       .attr("r", (d) => d.radius)
       .attr("fill", (d) => {
-        if (d.type === "self") return "#DC2626";
-        if (d.type === "connected_user") return "#F97316";
-        if (d.type === "their_contact") return "#6B7280";
-        return "#ffffff";
+        switch (d.type) {
+          case "self": return "#3b82f6";
+          case "connected_user": return "#ef4444";
+          case "contact": return "#6b7280";
+          case "their_contact": return "#374151";
+          default: return "#6b7280";
+        }
       })
       .attr("stroke", (d) => {
-        if (d.type === "self") return "#FCA5A5";
-        if (d.type === "connected_user") return "#FDBA74";
-        return "#555";
+        switch (d.type) {
+          case "self": return "#93c5fd";
+          case "connected_user": return "#fca5a5";
+          default: return "#4b5563";
+        }
       })
       .attr("stroke-width", (d) => (d.type === "self" ? 3 : d.type === "connected_user" ? 2 : 1))
       .attr("cursor", "pointer")
       .on("mouseover", function (event, d) {
         setHoveredNode(d);
         setTooltipPos({ x: event.pageX, y: event.pageY });
-        d3.select(this).transition().duration(200).attr("r", d.radius * 1.3);
+        d3.select(this).attr("stroke", "#fff").attr("stroke-width", 3);
       })
       .on("mouseout", function (_, d) {
         setHoveredNode(null);
-        d3.select(this).transition().duration(200).attr("r", d.radius);
+        d3.select(this)
+          .attr("stroke", d.type === "self" ? "#93c5fd" : d.type === "connected_user" ? "#fca5a5" : "#4b5563")
+          .attr("stroke-width", d.type === "self" ? 3 : d.type === "connected_user" ? 2 : 1);
       })
       .on("click", (_, d) => {
         if (d.contactId) {
@@ -531,25 +549,22 @@ export default function NetworkPage() {
             if (!event.active) sim.alphaTarget(0);
             d.fx = null;
             d.fy = null;
-          })
+          }) as any
       );
 
-    const label = g.append("g")
+    // Labels
+    const labels = g
+      .append("g")
       .selectAll("text")
       .data(graphData.nodes)
       .join("text")
       .text((d) => d.label)
       .attr("font-size", (d) => (d.type === "self" ? 14 : d.type === "connected_user" ? 12 : 10))
-      .attr("fill", (d) => {
-        if (d.type === "self") return "#FCA5A5";
-        if (d.type === "connected_user") return "#FDBA74";
-        if (d.type === "their_contact") return "#9CA3AF";
-        return "#E5E7EB";
-      })
+      .attr("fill", (d) => (d.type === "self" ? "#93c5fd" : d.type === "connected_user" ? "#fca5a5" : "#9ca3af"))
       .attr("text-anchor", "middle")
       .attr("dy", (d) => d.radius + 14)
       .attr("pointer-events", "none")
-      .attr("font-weight", (d) => (d.type === "self" || d.type === "connected_user" ? "700" : "400"));
+      .attr("font-weight", (d) => (d.type === "self" || d.type === "connected_user" ? "bold" : "normal"));
 
     sim.on("tick", () => {
       link
@@ -558,97 +573,93 @@ export default function NetworkPage() {
         .attr("x2", (d) => (d.target as GraphNode).x!)
         .attr("y2", (d) => (d.target as GraphNode).y!);
       node.attr("cx", (d) => d.x!).attr("cy", (d) => d.y!);
-      label.attr("x", (d) => d.x!).attr("y", (d) => d.y!);
+      labels.attr("x", (d) => d.x!).attr("y", (d) => d.y!);
     });
 
-    sim.on("end", () => {
-      if (centerNode) {
-        const x = centerNode.x || width / 2;
-        const y = centerNode.y || height / 2;
-        const transform = d3.zoomIdentity
-          .translate(width / 2, height / 2)
-          .scale(1)
-          .translate(-x, -y);
-        svg.transition().duration(500).call(zoom.transform, transform);
-      }
-    });
+    // Center on selected node
+    const centerNode = graphData.nodes.find((n) => n.id === centeredNodeId) || graphData.nodes[0];
+    if (centerNode) {
+      setTimeout(() => {
+        const scale = 1.2;
+        svg
+          .transition()
+          .duration(750)
+          .call(
+            zoom.transform,
+            d3.zoomIdentity
+              .translate(width / 2, height / 2)
+              .scale(scale)
+              .translate(-(centerNode.x || width / 2), -(centerNode.y || height / 2))
+          );
+      }, 1000);
+    }
 
     return () => { sim.stop(); };
   }, [graphData, centeredNodeId, router]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-black text-white">
-        <div className="animate-pulse text-lg">Loading your network...</div>
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <p className="text-zinc-400">Loading network…</p>
       </div>
     );
   }
 
   return (
-    <div className="relative h-screen w-full bg-black overflow-hidden">
+    <div className="min-h-screen bg-black text-white flex flex-col">
       {/* Header */}
-      <div className="absolute top-4 left-4 z-20 flex items-center gap-3">
-        <button
-          onClick={() => router.push("/dashboard")}
-          className="bg-zinc-900/80 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white hover:bg-zinc-800 transition-colors backdrop-blur-sm"
-        >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+        <button onClick={() => router.push("/dashboard")} className="text-zinc-400 hover:text-white text-sm">
           ← Back
         </button>
-        <h1 className="text-white text-lg font-semibold">Network</h1>
+        <h1 className="text-lg font-bold">Network</h1>
+        <div className="w-12" />
       </div>
 
       {/* Search */}
-      <div className="absolute top-4 right-4 z-20">
+      <div className="px-4 py-2">
         <input
           type="text"
-          placeholder="Filter contacts..."
+          placeholder="Filter by name, company, role..."
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="bg-zinc-900/80 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 backdrop-blur-sm w-48 focus:outline-none focus:border-zinc-500"
+          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
         />
       </div>
 
       {/* Legend */}
-      <div className="absolute bottom-4 left-4 z-20 bg-zinc-900/80 border border-zinc-700 rounded-lg p-3 backdrop-blur-sm">
-        <div className="flex flex-col gap-1.5 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-red-600" />
-            <span className="text-zinc-300">You</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-orange-500" />
-            <span className="text-zinc-300">Connected on NEXUS</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-white" />
-            <span className="text-zinc-300">Your contacts</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-gray-500" />
-            <span className="text-zinc-300">Their contacts</span>
-          </div>
-        </div>
+      <div className="flex gap-4 px-4 py-1 text-xs text-zinc-500">
+        <span className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> You
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Connected
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-gray-500 inline-block" /> Contacts
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-gray-700 inline-block" /> 2nd°
+        </span>
       </div>
 
-      {/* Tooltip */}
-      {hoveredNode && (
-        <div
-          className="fixed z-50 bg-zinc-900 border border-zinc-600 rounded-lg px-3 py-2 pointer-events-none shadow-lg"
-          style={{
-            left: tooltipPos.x + 15,
-            top: tooltipPos.y - 10,
-          }}
-        >
-          <div className="text-white font-medium text-sm">{hoveredNode.fullName || hoveredNode.label}</div>
-          {hoveredNode.jobTitle && <div className="text-zinc-400 text-xs">{hoveredNode.jobTitle}</div>}
-          {hoveredNode.company && <div className="text-zinc-400 text-xs">{hoveredNode.company}</div>}
-          <div className="text-zinc-500 text-xs mt-1">{hoveredNode.connectionCount} connection{hoveredNode.connectionCount !== 1 ? "s" : ""}</div>
-        </div>
-      )}
-
       {/* Graph */}
-      <div ref={containerRef} className="w-full h-full">
+      <div ref={containerRef} className="flex-1 relative">
         <svg ref={svgRef} className="w-full h-full" />
+
+        {hoveredNode && (
+          <div
+            className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm shadow-xl pointer-events-none"
+            style={{ left: tooltipPos.x + 12, top: tooltipPos.y - 12 }}
+          >
+            <p className="font-bold text-white">{hoveredNode.fullName || hoveredNode.label}</p>
+            {hoveredNode.jobTitle && <p className="text-zinc-400">{hoveredNode.jobTitle}</p>}
+            {hoveredNode.company && <p className="text-zinc-500">{hoveredNode.company}</p>}
+            <p className="text-zinc-600 text-xs mt-1">
+              {hoveredNode.connectionCount} connection{hoveredNode.connectionCount !== 1 ? "s" : ""}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
