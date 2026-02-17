@@ -12,22 +12,26 @@ export function generateInviteCode(): string {
   return `NEXUS-${code}`;
 }
 
-// Get or create an invite code for the current user
+// Get or create a SINGLE reusable invite code for the user (for the dashboard "Share Your Code" section)
+// This code is NOT tied to any specific contact — it's a general-purpose code.
+// We store it in a connections row with inviter_id=userId, invitee_id=null, contact_id=null, status='pending'.
+// We reuse the same code across sessions (don't create new rows each time).
 export async function getOrCreateInviteCode(userId: string): Promise<string | null> {
-  // Check if user already has a pending invite code
+  // Check if user already has a general pending invite code (no contact_id, no invitee_id)
   const { data: existing } = await supabase
     .from('connections')
     .select('invite_code')
     .eq('inviter_id', userId)
     .eq('status', 'pending')
     .is('invitee_id', null)
+    .is('contact_id', null)
     .order('created_at', { ascending: false })
     .limit(1)
     .single();
 
   if (existing?.invite_code) return existing.invite_code;
 
-  // Create a new one
+  // Create a new general invite code
   const code = generateInviteCode();
   const { error } = await supabase.from('connections').insert({
     inviter_id: userId,
@@ -43,11 +47,12 @@ export async function getOrCreateInviteCode(userId: string): Promise<string | nu
   return code;
 }
 
-// Generate an invite code for a specific contact
+// Generate an invite code for a specific contact (from the contacts page "Invite" button)
+// Returns { code, error } for the contacts page UI
 export async function createInviteForContact(
   userId: string,
   contactId: string
-): Promise<string | null> {
+): Promise<{ code: string | null; error: string | null }> {
   // Check if there's already a pending invite for this contact
   const { data: existing } = await supabase
     .from('connections')
@@ -58,7 +63,7 @@ export async function createInviteForContact(
     .limit(1)
     .single();
 
-  if (existing?.invite_code) return existing.invite_code;
+  if (existing?.invite_code) return { code: existing.invite_code, error: null };
 
   const code = generateInviteCode();
   const { error } = await supabase.from('connections').insert({
@@ -70,10 +75,17 @@ export async function createInviteForContact(
 
   if (error) {
     console.error('Error creating invite for contact:', error);
-    return null;
+    return { code: null, error: error.message };
   }
 
-  return code;
+  return { code, error: null };
+}
+
+// Alias for backward compatibility — contacts page imports this
+export async function createInvite(contactId: string): Promise<{ code: string | null; error: string | null }> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { code: null, error: 'Not logged in' };
+  return createInviteForContact(user.id, contactId);
 }
 
 // Redeem an invite code — called after user is fully authenticated
@@ -84,7 +96,7 @@ export async function redeemInviteCode(
 ): Promise<{ success: boolean; error?: string }> {
   const code = inviteCode.trim().toUpperCase();
 
-  // 1. Find the pending connection
+  // 1. Find the pending connection with this code
   const { data: connection, error: findError } = await supabase
     .from('connections')
     .select('*')
@@ -134,7 +146,8 @@ export async function redeemInviteCode(
     return { success: false, error: 'Could not find user profiles' };
   }
 
-  // 3. Ensure inviter has a contact card for invitee (check by linked_profile_id)
+  // 3. Ensure inviter has a contact card for invitee
+  // First check by linked_profile_id
   const { data: inviterContact } = await supabase
     .from('contacts')
     .select('id')
@@ -146,36 +159,53 @@ export async function redeemInviteCode(
   let inviterContactId = inviterContact?.id;
 
   if (!inviterContactId) {
-    // Check if the connection had a contact_id (inviter created contact before inviting)
     if (connection.contact_id) {
-      // Link the existing contact to the invitee's profile
+      // The invite was created from a specific contact card — link it to the invitee's profile
       await supabase
         .from('contacts')
         .update({ linked_profile_id: inviteeId })
         .eq('id', connection.contact_id);
       inviterContactId = connection.contact_id;
     } else {
-      // Create a new contact card for the inviter
-      const { data: newContact } = await supabase
+      // General invite (from dashboard) — check if inviter has an unlinked contact matching the invitee by email or name
+      const { data: matchByEmail } = await supabase
         .from('contacts')
-        .insert({
-          owner_id: connection.inviter_id,
-          linked_profile_id: inviteeId,
-          full_name: inviteeProfile.full_name,
-          email: inviteeProfile.email,
-          avatar_url: inviteeProfile.avatar_url,
-          location: inviteeProfile.location,
-          bio: inviteeProfile.bio,
-          website: inviteeProfile.website,
-          relationship_type: 'connection',
-        })
         .select('id')
+        .eq('owner_id', connection.inviter_id)
+        .is('linked_profile_id', null)
+        .ilike('email', inviteeProfile.email || '__no_match__')
+        .limit(1)
         .single();
-      inviterContactId = newContact?.id;
+
+      if (matchByEmail) {
+        await supabase
+          .from('contacts')
+          .update({ linked_profile_id: inviteeId })
+          .eq('id', matchByEmail.id);
+        inviterContactId = matchByEmail.id;
+      } else {
+        // Create a new contact card for the inviter
+        const { data: newContact } = await supabase
+          .from('contacts')
+          .insert({
+            owner_id: connection.inviter_id,
+            linked_profile_id: inviteeId,
+            full_name: inviteeProfile.full_name,
+            email: inviteeProfile.email,
+            avatar_url: inviteeProfile.avatar_url,
+            location: inviteeProfile.location,
+            bio: inviteeProfile.bio,
+            website: inviteeProfile.website,
+            relationship_type: 'connection',
+          })
+          .select('id')
+          .single();
+        inviterContactId = newContact?.id;
+      }
     }
   }
 
-  // 4. Ensure invitee has a contact card for inviter (check by linked_profile_id)
+  // 4. Ensure invitee has a contact card for inviter
   const { data: inviteeContact } = await supabase
     .from('contacts')
     .select('id')
@@ -187,23 +217,41 @@ export async function redeemInviteCode(
   let inviteeContactId = inviteeContact?.id;
 
   if (!inviteeContactId) {
-    // Create a new contact card for the invitee
-    const { data: newContact } = await supabase
+    // Check if invitee has an unlinked contact matching the inviter by email
+    const { data: matchByEmail } = await supabase
       .from('contacts')
-      .insert({
-        owner_id: inviteeId,
-        linked_profile_id: connection.inviter_id,
-        full_name: inviterProfile.full_name,
-        email: inviterProfile.email,
-        avatar_url: inviterProfile.avatar_url,
-        location: inviterProfile.location,
-        bio: inviterProfile.bio,
-        website: inviterProfile.website,
-        relationship_type: 'connection',
-      })
       .select('id')
+      .eq('owner_id', inviteeId)
+      .is('linked_profile_id', null)
+      .ilike('email', inviterProfile.email || '__no_match__')
+      .limit(1)
       .single();
-    inviteeContactId = newContact?.id;
+
+    if (matchByEmail) {
+      await supabase
+        .from('contacts')
+        .update({ linked_profile_id: connection.inviter_id })
+        .eq('id', matchByEmail.id);
+      inviteeContactId = matchByEmail.id;
+    } else {
+      // Create a new contact card for the invitee
+      const { data: newContact } = await supabase
+        .from('contacts')
+        .insert({
+          owner_id: inviteeId,
+          linked_profile_id: connection.inviter_id,
+          full_name: inviterProfile.full_name,
+          email: inviterProfile.email,
+          avatar_url: inviterProfile.avatar_url,
+          location: inviterProfile.location,
+          bio: inviterProfile.bio,
+          website: inviterProfile.website,
+          relationship_type: 'connection',
+        })
+        .select('id')
+        .single();
+      inviteeContactId = newContact?.id;
+    }
   }
 
   // 5. Accept the connection
@@ -220,6 +268,17 @@ export async function redeemInviteCode(
   if (updateError) {
     console.error('Error accepting connection:', updateError);
     return { success: false, error: 'Failed to accept connection' };
+  }
+
+  // 6. If this was a general invite code (no contact_id), create a fresh one for the inviter
+  //    so they always have a shareable code available
+  if (!connection.contact_id) {
+    const newCode = generateInviteCode();
+    await supabase.from('connections').insert({
+      inviter_id: connection.inviter_id,
+      invite_code: newCode,
+      status: 'pending',
+    });
   }
 
   return { success: true };
@@ -263,7 +322,8 @@ export async function getPendingInvites(userId: string) {
     .from('connections')
     .select('*, contacts(full_name)')
     .eq('inviter_id', userId)
-    .eq('status', 'pending');
+    .eq('status', 'pending')
+    .not('contact_id', 'is', null);  // Only show contact-specific invites, not general codes
 
   if (error) {
     console.error('Error fetching pending invites:', error);
