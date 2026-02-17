@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { redeemInvite } from '@/lib/connections'
 import Link from 'next/link'
 
 export default function SignUpPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -24,6 +26,7 @@ export default function SignUpPage() {
         options: {
           data: {
             full_name: fullName,
+            invite_code: inviteCode.trim() || null,
           },
           emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
@@ -36,6 +39,14 @@ export default function SignUpPage() {
       }
 
       if (data.user) {
+        // If they provided an invite code, try to redeem it immediately
+        if (inviteCode.trim()) {
+          const { error: redeemError } = await redeemInvite(inviteCode.trim())
+          // Don't block signup if redeem fails — they can try again from dashboard
+          if (redeemError) {
+            console.log('Invite redeem deferred:', redeemError)
+          }
+        }
         setSuccess(true)
       }
     } catch (err) {
@@ -60,6 +71,11 @@ export default function SignUpPage() {
               We sent a confirmation link to <span className="text-white font-medium">{email}</span>. 
               Click the link to activate your account.
             </p>
+            {inviteCode.trim() && (
+              <p className="text-zinc-500 text-sm mt-3">
+                Your invite code will be applied once you confirm your email and log in.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -128,6 +144,22 @@ export default function SignUpPage() {
                 className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition"
                 placeholder="At least 8 characters"
               />
+            </div>
+
+            <div>
+              <label htmlFor="inviteCode" className="block text-sm font-medium text-zinc-300 mb-1.5">
+                Invite Code <span className="text-zinc-500 font-normal">(optional)</span>
+              </label>
+              <input
+                id="inviteCode"
+                type="text"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition font-mono tracking-wider"
+                placeholder="NEXUS-XXXXXX"
+                maxLength={12}
+              />
+              <p className="text-zinc-600 text-xs mt-1">Got a code from someone? Enter it to connect.</p>
             </div>
 
             <button
