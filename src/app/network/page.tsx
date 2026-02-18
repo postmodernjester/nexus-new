@@ -9,9 +9,9 @@ import { usePathname } from 'next/navigation';
 /* ───────── types ───────── */
 interface GraphNode extends d3.SimulationNodeDatum {
   id: string;
-  label: string;        // display label on canvas
-  hoverName: string;    // line 1 on hover
-  hoverDetail: string;  // line 2 on hover (title · company)
+  label: string;
+  hoverName: string;
+  hoverDetail: string;
   group: 'you' | 'connected_user' | 'contact' | 'second_degree';
   radius: number;
 }
@@ -32,19 +32,10 @@ function TopNav() {
   return (
     <nav className="w-full border-b border-white/10 bg-[#0a0a0a]">
       <div className="max-w-7xl mx-auto px-4 flex items-center h-14 gap-6">
-        <Link href="/dashboard" className="text-lg font-bold text-white tracking-wide mr-4">
-          NEXUS
-        </Link>
+        <Link href="/dashboard" className="text-lg font-bold text-white tracking-wide mr-4">NEXUS</Link>
         {navLinks.map((l) => (
-          <Link
-            key={l.href}
-            href={l.href}
-            className={`text-sm transition-colors ${
-              pathname === l.href
-                ? 'text-white font-medium'
-                : 'text-white/50 hover:text-white/80'
-            }`}
-          >
+          <Link key={l.href} href={l.href}
+            className={`text-sm transition-colors ${pathname === l.href ? 'text-white font-medium' : 'text-white/50 hover:text-white/80'}`}>
             {l.label}
           </Link>
         ))}
@@ -53,7 +44,7 @@ function TopNav() {
   );
 }
 
-/* ───────── main page ───────── */
+/* ───────── main ───────── */
 export default function NetworkPage() {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -66,71 +57,37 @@ export default function NetworkPage() {
     return () => { cancelled = true; };
   }, []);
 
-  /* ─── build the graph ─── */
   async function buildGraph() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const uid = user.id;
 
-    /* 1  fetch profile */
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('full_name, title, company')
-      .eq('id', uid)
-      .single();
+    const { data: profile } = await supabase.from('profiles').select('full_name, title, company').eq('id', uid).single();
 
-    /* 2  fetch connections */
-    const { data: connections } = await supabase
-      .from('connections')
-      .select('user_id, connected_user_id, status')
-      .or(`user_id.eq.${uid},connected_user_id.eq.${uid}`)
-      .eq('status', 'accepted');
+    const { data: connections } = await supabase.from('connections').select('user_id, connected_user_id, status').or(`user_id.eq.${uid},connected_user_id.eq.${uid}`).eq('status', 'accepted');
 
-    const mutualUserIds = (connections || []).map((c: any) =>
-      c.user_id === uid ? c.connected_user_id : c.user_id
-    );
+    const mutualUserIds = (connections || []).map((c: any) => c.user_id === uid ? c.connected_user_id : c.user_id);
 
-    /* 3  fetch connected-user profiles */
     let connectedProfiles: any[] = [];
     if (mutualUserIds.length > 0) {
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, full_name, title, company')
-        .in('id', mutualUserIds);
+      const { data } = await supabase.from('profiles').select('id, full_name, title, company').in('id', mutualUserIds);
       connectedProfiles = data || [];
     }
 
-    /* 4  fetch my contacts */
-    const { data: myContacts } = await supabase
-      .from('contacts')
-      .select('id, first_name, last_name, title, company, linked_profile_id')
-      .eq('owner_id', uid);
+    const { data: myContacts } = await supabase.from('contacts').select('id, first_name, last_name, title, company, linked_profile_id').eq('owner_id', uid);
 
-    /* 5  fetch all visible contacts (RLS lets us see connected users' contacts) */
-    const { data: allContacts } = await supabase
-      .from('contacts')
-      .select('id, owner_id, first_name, last_name, title, company, linked_profile_id');
+    const { data: allContacts } = await supabase.from('contacts').select('id, owner_id, first_name, last_name, title, company, linked_profile_id');
 
-    /* 6  fetch ALL connections (not just mine) to find who's connected to my connections */
-    const { data: allConnections } = await supabase
-      .from('connections')
-      .select('user_id, connected_user_id, status')
-      .eq('status', 'accepted');
+    const { data: allConnections } = await supabase.from('connections').select('user_id, connected_user_id, status').eq('status', 'accepted');
 
-    /* ─── build a set of connected-user-ids for each mutual user ─── */
     const connectedToMyConnections = new Set<string>();
     for (const conn of (allConnections || [])) {
       for (const muId of mutualUserIds) {
-        if (conn.user_id === muId && conn.connected_user_id !== uid) {
-          connectedToMyConnections.add(conn.connected_user_id);
-        }
-        if (conn.connected_user_id === muId && conn.user_id !== uid) {
-          connectedToMyConnections.add(conn.user_id);
-        }
+        if (conn.user_id === muId && conn.connected_user_id !== uid) connectedToMyConnections.add(conn.connected_user_id);
+        if (conn.connected_user_id === muId && conn.user_id !== uid) connectedToMyConnections.add(conn.user_id);
       }
     }
 
-    /* ─── helpers ─── */
     const firstInitialLast = (first: string, last: string) => {
       const f = (first || '').trim();
       const l = (last || '').trim();
@@ -140,105 +97,56 @@ export default function NetworkPage() {
     };
     const titleCompany = (t: string | null, c: string | null) => {
       const parts = [t, c].filter(Boolean);
-      return parts.join(' · ') || '';
+      return parts.join(' \u00b7 ') || '';
     };
 
-    /* ─── nodes ─── */
     const nodes: GraphNode[] = [];
     const links: GraphLink[] = [];
     const nodeIds = new Set<string>();
 
-    /* YOU */
     const youName = profile?.full_name || 'You';
-    nodes.push({
-      id: uid,
-      label: youName,
-      hoverName: youName,
-      hoverDetail: titleCompany(profile?.title, profile?.company),
-      group: 'you',
-      radius: 28,
-    });
+    nodes.push({ id: uid, label: youName, hoverName: youName, hoverDetail: titleCompany(profile?.title, profile?.company), group: 'you', radius: 28 });
     nodeIds.add(uid);
 
-    /* CONNECTED USERS */
     for (const cp of connectedProfiles) {
-      nodes.push({
-        id: cp.id,
-        label: cp.full_name || 'User',
-        hoverName: cp.full_name || 'User',
-        hoverDetail: titleCompany(cp.title, cp.company),
-        group: 'connected_user',
-        radius: 20,
-      });
+      nodes.push({ id: cp.id, label: cp.full_name || 'User', hoverName: cp.full_name || 'User', hoverDetail: titleCompany(cp.title, cp.company), group: 'connected_user', radius: 20 });
       nodeIds.add(cp.id);
       links.push({ source: uid, target: cp.id, type: 'mutual' });
     }
 
-    /* MY CONTACTS */
     for (const c of (myContacts || [])) {
       const nid = `contact-${c.id}`;
       if (nodeIds.has(nid)) continue;
-      /* skip if this contact IS a connected user (already shown) */
       if (c.linked_profile_id && nodeIds.has(c.linked_profile_id)) continue;
-
       const fullName = `${c.first_name || ''} ${c.last_name || ''}`.trim();
-      nodes.push({
-        id: nid,
-        label: firstInitialLast(c.first_name, c.last_name),
-        hoverName: fullName || '?',
-        hoverDetail: titleCompany(c.title, c.company),
-        group: 'contact',
-        radius: 12,
-      });
+      nodes.push({ id: nid, label: firstInitialLast(c.first_name, c.last_name), hoverName: fullName || '?', hoverDetail: titleCompany(c.title, c.company), group: 'contact', radius: 12 });
       nodeIds.add(nid);
       links.push({ source: uid, target: nid, type: 'direct' });
     }
 
-    /* 2ND DEGREE — contacts owned by my connected users */
     for (const c of (allContacts || [])) {
-      if (c.owner_id === uid) continue;                       // skip my own
-      if (!mutualUserIds.includes(c.owner_id)) continue;      // must belong to a connected user
-      if (c.linked_profile_id === uid) continue;              // skip if it's me
-
+      if (c.owner_id === uid) continue;
+      if (!mutualUserIds.includes(c.owner_id)) continue;
+      if (c.linked_profile_id === uid) continue;
       const nid = `contact-${c.id}`;
       if (nodeIds.has(nid)) continue;
-
-      /* check if already shown as connected user */
       if (c.linked_profile_id && nodeIds.has(c.linked_profile_id)) {
-        /* link from owner to that existing node */
         links.push({ source: c.owner_id, target: c.linked_profile_id, type: 'second_degree' });
         continue;
       }
-
-      /* Is this 2nd degree contact a connected user of one of my connections? */
       const isConnectedToMyConnection = c.linked_profile_id && connectedToMyConnections.has(c.linked_profile_id);
-
       const fullName = `${c.first_name || ''} ${c.last_name || ''}`.trim();
-
-      let label: string;
-      let hoverName: string;
-      let hoverDetail: string;
-
+      let label: string, hoverName: string, hoverDetail: string;
       if (isConnectedToMyConnection) {
-        /* treat like a 1st degree — full info */
         label = firstInitialLast(c.first_name, c.last_name);
         hoverName = fullName || '?';
         hoverDetail = titleCompany(c.title, c.company);
       } else {
-        /* standard 2nd degree — job title only */
         label = c.title || '?';
         hoverName = c.title || '?';
         hoverDetail = c.company || '';
       }
-
-      nodes.push({
-        id: nid,
-        label,
-        hoverName,
-        hoverDetail,
-        group: 'second_degree',
-        radius: 9,
-      });
+      nodes.push({ id: nid, label, hoverName, hoverDetail, group: 'second_degree', radius: 9 });
       nodeIds.add(nid);
       links.push({ source: c.owner_id, target: nid, type: 'second_degree' });
     }
@@ -246,7 +154,6 @@ export default function NetworkPage() {
     render(nodes, links);
   }
 
-  /* ─── D3 render ─── */
   function render(nodes: GraphNode[], links: GraphLink[]) {
     const container = containerRef.current;
     const svg = svgRef.current;
@@ -266,7 +173,6 @@ export default function NetworkPage() {
     sel.selectAll('*').remove();
     sel.attr('width', width).attr('height', height);
 
-    /* tooltip */
     d3.select('#graph-tooltip').remove();
     const tooltip = d3.select(container)
       .append('div')
@@ -285,110 +191,93 @@ export default function NetworkPage() {
 
     const g = sel.append('g');
 
-    /* zoom */
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.3, 4])
       .on('zoom', (e) => g.attr('transform', e.transform));
     sel.call(zoom);
 
-    /* simulation */
     const sim = d3.forceSimulation<GraphNode>(nodes)
       .force('link', d3.forceLink<GraphNode, GraphLink>(links).id((d) => d.id).distance(110))
       .force('charge', d3.forceManyBody().strength(-300))
       .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide<GraphNode>().radius((d) => d.radius + 20));
+      .force('collision', d3.forceCollide<GraphNode>().radius((d) => d.radius + 25));
 
-    /* links */
     const link = g.append('g')
       .selectAll('line')
       .data(links)
       .join('line')
       .attr('stroke', (d) => d.type === 'mutual' ? '#60A5FA' : '#444')
       .attr('stroke-width', (d) => d.type === 'mutual' ? 4 : 2)
-      .attr('stroke-opacity', (d) => d.type === 'second_degree' ? 0.4 : 0.7);
+      .attr('stroke-opacity', (d) => d.type === 'second_degree' ? 0.4 : 0.6);
 
-    /* node groups */
     const node = g.append('g')
-      .selectAll<SVGGElement, GraphNode>('g')
+      .selectAll('circle')
       .data(nodes)
-      .join('g')
-      .style('cursor', 'pointer')
-      .call(
-        d3.drag<SVGGElement, GraphNode>()
-          .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-          .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
-          .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
-      );
-
-    /* circles */
-    node.append('circle')
+      .join('circle')
       .attr('r', (d) => d.radius)
       .attr('fill', (d) => colors[d.group])
       .attr('stroke', '#000')
-      .attr('stroke-width', 1.5);
-
-    /* labels — offset BELOW the node */
-    node.append('text')
-      .text((d) => d.label)
-      .attr('dy', (d) => d.radius + 14)
-      .attr('text-anchor', 'middle')
-      .attr('fill', '#ddd')
-      .attr('font-size', (d) => d.group === 'you' ? '13px' : d.group === 'connected_user' ? '12px' : '11px')
-      .attr('font-weight', (d) => d.group === 'you' || d.group === 'connected_user' ? '600' : '400')
-      .style('paint-order', 'stroke')
-      .attr('stroke', '#0a0a0a')
-      .attr('stroke-width', 3);
-
-    /* hover */
-    node
-      .on('mouseover', function (e, d) {
-        const [mx, my] = d3.pointer(e, container);
+      .attr('stroke-width', 1.5)
+      .style('cursor', 'pointer')
+      .on('mouseover', (event, d) => {
         let html = `<div style="font-weight:600">${d.hoverName}</div>`;
         if (d.hoverDetail) html += `<div style="opacity:0.7;font-size:12px">${d.hoverDetail}</div>`;
-        tooltip.html(html)
-          .style('left', `${mx + 14}px`)
-          .style('top', `${my - 10}px`)
-          .transition().duration(120).style('opacity', 1);
-        d3.select(this).select('circle')
-          .transition().duration(150)
-          .attr('r', d.radius * 1.2)
-          .attr('stroke', '#fff')
-          .attr('stroke-width', 2);
+        tooltip.html(html).style('opacity', 1);
       })
-      .on('mousemove', function (e) {
-        const [mx, my] = d3.pointer(e, container);
-        tooltip.style('left', `${mx + 14}px`).style('top', `${my - 10}px`);
+      .on('mousemove', (event) => {
+        const rect = container.getBoundingClientRect();
+        tooltip
+          .style('left', (event.clientX - rect.left + 14) + 'px')
+          .style('top', (event.clientY - rect.top - 10) + 'px');
       })
-      .on('mouseout', function (_, d) {
-        tooltip.transition().duration(200).style('opacity', 0);
-        d3.select(this).select('circle')
-          .transition().duration(150)
-          .attr('r', d.radius)
-          .attr('stroke', '#000')
-          .attr('stroke-width', 1.5);
-      });
+      .on('mouseout', () => { tooltip.style('opacity', 0); })
+      .call(d3.drag<SVGCircleElement, GraphNode>()
+        .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+        .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+        .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
+      );
 
-    /* tick */
+    const label = g.append('g')
+      .selectAll('text')
+      .data(nodes)
+      .join('text')
+      .text((d) => d.label)
+      .attr('text-anchor', 'middle')
+      .attr('fill', '#fff')
+      .attr('font-size', (d) => d.group === 'you' ? 14 : d.group === 'connected_user' ? 13 : 11)
+      .attr('font-weight', (d) => d.group === 'you' || d.group === 'connected_user' ? '600' : '400')
+      .attr('paint-order', 'stroke')
+      .attr('stroke', '#000')
+      .attr('stroke-width', 3)
+      .attr('stroke-linecap', 'round')
+      .attr('stroke-linejoin', 'round')
+      .style('pointer-events', 'none');
+
     sim.on('tick', () => {
       link
-        .attr('x1', (d: any) => d.source.x)
-        .attr('y1', (d: any) => d.source.y)
-        .attr('x2', (d: any) => d.target.x)
-        .attr('y2', (d: any) => d.target.y);
-      node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
+        .attr('x1', (d) => (d.source as GraphNode).x!)
+        .attr('y1', (d) => (d.source as GraphNode).y!)
+        .attr('x2', (d) => (d.target as GraphNode).x!)
+        .attr('y2', (d) => (d.target as GraphNode).y!);
+      node
+        .attr('cx', (d) => d.x!)
+        .attr('cy', (d) => d.y!);
+      label
+        .attr('x', (d) => d.x!)
+        .attr('y', (d) => d.y! + d.radius + 16);
     });
   }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] flex flex-col">
       <TopNav />
-      <div className="flex-1 relative" ref={containerRef}>
+      <div ref={containerRef} className="flex-1 relative" style={{ minHeight: 'calc(100vh - 56px)' }}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center z-10">
-            <div className="text-white/50 text-sm">Loading network…</div>
+            <div className="text-white/50 text-sm">Loading network&hellip;</div>
           </div>
         )}
-        <svg ref={svgRef} className="w-full h-full" style={{ minHeight: 'calc(100vh - 56px)' }} />
+        <svg ref={svgRef} className="w-full h-full" />
       </div>
     </div>
   );
