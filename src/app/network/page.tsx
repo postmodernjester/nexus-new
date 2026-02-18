@@ -1,651 +1,593 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import * as d3 from 'd3';
-import { supabase } from '@/lib/supabase';
-import Nav from '@/components/Nav';
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import * as d3 from "d3";
 
-/* ------------------------------------------------------------------ */
-/*  TYPES                                                              */
-/* ------------------------------------------------------------------ */
-interface ContactRow {
+interface Contact {
   id: string;
   full_name: string;
-  role: string | null;
+  relationship_type: string;
   company: string | null;
-  relationship_type: string | null;
-  communication_frequency: number | null;
-  collaboration_depth: number | null;
-  last_contact_date: string | null;
-  linked_profile_id: string | null;
+  role: string | null;
   owner_id: string;
 }
 
-interface ConnectionRow {
+interface Connection {
+  id: string;
   inviter_id: string;
   invitee_id: string;
+  invite_code: string;
   status: string;
 }
 
-interface ProfileRow {
-  id: string;
-  full_name: string;
-  headline: string | null;
-}
-
-interface InteractionRow {
+interface InteractionStats {
   contact_id: string;
-  interaction_date: string;
+  count: number;
+  most_recent: string;
 }
 
 interface GraphNode extends d3.SimulationNodeDatum {
   id: string;
   label: string;
-  detail: string;
-  group: 'me' | 'contact' | 'connected-user' | 'second-degree';
+  type: "self" | "contact" | "connected_user" | "their_contact";
   radius: number;
-  relationshipType?: string;
-  communicationFrequency?: number;
-  collaborationDepth?: number;
-  lastContactDate?: string | null;
-  linkedProfileId?: string | null;
+  connectionCount: number;
+  relationship_type?: string;
+  company?: string;
+  role?: string;
+  owner_id?: string;
+  user_id?: string; // for connected users
 }
 
 interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
-  source: string | GraphNode;
-  target: string | GraphNode;
-  kind: 'own' | 'mutual' | 'second-degree';
+  distance: number;
   thickness: number;
-  brightness: number;
+  recency: number; // 0-1, 1 = most recent
+  isMutual: boolean; // red if mutual connection
+  isOwn: boolean; // black if own connection
 }
 
-/* ------------------------------------------------------------------ */
-/*  HELPERS                                                            */
-/* ------------------------------------------------------------------ */
+// Relationship type → closeness (lower = closer)
+const CLOSENESS: Record<string, number> = {
+  Family: 60,
+  "Close Friend": 90,
+  Friend: 130,
+  Colleague: 160,
+  Business: 190,
+  Acquaintance: 230,
+  Stranger: 280,
+};
 
-/** Interaction density → line thickness (1–5) */
-function calcThickness(freq: number | null, depth: number | null): number {
-  const f = freq ?? 0;
-  const d = depth ?? 0;
-  return Math.max(1, Math.min(5, Math.round((f + d) / 2)));
+function computeRecency(mostRecent: string | null): number {
+  if (!mostRecent) return 0.1;
+  const now = Date.now();
+  const then = new Date(mostRecent).getTime();
+  const daysSince = (now - then) / (1000 * 60 * 60 * 24);
+  if (daysSince <= 1) return 1;
+  if (daysSince <= 7) return 0.9;
+  if (daysSince <= 14) return 0.75;
+  if (daysSince <= 30) return 0.6;
+  if (daysSince <= 90) return 0.45;
+  if (daysSince <= 180) return 0.3;
+  if (daysSince <= 365) return 0.2;
+  return 0.1;
 }
 
-/** Recency → brightness 0.15 – 1.0  (older = dimmer) */
-function calcBrightness(lastDate: string | null): number {
-  if (!lastDate) return 0.25;
-  const days = (Date.now() - new Date(lastDate).getTime()) / 86400000;
-  if (days < 7) return 1.0;
-  if (days < 30) return 0.75;
-  if (days < 90) return 0.5;
-  if (days < 180) return 0.35;
-  return 0.2;
-}
-
-/** Relationship type → force distance */
-function relationshipDistance(type: string | null): number {
-  switch (type?.toLowerCase()) {
-    case 'close friend':
-    case 'partner':
-    case 'family':
-      return 80;
-    case 'friend':
-    case 'colleague':
-      return 130;
-    case 'acquaintance':
-      return 200;
-    case 'mentor':
-    case 'mentee':
-      return 150;
-    default:
-      return 170;
+function lineColor(isOwn: boolean, isMutual: boolean, recency: number): string {
+  if (isMutual) {
+    // Red with recency-based intensity
+    const alpha = 0.2 + recency * 0.8;
+    return `rgba(220, 38, 38, ${alpha})`;
   }
+  // Black with recency-based intensity
+  const alpha = 0.15 + recency * 0.7;
+  return `rgba(255, 255, 255, ${alpha})`;
 }
 
-/** Build display detail string */
-function fmtDetail(role: string | null, company: string | null, headline: string | null): string {
-  if (headline) return headline;
-  if (role && company) return `${role} at ${company}`;
-  return role || company || '';
+function thicknessFromCount(count: number): number {
+  if (count === 0) return 0.8;
+  if (count <= 2) return 1.5;
+  if (count <= 5) return 2.5;
+  if (count <= 10) return 3.5;
+  if (count <= 20) return 4.5;
+  return 6;
 }
 
-/** Get initials from a name */
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+function nodeSizeFromConnections(count: number, type: string): number {
+  const base = type === "self" ? 16 : type === "connected_user" ? 13 : 8;
+  return base + Math.min(count * 0.8, 12);
 }
 
-/* ------------------------------------------------------------------ */
-/*  COMPONENT                                                          */
-/* ------------------------------------------------------------------ */
 export default function NetworkPage() {
   const svgRef = useRef<SVGSVGElement>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const [centeredNodeId, setCenteredNodeId] = useState<string>("self");
+  const [graphData, setGraphData] = useState<{
+    nodes: GraphNode[];
+    links: GraphLink[];
+  }>({ nodes: [], links: [] });
+  const [filterText, setFilterText] = useState("");
+  const router = useRouter();
 
+  // Fetch all data
   useEffect(() => {
-    let destroyed = false;
+    async function fetchAll() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { router.push("/login"); return; }
 
-    async function build() {
-      try {
-        /* ---------- AUTH ---------- */
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.user) {
-          router.push('/login');
-          return;
+      // Fetch in parallel: my contacts, my connections, interactions
+      const [contactsRes, connectionsRes, interactionsRes, profileRes] = await Promise.all([
+        supabase.from("contacts").select("*"),
+        supabase.from("connections").select("*").eq("status", "accepted"),
+        supabase.from("interactions").select("contact_id, interaction_date"),
+        supabase.from("profiles").select("full_name, headline").eq("id", user.id).single(),
+      ]);
+
+      const allContacts: Contact[] = contactsRes.data || [];
+      const myContacts = allContacts.filter(c => c.owner_id === user.id);
+      const connections: Connection[] = connectionsRes.data || [];
+      const allInteractions = interactionsRes.data || [];
+
+      // Build interaction stats per contact
+      const interactionMap: Record<string, InteractionStats> = {};
+      for (const i of allInteractions) {
+        if (!interactionMap[i.contact_id]) {
+          interactionMap[i.contact_id] = { contact_id: i.contact_id, count: 0, most_recent: i.interaction_date };
         }
-        const uid = session.user.id;
-
-        /* ---------- FETCH DATA ---------- */
-        const [contactsRes, connectionsRes, profileRes, interactionsRes] = await Promise.all([
-          supabase.from('contacts').select('*').eq('owner_id', uid),
-          supabase.from('connections').select('*').eq('status', 'accepted').or(`inviter_id.eq.${uid},invitee_id.eq.${uid}`),
-          supabase.from('profiles').select('id, full_name, headline').eq('id', uid).single(),
-          supabase.from('interactions').select('contact_id, interaction_date').eq('owner_id', uid),
-        ]);
-
-        if (destroyed) return;
-
-        const contacts: ContactRow[] = contactsRes.data ?? [];
-        const connections: ConnectionRow[] = connectionsRes.data ?? [];
-        const myProfile: ProfileRow | null = profileRes.data;
-        const interactions: InteractionRow[] = interactionsRes.data ?? [];
-
-        /* ---------- INTERACTION COUNTS PER CONTACT ---------- */
-        const interactionCounts = new Map<string, number>();
-        for (const ix of interactions) {
-          interactionCounts.set(ix.contact_id, (interactionCounts.get(ix.contact_id) || 0) + 1);
+        interactionMap[i.contact_id].count++;
+        if (i.interaction_date > interactionMap[i.contact_id].most_recent) {
+          interactionMap[i.contact_id].most_recent = i.interaction_date;
         }
-
-        /* ---------- CONNECTED USER IDS ---------- */
-        const connectedUserIds = new Set<string>();
-        for (const c of connections) {
-          const other = c.inviter_id === uid ? c.invitee_id : c.inviter_id;
-          connectedUserIds.add(other);
-        }
-
-        /* ---------- DEDUP: contacts with linked_profile_id are connected users ---------- */
-        const linkedProfileIds = new Set<string>();
-        for (const ct of contacts) {
-          if (ct.linked_profile_id) linkedProfileIds.add(ct.linked_profile_id);
-        }
-
-        /* ---------- FETCH CONNECTED USER PROFILES ---------- */
-        const connectedIds = Array.from(connectedUserIds);
-        let connectedProfiles: ProfileRow[] = [];
-        if (connectedIds.length > 0) {
-          const { data } = await supabase
-            .from('profiles')
-            .select('id, full_name, headline')
-            .in('id', connectedIds);
-          connectedProfiles = data ?? [];
-        }
-        const profileMap = new Map<string, ProfileRow>();
-        for (const p of connectedProfiles) profileMap.set(p.id, p);
-
-        /* ---------- FETCH SECOND-DEGREE CONTACTS ---------- */
-        let secondDegreeContacts: ContactRow[] = [];
-        if (connectedIds.length > 0) {
-          const { data } = await supabase
-            .from('contacts')
-            .select('*')
-            .in('owner_id', connectedIds);
-          secondDegreeContacts = data ?? [];
-        }
-
-        /* Also fetch second-degree profiles for headline display */
-        const secondDegreeProfileIds = new Set<string>();
-        for (const sc of secondDegreeContacts) {
-          if (sc.linked_profile_id && !profileMap.has(sc.linked_profile_id)) {
-            secondDegreeProfileIds.add(sc.linked_profile_id);
-          }
-        }
-        if (secondDegreeProfileIds.size > 0) {
-          const { data } = await supabase
-            .from('profiles')
-            .select('id, full_name, headline')
-            .in('id', Array.from(secondDegreeProfileIds));
-          for (const p of (data ?? [])) profileMap.set(p.id, p);
-        }
-
-        if (destroyed) return;
-
-        /* ---------- MUTUAL CONNECTIONS ---------- */
-        const mutualContactIds = new Set<string>();
-        const myContactLinkedIds = new Set<string>();
-        for (const ct of contacts) {
-          if (ct.linked_profile_id) myContactLinkedIds.add(ct.linked_profile_id);
-        }
-        for (const sc of secondDegreeContacts) {
-          if (sc.linked_profile_id && myContactLinkedIds.has(sc.linked_profile_id)) {
-            mutualContactIds.add(sc.linked_profile_id);
-          }
-          // Also check if the second-degree contact name matches any of my contacts
-          for (const mc of contacts) {
-            if (mc.full_name === sc.full_name && mc.id !== sc.id) {
-              mutualContactIds.add(sc.id);
-            }
-          }
-        }
-
-        /* ================================================================ */
-        /*  BUILD GRAPH                                                      */
-        /* ================================================================ */
-        const nodes: GraphNode[] = [];
-        const links: GraphLink[] = [];
-        const nodeIds = new Set<string>();
-
-        /* --- ME node --- */
-        const meId = `me-${uid}`;
-        nodes.push({
-          id: meId,
-          label: myProfile?.full_name ?? 'Me',
-          detail: myProfile?.headline ?? '',
-          group: 'me',
-          radius: 28,
-        });
-        nodeIds.add(meId);
-
-        /* --- Connected users (from connections table, with dedup) --- */
-        for (const cuId of connectedUserIds) {
-          // Skip if already represented as a contact with linked_profile_id
-          // (dedup — we'll use the connected-user version instead)
-          const nid = `user-${cuId}`;
-          if (nodeIds.has(nid)) continue;
-
-          const prof = profileMap.get(cuId);
-          // Find matching contact for relationship details
-          const matchingContact = contacts.find((ct) => ct.linked_profile_id === cuId);
-
-          const connectionCount = secondDegreeContacts.filter((sc) => sc.owner_id === cuId).length;
-
-          nodes.push({
-            id: nid,
-            label: prof?.full_name ?? matchingContact?.full_name ?? 'Connected User',
-            detail: fmtDetail(
-              matchingContact?.role ?? null,
-              matchingContact?.company ?? null,
-              prof?.headline ?? null
-            ),
-            group: 'connected-user',
-            radius: Math.max(14, Math.min(24, 14 + connectionCount * 1.5)),
-            relationshipType: matchingContact?.relationship_type ?? undefined,
-            communicationFrequency: matchingContact?.communication_frequency ?? undefined,
-            collaborationDepth: matchingContact?.collaboration_depth ?? undefined,
-            lastContactDate: matchingContact?.last_contact_date ?? undefined,
-            linkedProfileId: cuId,
-          });
-          nodeIds.add(nid);
-
-          const thickness = calcThickness(
-            matchingContact?.communication_frequency ?? null,
-            matchingContact?.collaboration_depth ?? null
-          );
-          const brightness = calcBrightness(matchingContact?.last_contact_date ?? null);
-
-          links.push({
-            source: meId,
-            target: nid,
-            kind: mutualContactIds.has(cuId) ? 'mutual' : 'own',
-            thickness,
-            brightness,
-          });
-        }
-
-        /* --- My contacts (non-linked only, since linked ones are shown as connected users) --- */
-        for (const ct of contacts) {
-          if (ct.linked_profile_id && connectedUserIds.has(ct.linked_profile_id)) continue; // deduped
-          const nid = `contact-${ct.id}`;
-          if (nodeIds.has(nid)) continue;
-
-          const ixCount = interactionCounts.get(ct.id) ?? 0;
-
-          nodes.push({
-            id: nid,
-            label: ct.full_name,
-            detail: fmtDetail(ct.role, ct.company, null),
-            group: 'contact',
-            radius: Math.max(10, Math.min(20, 10 + ixCount * 2)),
-            relationshipType: ct.relationship_type ?? undefined,
-            communicationFrequency: ct.communication_frequency ?? undefined,
-            collaborationDepth: ct.collaboration_depth ?? undefined,
-            lastContactDate: ct.last_contact_date ?? undefined,
-          });
-          nodeIds.add(nid);
-
-          links.push({
-            source: meId,
-            target: nid,
-            kind: 'own',
-            thickness: calcThickness(ct.communication_frequency, ct.collaboration_depth),
-            brightness: calcBrightness(ct.last_contact_date),
-          });
-        }
-
-        /* --- Second-degree contacts --- */
-        for (const sc of secondDegreeContacts) {
-          // Skip if this person is me
-          if (sc.linked_profile_id === uid) continue;
-          // Skip if already in graph (my contact or connected user)
-          const existingAsUser = `user-${sc.linked_profile_id}`;
-          const existingAsContact = contacts.find(
-            (mc) => mc.full_name === sc.full_name || mc.linked_profile_id === sc.linked_profile_id
-          );
-          if (sc.linked_profile_id && nodeIds.has(existingAsUser)) continue;
-          if (existingAsContact) continue;
-
-          const nid = `second-${sc.id}`;
-          if (nodeIds.has(nid)) continue;
-
-          const prof = sc.linked_profile_id ? profileMap.get(sc.linked_profile_id) : null;
-
-          nodes.push({
-            id: nid,
-            label: initials(sc.full_name),
-            detail: fmtDetail(sc.role, sc.company, prof?.headline ?? null),
-            group: 'second-degree',
-            radius: 8,
-            relationshipType: sc.relationship_type ?? undefined,
-          });
-          nodeIds.add(nid);
-
-          // Link to the connected user who owns this contact
-          const ownerNodeId = `user-${sc.owner_id}`;
-          if (nodeIds.has(ownerNodeId)) {
-            links.push({
-              source: ownerNodeId,
-              target: nid,
-              kind: 'second-degree',
-              thickness: 1,
-              brightness: 0.3,
-            });
-          }
-        }
-
-        if (destroyed || !svgRef.current) return;
-
-        /* ================================================================ */
-        /*  RENDER D3                                                        */
-        /* ================================================================ */
-        const container = svgRef.current.parentElement!;
-        const W = container.clientWidth;
-        const H = container.clientHeight;
-
-        const svg = d3
-          .select(svgRef.current)
-          .attr('width', W)
-          .attr('height', H)
-          .attr('viewBox', `0 0 ${W} ${H}`);
-
-        svg.selectAll('*').remove();
-
-        const g = svg.append('g');
-
-        /* --- Zoom + double-click re-center --- */
-        const zoomBehavior = d3
-          .zoom<SVGSVGElement, unknown>()
-          .scaleExtent([0.2, 4])
-          .on('zoom', (event) => g.attr('transform', event.transform));
-
-        svg.call(zoomBehavior);
-        svg.on('dblclick.zoom', null); // disable default double-click zoom
-        svg.on('dblclick', () => {
-          svg.transition().duration(500).call(zoomBehavior.transform, d3.zoomIdentity);
-        });
-
-        const tooltip = d3.select(tooltipRef.current);
-
-        /* --- Color scheme (muted) --- */
-        const isDark =
-          typeof window !== 'undefined' &&
-          window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-        const palette = {
-          me: isDark ? '#e2e8f0' : '#1e293b',
-          contact: isDark ? '#94a3b8' : '#475569',
-          connectedUser: isDark ? '#7dd3fc' : '#0284c7',
-          secondDegree: isDark ? '#64748b' : '#94a3b8',
-          ownLink: isDark ? '#e2e8f0' : '#1e293b',
-          mutualLink: isDark ? '#f87171' : '#dc2626',
-          secondLink: isDark ? '#475569' : '#cbd5e1',
-          bg: isDark ? '#0f172a' : '#ffffff',
-          text: isDark ? '#f1f5f9' : '#0f172a',
-          textMuted: isDark ? '#94a3b8' : '#64748b',
-        };
-
-        /* --- Links --- */
-        const linkSel = g
-          .append('g')
-          .selectAll('line')
-          .data(links)
-          .join('line')
-          .attr('stroke', (d) => {
-            if (d.kind === 'mutual') return palette.mutualLink;
-            if (d.kind === 'second-degree') return palette.secondLink;
-            return palette.ownLink;
-          })
-          .attr('stroke-width', (d) => d.thickness)
-          .attr('stroke-opacity', (d) => d.brightness);
-
-        /* --- Nodes --- */
-        const nodeSel = g
-          .append('g')
-          .selectAll<SVGGElement, GraphNode>('g')
-          .data(nodes)
-          .join('g')
-          .style('cursor', 'pointer');
-
-        // Circles
-        nodeSel
-          .append('circle')
-          .attr('r', (d) => d.radius)
-          .attr('fill', (d) => {
-            switch (d.group) {
-              case 'me': return palette.me;
-              case 'connected-user': return palette.connectedUser;
-              case 'second-degree': return palette.secondDegree;
-              default: return palette.contact;
-            }
-          })
-          .attr('stroke', (d) => (d.group === 'me' ? palette.connectedUser : 'none'))
-          .attr('stroke-width', (d) => (d.group === 'me' ? 3 : 0))
-          .attr('opacity', (d) => (d.group === 'second-degree' ? 0.6 : 1));
-
-        // Labels
-        nodeSel
-          .append('text')
-          .text((d) => {
-            if (d.group === 'second-degree') return d.label; // initials
-            if (d.group === 'me') return 'Me';
-            // Truncate long names
-            const name = d.label;
-            return name.length > 14 ? name.slice(0, 12) + '…' : name;
-          })
-          .attr('text-anchor', 'middle')
-          .attr('dy', (d) => d.radius + 14)
-          .attr('fill', (d) => (d.group === 'second-degree' ? palette.textMuted : palette.text))
-          .attr('font-size', (d) => (d.group === 'second-degree' ? '9px' : '11px'))
-          .attr('font-weight', (d) => (d.group === 'me' ? '700' : '400'))
-          .attr('pointer-events', 'none');
-
-        // Second-degree initials inside circle
-        nodeSel
-          .filter((d) => d.group === 'second-degree')
-          .append('text')
-          .text((d) => d.label)
-          .attr('text-anchor', 'middle')
-          .attr('dy', '0.35em')
-          .attr('fill', isDark ? '#e2e8f0' : '#ffffff')
-          .attr('font-size', '7px')
-          .attr('font-weight', '600')
-          .attr('pointer-events', 'none');
-
-        /* --- Hover tooltip --- */
-        nodeSel
-          .on('mouseover', (_event, d) => {
-            tooltip.style('opacity', '1').html(`
-              <div style="font-weight:700;font-size:14px;margin-bottom:4px">${d.group === 'second-degree' ? '2° Contact' : d.label}</div>
-              ${d.detail ? `<div style="color:${palette.textMuted};font-size:12px;margin-bottom:2px">${d.detail}</div>` : ''}
-              ${d.relationshipType ? `<div style="font-size:11px;color:${palette.textMuted}">Relationship: ${d.relationshipType}</div>` : ''}
-              ${d.communicationFrequency ? `<div style="font-size:11px;color:${palette.textMuted}">Communication: ${d.communicationFrequency}/10</div>` : ''}
-              ${d.collaborationDepth ? `<div style="font-size:11px;color:${palette.textMuted}">Collaboration: ${d.collaborationDepth}/10</div>` : ''}
-              ${d.lastContactDate ? `<div style="font-size:11px;color:${palette.textMuted}">Last contact: ${new Date(d.lastContactDate).toLocaleDateString()}</div>` : ''}
-              ${d.group === 'connected-user' ? `<div style="font-size:11px;color:${palette.connectedUser};margin-top:4px">⚡ Connected on Nexus</div>` : ''}
-              ${d.group === 'second-degree' ? `<div style="font-size:11px;color:${palette.secondDegree};margin-top:4px">👤 2nd-degree connection</div>` : ''}
-            `);
-          })
-          .on('mousemove', (event) => {
-            tooltip
-              .style('left', event.pageX + 12 + 'px')
-              .style('top', event.pageY - 12 + 'px');
-          })
-          .on('mouseout', () => {
-            tooltip.style('opacity', '0');
-          });
-
-        /* --- Drag --- */
-        const drag = d3
-          .drag<SVGGElement, GraphNode>()
-          .on('start', (event, d) => {
-            if (!event.active) sim.alphaTarget(0.3).restart();
-            d.fx = d.x;
-            d.fy = d.y;
-          })
-          .on('drag', (event, d) => {
-            d.fx = event.x;
-            d.fy = event.y;
-          })
-          .on('end', (event, d) => {
-            if (!event.active) sim.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
-          });
-
-        nodeSel.call(drag);
-
-        /* --- Force simulation --- */
-        const sim = d3
-          .forceSimulation<GraphNode>(nodes)
-          .force(
-            'link',
-            d3
-              .forceLink<GraphNode, GraphLink>(links)
-              .id((d) => d.id)
-              .distance((d) => {
-                if (d.kind === 'second-degree') return 120;
-                const src = d.source as GraphNode;
-                return relationshipDistance(src.relationshipType ?? null);
-              })
-          )
-          .force('charge', d3.forceManyBody().strength(-200))
-          .force('center', d3.forceCenter(W / 2, H / 2))
-          .force('collision', d3.forceCollide<GraphNode>().radius((d) => d.radius + 6))
-          .on('tick', () => {
-            linkSel
-              .attr('x1', (d) => (d.source as GraphNode).x!)
-              .attr('y1', (d) => (d.source as GraphNode).y!)
-              .attr('x2', (d) => (d.target as GraphNode).x!)
-              .attr('y2', (d) => (d.target as GraphNode).y!);
-
-            nodeSel.attr('transform', (d) => `translate(${d.x},${d.y})`);
-          });
-
-        setLoading(false);
-      } catch (err) {
-        console.error('Network build error:', err);
-        if (!destroyed) setError(err instanceof Error ? err.message : 'Unknown error');
-        setLoading(false);
       }
+
+      // Find mutual connections (connected users)
+      const mutualUserIds = new Set<string>();
+      const connectionPairs: { myId: string; theirId: string }[] = [];
+      for (const conn of connections) {
+        if (conn.inviter_id === user.id) {
+          mutualUserIds.add(conn.invitee_id);
+          connectionPairs.push({ myId: user.id, theirId: conn.invitee_id });
+        } else if (conn.invitee_id === user.id) {
+          mutualUserIds.add(conn.inviter_id);
+          connectionPairs.push({ myId: user.id, theirId: conn.inviter_id });
+        }
+      }
+
+      // Get connected users' profiles
+      const connectedProfiles: Record<string, { full_name: string; headline: string }> = {};
+      if (mutualUserIds.size > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, full_name, headline")
+          .in("id", Array.from(mutualUserIds));
+        for (const p of profiles || []) {
+          connectedProfiles[p.id] = { full_name: p.full_name || "Unknown", headline: p.headline || "" };
+        }
+      }
+
+      // Get connected users' contacts (we only show initials + title)
+      const theirContacts = allContacts.filter(c => mutualUserIds.has(c.owner_id) && c.owner_id !== user.id);
+
+      // Count connections per contact (how many people know this contact)
+      const contactConnectionCount: Record<string, number> = {};
+      for (const c of allContacts) {
+        contactConnectionCount[c.id] = (contactConnectionCount[c.id] || 0) + 1;
+      }
+
+      // BUILD GRAPH
+
+      const nodes: GraphNode[] = [];
+      const links: GraphLink[] = [];
+
+      // 1. Self node
+      const myName = profileRes.data?.full_name || "You";
+      nodes.push({
+        id: "self",
+        label: myName,
+        type: "self",
+        radius: nodeSizeFromConnections(myContacts.length + mutualUserIds.size, "self"),
+        connectionCount: myContacts.length + mutualUserIds.size,
+        user_id: user.id,
+      });
+
+      // 2. My contacts
+      for (const c of myContacts) {
+        const stats = interactionMap[c.id];
+        const connCount = contactConnectionCount[c.id] || 1;
+        const nameParts = (c.full_name || "Unknown").split(" ");
+        const firstName = nameParts[0] || "?";
+        const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+        const displayLabel = lastName ? `${firstName[0]}. ${lastName}` : firstName;
+
+        nodes.push({
+          id: c.id,
+          label: c.full_name || "Unknown",
+          type: "contact",
+          radius: nodeSizeFromConnections(connCount, "contact"),
+          connectionCount: connCount,
+          relationship_type: c.relationship_type,
+          company: c.company ?? undefined,
+          role: c.role ?? undefined,
+          owner_id: c.owner_id,
+        });
+
+        links.push({
+          source: "self",
+          target: c.id,
+          distance: CLOSENESS[c.relationship_type] || 230,
+          thickness: thicknessFromCount(stats?.count || 0),
+          recency: computeRecency(stats?.most_recent || null),
+          isMutual: false,
+          isOwn: true,
+        });
+      }
+
+      // 3. Connected users (mutual connections via invite code)
+      for (const uid of Array.from(mutualUserIds)) {
+        const profile = connectedProfiles[uid];
+        const name = profile?.full_name || "Connected User";
+        const theirContactCount = theirContacts.filter(c => c.owner_id === uid).length;
+
+        nodes.push({
+          id: `user-${uid}`,
+          label: name,
+          type: "connected_user",
+          radius: nodeSizeFromConnections(theirContactCount, "connected_user"),
+          connectionCount: theirContactCount,
+          user_id: uid,
+        });
+
+        // Bold red link between self and connected user
+        links.push({
+          source: "self",
+          target: `user-${uid}`,
+          distance: 120,
+          thickness: 4,
+          recency: 1,
+          isMutual: true,
+          isOwn: false,
+        });
+      }
+
+      // 4. Their contacts (initials + company only)
+      for (const c of theirContacts) {
+        const nameParts = (c.full_name || "??").split(" ");
+        const firstInitial = (nameParts[0] || "?")[0];
+        const lastInitial = nameParts.length > 1 ? (nameParts[nameParts.length - 1] || "?")[0] : "?";
+        const initials = `${firstInitial}${lastInitial}`.toUpperCase();
+        const stats = interactionMap[c.id];
+        const connCount = contactConnectionCount[c.id] || 1;
+
+        // Check if this contact is also one of mine (shared contact)
+        const isShared = myContacts.some(mc => mc.full_name === c.full_name);
+
+        nodes.push({
+          id: `their-${c.id}`,
+          label: initials,
+          type: "their_contact",
+          radius: nodeSizeFromConnections(connCount, "their_contact"),
+          connectionCount: connCount,
+          company: c.company ?? undefined,
+          role: c.role ?? undefined,
+          owner_id: c.owner_id,
+        });
+
+        links.push({
+          source: `user-${c.owner_id}`,
+          target: `their-${c.id}`,
+          distance: CLOSENESS[c.relationship_type] || 230,
+          thickness: thicknessFromCount(stats?.count || 0),
+          recency: computeRecency(stats?.most_recent || null),
+          isMutual: isShared,
+          isOwn: false,
+        });
+      }
+
+      setGraphData({ nodes, links });
+      setLoading(false);
     }
 
-    build();
-    return () => {
-      destroyed = true;
-    };
+    fetchAll();
   }, [router]);
 
+  // Render D3 graph
+  useEffect(() => {
+    if (loading || !svgRef.current || !containerRef.current) return;
+    if (graphData.nodes.length === 0) return;
+
+    const container = containerRef.current;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+
+    d3.select(svgRef.current).selectAll("*").remove();
+
+    const svg = d3
+      .select(svgRef.current)
+      .attr("width", width)
+      .attr("height", height);
+
+    const g = svg.append("g");
+
+    // Zoom
+    const svgElement = svgRef.current;
+    if (svgElement) {
+      d3.select(svgElement).call(
+        d3.zoom<SVGSVGElement, unknown>()
+          .scaleExtent([0.2, 4])
+          .on("zoom", (event) => {
+            g.attr("transform", event.transform);
+          })
+      );
+    }
+
+    // Deep clone nodes/links for D3 mutation
+    const nodes: GraphNode[] = graphData.nodes.map(n => ({ ...n }));
+    const links: GraphLink[] = graphData.links.map(l => ({
+      ...l,
+      source: typeof l.source === 'object' ? (l.source as GraphNode).id : l.source,
+      target: typeof l.target === 'object' ? (l.target as GraphNode).id : l.target,
+    }));
+
+    // Pin centered node
+    const centerNode = nodes.find(n => n.id === centeredNodeId);
+    if (centerNode) {
+      centerNode.fx = width / 2;
+      centerNode.fy = height / 2;
+    }
+
+    // Force simulation
+    const simulation = d3
+      .forceSimulation<GraphNode>(nodes)
+      .force(
+        "link",
+        d3
+          .forceLink<GraphNode, GraphLink>(links)
+          .id(d => d.id)
+          .distance(d => d.distance)
+          .strength(0.3)
+      )
+      .force("charge", d3.forceManyBody().strength(-200))
+      .force("center", d3.forceCenter(width / 2, height / 2).strength(0.05))
+      .force("collision", d3.forceCollide<GraphNode>().radius(d => d.radius + 4));
+
+    simulationRef.current = simulation;
+
+    // Draw links
+    const linkGroup = g
+      .selectAll<SVGLineElement, GraphLink>("line")
+      .data(links)
+      .enter()
+      .append("line")
+      .attr("stroke", d => lineColor(d.isOwn, d.isMutual, d.recency))
+      .attr("stroke-width", d => d.thickness)
+      .attr("stroke-linecap", "round");
+
+    // Draw nodes
+    const nodeGroup = g
+      .selectAll<SVGGElement, GraphNode>("g.node")
+      .data(nodes)
+      .enter()
+      .append("g")
+      .attr("class", "node")
+      .style("cursor", "pointer");
+
+    // Node circles
+    nodeGroup
+      .append("circle")
+      .attr("r", d => d.radius)
+      .attr("fill", d => {
+        if (d.type === "self") return "#a78bfa";
+        if (d.type === "connected_user") return "#60a5fa";
+        if (d.type === "their_contact") return "#475569";
+        // Contact: muted color by relationship
+        const colors: Record<string, string> = {
+          Family: "#7c6f64",
+          "Close Friend": "#6b7280",
+          Friend: "#6b7280",
+          Colleague: "#64748b",
+          Business: "#64748b",
+          Acquaintance: "#4b5563",
+          Stranger: "#374151",
+        };
+        return colors[d.relationship_type || ""] || "#4b5563";
+      })
+      .attr("stroke", d => d.type === "self" ? "#c4b5fd" : d.type === "connected_user" ? "#93c5fd" : "#334155")
+      .attr("stroke-width", d => d.type === "self" ? 3 : d.type === "connected_user" ? 2 : 1);
+
+    // Node labels
+    nodeGroup
+      .append("text")
+      .text(d => {
+        if (d.type === "self") return d.label;
+        if (d.type === "connected_user") return d.label;
+        if (d.type === "their_contact") {
+          // Initials + @ Company
+          const company = d.company || d.role || "";
+          return company ? `${d.label} @ ${company}` : d.label;
+        }
+        // 1st degree: F. Last
+        const parts = d.label.split(" ");
+        if (parts.length > 1) return `${parts[0][0]}. ${parts[parts.length - 1]}`;
+        return d.label;
+      })
+      .attr("text-anchor", "middle")
+      .attr("dy", d => d.radius + 14)
+      .attr("fill", d => d.type === "their_contact" ? "#64748b" : "#94a3b8")
+      .attr("font-size", d => d.type === "self" ? "13px" : d.type === "their_contact" ? "10px" : "11px")
+      .attr("font-weight", d => d.type === "self" ? "bold" : "normal")
+      .attr("pointer-events", "none");
+
+    // Hover + click events
+    nodeGroup
+      .on("mouseover", function (event, d) {
+        setHoveredNode(d);
+        setTooltipPos({ x: event.pageX, y: event.pageY });
+        d3.select(this).select("circle").attr("stroke", "#fff").attr("stroke-width", 3);
+      })
+      .on("mouseout", function () {
+        setHoveredNode(null);
+        d3.select(this).select("circle")
+          .attr("stroke", (d: any) => d.type === "self" ? "#c4b5fd" : d.type === "connected_user" ? "#93c5fd" : "#334155")
+          .attr("stroke-width", (d: any) => d.type === "self" ? 3 : d.type === "connected_user" ? 2 : 1);
+      })
+      .on("click", (event, d) => {
+        if (d.type === "contact") {
+          router.push(`/contacts/${d.id}`);
+        }
+      })
+      .on("dblclick", (event, d) => {
+        // Re-center on this node
+        event.stopPropagation();
+        nodes.forEach(n => { n.fx = null; n.fy = null; });
+        d.fx = width / 2;
+        d.fy = height / 2;
+        setCenteredNodeId(d.id);
+        simulation.alpha(0.5).restart();
+      });
+
+    // Drag
+    nodeGroup.call(
+      d3.drag<SVGGElement, GraphNode>()
+        .on("start", (event, d) => {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          d.fx = d.x;
+          d.fy = d.y;
+        })
+        .on("drag", (event, d) => {
+          d.fx = event.x;
+          d.fy = event.y;
+        })
+        .on("end", (event, d) => {
+          if (!event.active) simulation.alphaTarget(0);
+          if (d.id !== centeredNodeId) {
+            d.fx = null;
+            d.fy = null;
+          }
+        })
+    );
+
+    // Tick
+    simulation.on("tick", () => {
+      linkGroup
+        .attr("x1", d => (d.source as GraphNode).x || 0)
+        .attr("y1", d => (d.source as GraphNode).y || 0)
+        .attr("x2", d => (d.target as GraphNode).x || 0)
+        .attr("y2", d => (d.target as GraphNode).y || 0);
+
+      nodeGroup.attr("transform", d => `translate(${d.x || 0},${d.y || 0})`);
+    });
+
+    return () => { simulation.stop(); };
+  }, [loading, graphData, centeredNodeId, router]);
+
+  // Filter nodes by search
+  const filteredCount = filterText
+    ? graphData.nodes.filter(n =>
+        n.label.toLowerCase().includes(filterText.toLowerCase()) ||
+        (n.company || "").toLowerCase().includes(filterText.toLowerCase()) ||
+        (n.role || "").toLowerCase().includes(filterText.toLowerCase())
+      ).length
+    : graphData.nodes.length;
+
+  const myContactCount = graphData.nodes.filter(n => n.type === "contact").length;
+  const connectedUserCount = graphData.nodes.filter(n => n.type === "connected_user").length;
+  const theirContactCount = graphData.nodes.filter(n => n.type === "their_contact").length;
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0f172a", color: "#94a3b8" }}>
+        Loading network…
+      </div>
+    );
+  }
+
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
-      <Nav />
+    <div style={{ position: "relative", width: "100vw", height: "100vh", background: "#0f172a", overflow: "hidden" }}>
+      {/* Inline header */}
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, display: "flex", alignItems: "center", gap: "16px", padding: "12px 20px", background: "rgba(15,23,42,0.92)", borderBottom: "1px solid #1e293b" }}>
+        <span
+          onClick={() => router.push("/dashboard")}
+          style={{ cursor: "pointer", color: "#64748b", fontSize: "14px" }}
+        >
+          ← Dashboard
+        </span>
+        <span style={{ fontWeight: "bold", color: "#e2e8f0", fontSize: "16px" }}>Network</span>
+        <input
+          type="text"
+          placeholder="Filter…"
+          value={filterText}
+          onChange={e => setFilterText(e.target.value)}
+          style={{ marginLeft: "auto", padding: "4px 12px", borderRadius: "6px", border: "1px solid #334155", background: "#1e293b", color: "#e2e8f0", fontSize: "13px", width: "180px" }}
+        />
+        <span style={{ color: "#64748b", fontSize: "12px", whiteSpace: "nowrap" }}>
+          {myContactCount} contacts · {connectedUserCount} linked · {theirContactCount} 2nd°
+        </span>
+      </div>
 
-      {loading && (
-        <div style={{
-          position: 'absolute', inset: 0, display: 'flex',
-          alignItems: 'center', justifyContent: 'center', zIndex: 10,
-        }}>
-          <p style={{ fontSize: '16px', opacity: 0.6 }}>Loading network…</p>
-        </div>
-      )}
+      {/* Legend bar */}
+      <div style={{ position: "absolute", top: "52px", left: 0, right: 0, zIndex: 20, display: "flex", alignItems: "center", justifyContent: "center", gap: "20px", padding: "6px 20px", background: "rgba(15,23,42,0.85)", fontSize: "11px", color: "#64748b" }}>
+        <span>— Your connections</span>
+        <span style={{ color: "#dc2626" }}>━ Mutual (linked)</span>
+        <span>| Thickness = interaction density</span>
+        <span>| Brightness = recency</span>
+        <span>| Node size = # connections</span>
+      </div>
 
-      {error && (
-        <div style={{
-          position: 'absolute', inset: 0, display: 'flex',
-          alignItems: 'center', justifyContent: 'center', zIndex: 10,
-        }}>
-          <p style={{ color: '#ef4444', fontSize: '14px' }}>Error: {error}</p>
-        </div>
-      )}
+      {/* Hint */}
+      <div style={{ position: "absolute", bottom: "12px", left: "50%", transform: "translateX(-50%)", zIndex: 20, fontSize: "11px", color: "#475569" }}>
+        Dbl-click = re-center · Click = dossier
+      </div>
 
-      <svg ref={svgRef} style={{ width: '100%', height: '100%' }} />
+      {/* SVG */}
+      <div ref={containerRef} style={{ width: "100%", height: "100%", paddingTop: "76px" }}>
+        <svg ref={svgRef} style={{ width: "100%", height: "100%" }} />
+      </div>
 
       {/* Tooltip */}
-      <div
-        ref={tooltipRef}
-        style={{
-          position: 'fixed',
-          opacity: 0,
-          pointerEvents: 'none',
-          background: 'var(--background, #fff)',
-          border: '1px solid var(--border, #e2e8f0)',
-          borderRadius: '8px',
-          padding: '10px 14px',
-          maxWidth: '260px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          zIndex: 1000,
-          transition: 'opacity 0.15s',
-        }}
-      />
-
-      {/* Legend */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: '20px',
-          left: '20px',
-          background: 'var(--background, #fff)',
-          border: '1px solid var(--border, #e2e8f0)',
-          borderRadius: '10px',
-          padding: '14px 18px',
-          fontSize: '11px',
-          lineHeight: '1.8',
-          zIndex: 20,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-        }}
-      >
-        <div style={{ fontWeight: 700, marginBottom: '6px', fontSize: '12px' }}>Legend</div>
-        <div>⬤ <span style={{ color: '#0284c7' }}>Blue</span> = Connected on Nexus</div>
-        <div>⬤ <span style={{ color: '#475569' }}>Gray</span> = Your contacts</div>
-        <div>⬤ <span style={{ color: '#94a3b8', fontSize: '9px' }}>Small gray</span> = 2nd-degree</div>
-        <div style={{ marginTop: '6px' }}>
-          <span style={{ color: '#dc2626' }}>━━</span> Red line = Mutual connection
+      {hoveredNode && (
+        <div
+          style={{
+            position: "fixed",
+            left: tooltipPos.x + 12,
+            top: tooltipPos.y - 8,
+            background: "#1e293b",
+            border: "1px solid #334155",
+            borderRadius: "8px",
+            padding: "10px 14px",
+            zIndex: 30,
+            color: "#e2e8f0",
+            fontSize: "13px",
+            pointerEvents: "none",
+            maxWidth: "260px",
+          }}
+        >
+          <div style={{ fontWeight: "bold", marginBottom: "4px" }}>{hoveredNode.label}</div>
+          {hoveredNode.type === "contact" && (
+            <>
+              {hoveredNode.relationship_type && <div style={{ color: "#94a3b8" }}>{hoveredNode.relationship_type}</div>}
+              {hoveredNode.role && <div style={{ color: "#94a3b8" }}>{hoveredNode.role}</div>}
+              {hoveredNode.company && <div style={{ color: "#94a3b8" }}>{hoveredNode.company}</div>}
+            </>
+          )}
+          {hoveredNode.type === "connected_user" && (
+            <div style={{ color: "#60a5fa" }}>Linked user · {hoveredNode.connectionCount} contacts</div>
+          )}
+          {hoveredNode.type === "their_contact" && (
+            <>
+              {hoveredNode.role && <div style={{ color: "#94a3b8" }}>{hoveredNode.role}</div>}
+              {hoveredNode.company && <div style={{ color: "#94a3b8" }}>{hoveredNode.company}</div>}
+              <div style={{ color: "#475569", fontSize: "11px" }}>2nd° connection</div>
+            </>
+          )}
+          <div style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}>{hoveredNode.connectionCount} connection{hoveredNode.connectionCount !== 1 ? "s" : ""}</div>
         </div>
-        <div>━━ Dark line = Your connection</div>
-        <div style={{ color: '#94a3b8' }}>┈┈ Faint line = 2nd-degree link</div>
-        <div style={{ marginTop: '6px' }}>
-          Thicker line = more interaction
-        </div>
-        <div>Brighter line = more recent contact</div>
-        <div>Bigger node = more connections</div>
-        <div style={{ marginTop: '6px', color: '#64748b' }}>Double-click to re-center</div>
-      </div>
+      )}
     </div>
   );
 }
