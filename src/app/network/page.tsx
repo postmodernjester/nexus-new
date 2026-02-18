@@ -49,6 +49,14 @@ function getDisplayName(c: Contact): string {
   return "Unknown";
 }
 
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
+}
+
 function normalizeNameForMatch(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 }
@@ -102,6 +110,9 @@ export default function NetworkPage() {
         return;
       }
 
+      console.log("[Network] allContacts count:", allContacts.length);
+      console.log("[Network] connections count:", connections.length);
+
       const profileMap: Record<string, Profile> = {};
       allProfiles.forEach((p) => {
         profileMap[p.id] = p;
@@ -114,6 +125,8 @@ export default function NetworkPage() {
       const connectedUserIds = myConnections.map((c) =>
         c.inviter_id === user.id ? c.invitee_id : c.inviter_id
       );
+
+      console.log("[Network] connectedUserIds:", connectedUserIds);
 
       const myContacts = allContacts.filter((c) => c.owner_id === user.id);
 
@@ -200,13 +213,19 @@ export default function NetworkPage() {
       });
 
       // 4. THEIR CONTACTS (2nd degree) with dedup
+      console.log("[Network] mutualUserIds for 2nd degree:", mutualUserIds);
+
       for (const uid of mutualUserIds) {
         const theirContacts = allContacts.filter(
-          (c) => c.owner_id === uid && c.owner_id !== user.id
+          (c) => c.owner_id === uid
         );
 
+        console.log(`[Network] User ${uid} has ${theirContacts.length} contacts`);
+
         for (const tc of theirContacts) {
+          // Skip if this contact points back to the current user
           if (tc.linked_profile_id === user.id) continue;
+          // Skip if this contact points back to the owner (self-reference)
           if (tc.linked_profile_id === uid) continue;
 
           let existingNodeId: string | undefined;
@@ -224,6 +243,7 @@ export default function NetworkPage() {
           }
 
           if (existingNodeId) {
+            // Already exists as a node - just add a link from this connected user to them
             const linkExists = links.some(
               (l) =>
                 (l.source === `user-${uid}` ||
@@ -238,9 +258,11 @@ export default function NetworkPage() {
                 type: "second_degree",
               });
             }
+            console.log(`[Network] 2nd degree dedup: ${tc.full_name} -> existing node ${existingNodeId}`);
             continue;
           }
 
+          // New 2nd degree contact - add as node
           const nodeId = `their-${tc.id}`;
           const displayName = getDisplayName(tc);
 
@@ -257,6 +279,8 @@ export default function NetworkPage() {
             type: "second_degree",
           });
 
+          console.log(`[Network] 2nd degree NEW: ${tc.full_name} (${nodeId})`);
+
           if (tc.linked_profile_id) {
             personToNodeId.set(`profile:${tc.linked_profile_id}`, nodeId);
           }
@@ -268,6 +292,9 @@ export default function NetworkPage() {
           }
         }
       }
+
+      console.log("[Network] Final nodes:", nodes.length, "links:", links.length);
+      console.log("[Network] Node types:", nodes.map(n => `${n.label} (${n.type})`));
 
       setNodeCount(nodes.length);
 
@@ -335,6 +362,7 @@ export default function NetworkPage() {
         })
     );
 
+    // Lines - doubled thickness: mutual 2->4, direct 1->2, second_degree 1->2
     const link = g
       .append("g")
       .selectAll("line")
@@ -346,7 +374,7 @@ export default function NetworkPage() {
         return "#4b5563";
       })
       .attr("stroke-opacity", (d) => (d.type === "second_degree" ? 0.4 : 0.6))
-      .attr("stroke-width", (d) => (d.type === "mutual" ? 2 : 1));
+      .attr("stroke-width", (d) => (d.type === "mutual" ? 4 : 2));
 
     const node = g
       .append("g")
@@ -377,25 +405,71 @@ export default function NetworkPage() {
           }) as any
       );
 
-    const labels = g
+    // Labels
+    const label = g
       .append("g")
-      .selectAll("text")
+      .selectAll<SVGTextElement, GraphNode>("text")
       .data(nodes)
       .join("text")
-      .text((d) => d.label)
-      .attr("font-size", (d) =>
-        d.type === "self" ? 14 : d.type === "connected_user" ? 12 : 10
-      )
-      .attr("fill", "#e5e7eb")
+      .text((d) => {
+        if (d.type === "their_contact") {
+          // 2nd degree: show initials + subtitle
+          const initials = d.label ? getInitials(d.label) : "??";
+          return d.subtitle ? `${initials} · ${d.subtitle}` : initials;
+        }
+        return d.label;
+      })
+      .attr("font-size", (d) => {
+        if (d.type === "self") return "13px";
+        if (d.type === "connected_user") return "11px";
+        if (d.type === "their_contact") return "9px";
+        return "10px";
+      })
+      .attr("fill", (d) => {
+        if (d.type === "self") return "#facc15";
+        if (d.type === "connected_user") return "#93c5fd";
+        if (d.type === "their_contact") return "#9ca3af";
+        return "#d1d5db";
+      })
       .attr("text-anchor", "middle")
-      .attr("dy", (d) => (sizeMap[d.type] || 8) + 14)
-      .style("pointer-events", "none");
+      .attr("dy", (d) => -(sizeMap[d.type] || 8) - 6)
+      .style("pointer-events", "none")
+      .style("user-select", "none");
 
-    node.append("title").text((d) => {
-      let text = d.label;
-      if (d.subtitle) text += `\n${d.subtitle}`;
-      text += `\nType: ${d.type.replace("_", " ")}`;
-      return text;
+    // Subtitle labels for contacts (not 2nd degree - those have it inline)
+    const subtitle = g
+      .append("g")
+      .selectAll<SVGTextElement, GraphNode>("text")
+      .data(nodes.filter((n) => n.subtitle && n.type !== "their_contact"))
+      .join("text")
+      .text((d) => d.subtitle || "")
+      .attr("font-size", "8px")
+      .attr("fill", "#6b7280")
+      .attr("text-anchor", "middle")
+      .attr("dy", (d) => -(sizeMap[d.type] || 8) - 6 + 12)
+      .style("pointer-events", "none")
+      .style("user-select", "none");
+
+    // Tooltip on hover
+    node.on("mouseover", function (event, d) {
+      d3.select(this).attr("stroke", "#fff").attr("stroke-width", 3);
+    });
+    node.on("mouseout", function (event, d) {
+      d3.select(this).attr("stroke", "#000").attr("stroke-width", 1.5);
+    });
+
+    // Click to navigate
+    node.on("click", (event, d) => {
+      if (d.type === "self" && d.profileId) {
+        window.location.href = "/resume";
+      } else if (d.type === "connected_user" && d.profileId) {
+        window.location.href = `/contacts`;
+      } else if (
+        (d.type === "contact" || d.type === "their_contact") &&
+        d.contactId
+      ) {
+        window.location.href = `/contacts/${d.contactId}`;
+      }
     });
 
     sim.on("tick", () => {
@@ -407,7 +481,9 @@ export default function NetworkPage() {
 
       node.attr("cx", (d) => d.x || 0).attr("cy", (d) => d.y || 0);
 
-      labels.attr("x", (d) => d.x || 0).attr("y", (d) => d.y || 0);
+      label.attr("x", (d) => d.x || 0).attr("y", (d) => d.y || 0);
+
+      subtitle.attr("x", (d) => d.x || 0).attr("y", (d) => d.y || 0);
     });
   };
 
@@ -416,65 +492,62 @@ export default function NetworkPage() {
   }, [buildGraph]);
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="border-b border-gray-800 bg-gray-950">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <a
-              href="/dashboard"
-              className="text-gray-400 hover:text-white transition"
-            >
-              ← Dashboard
-            </a>
+    <div className="min-h-screen bg-black text-white p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
             <h1 className="text-2xl font-bold">Network Graph</h1>
-            {nodeCount > 0 && (
-              <span className="text-gray-500 text-sm">
-                {nodeCount} nodes
-              </span>
-            )}
+            <p className="text-zinc-400 text-sm">
+              {nodeCount > 0
+                ? `${nodeCount} people in your network`
+                : "Visualize your professional connections"}
+            </p>
           </div>
-          <div className="flex gap-4 text-xs">
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded-full bg-yellow-400 inline-block" />
-              You
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded-full bg-blue-400 inline-block" />
-              Connected
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded-full bg-purple-400 inline-block" />
-              Contacts
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded-full bg-gray-500 inline-block" />
-              2nd Degree
-            </span>
+          <a
+            href="/dashboard"
+            className="text-sm text-zinc-400 hover:text-white transition"
+          >
+            ← Dashboard
+          </a>
+        </div>
+
+        {/* Legend */}
+        <div className="flex gap-6 mb-4 text-xs text-zinc-400">
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-yellow-400 inline-block" />
+            You
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-blue-400 inline-block" />
+            Connected Users
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-purple-400 inline-block" />
+            Your Contacts
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-gray-500 inline-block" />
+            2nd Degree
           </div>
         </div>
-      </div>
 
-      <div className="relative" style={{ height: "calc(100vh - 73px)" }}>
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-gray-400 text-lg">Loading network…</div>
-          </div>
-        )}
-        {error && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <div className="text-gray-400 text-lg mb-2">{error}</div>
-              <p className="text-gray-600 text-sm">
-                Add contacts and connections to see your network graph.
-              </p>
+        <div className="bg-zinc-900 rounded-xl border border-zinc-800 relative overflow-hidden">
+          {loading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/80 z-10">
+              <div className="text-zinc-400">Building network graph...</div>
             </div>
-          </div>
-        )}
-        <svg
-          ref={svgRef}
-          className="w-full h-full"
-          style={{ background: "#000" }}
-        />
+          )}
+          {error && (
+            <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/80 z-10">
+              <div className="text-red-400">{error}</div>
+            </div>
+          )}
+          <svg
+            ref={svgRef}
+            className="w-full"
+            style={{ height: "calc(100vh - 220px)", minHeight: "500px" }}
+          />
+        </div>
       </div>
     </div>
   );
