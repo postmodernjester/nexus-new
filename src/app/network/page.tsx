@@ -13,6 +13,9 @@ interface Contact {
   role: string | null;
   owner_id: string;
   linked_profile_id: string | null;
+  communication_frequency: string | null;
+  collaboration_depth: string | null;
+  last_contact_date: string | null;
 }
 
 interface Connection {
@@ -77,7 +80,7 @@ function computeRecency(mostRecent: string | null): number {
   return 0.1;
 }
 
-function lineColor(isOwn: boolean, isMutual: boolean, recency: number): string {
+function lineColor(isMutual: boolean, recency: number): string {
   if (isMutual) {
     const alpha = 0.2 + recency * 0.8;
     return `rgba(220, 38, 38, ${alpha})`;
@@ -95,9 +98,8 @@ function thicknessFromCount(count: number): number {
   return 6;
 }
 
-function nodeSizeFromConnections(count: number, type: string): number {
-  const base = type === "self" ? 16 : type === "connected_user" ? 13 : 8;
-  return base + Math.min(count * 0.8, 12);
+function nodeSizeFromConnections(count: number): number {
+  return 8 + Math.min(count * 1.2, 16);
 }
 
 export default function NetworkPage() {
@@ -144,7 +146,7 @@ export default function NetworkPage() {
       const connections: Connection[] = connectionsRes.data || [];
       const allInteractions = interactionsRes.data || [];
 
-      // Build interaction stats per contact
+      // Interaction stats per contact
       const interactionMap: Record<string, InteractionStats> = {};
       for (const i of allInteractions) {
         if (!interactionMap[i.contact_id]) {
@@ -160,7 +162,7 @@ export default function NetworkPage() {
         }
       }
 
-      // Find connected user IDs from connections table
+      // Connected user IDs
       const mutualUserIds = new Set<string>();
       for (const conn of connections) {
         if (conn.inviter_id === user.id) {
@@ -170,7 +172,7 @@ export default function NetworkPage() {
         }
       }
 
-      // Get connected users' profiles
+      // Connected user profiles
       const connectedProfiles: Record<
         string,
         { full_name: string; headline: string }
@@ -188,49 +190,43 @@ export default function NetworkPage() {
         }
       }
 
-      // Get their contacts (other users' contacts)
+      // Their contacts
       const theirContacts = allContacts.filter(
         (c) => mutualUserIds.has(c.owner_id) && c.owner_id !== user.id
       );
 
-      // ========== DEDUP LOGIC ==========
-      // 1. If my contact has linked_profile_id matching a connected user,
-      //    show ONE node (connected_user) — skip the contact node.
-      // 2. If a connected user has a contact with linked_profile_id === MY id,
-      //    skip it — I'm already the "self" node.
-      // 3. If both I and a connected user know the same person
-      //    (same linked_profile_id or same full_name), show ONE node
-      //    with links from both of us.
+      // ========== DEDUP ==========
+      // My contacts with linked_profile_id pointing to a connected user
+      // → skip contact node, but USE the contact's data for the link
+      const myContactsLinkedToConnectedUser = new Map<string, Contact>();
+      for (const c of myContacts) {
+        if (c.linked_profile_id && mutualUserIds.has(c.linked_profile_id)) {
+          myContactsLinkedToConnectedUser.set(c.linked_profile_id, c);
+        }
+      }
 
       const profileToNodeId: Record<string, string> = {};
       const nameToNodeId: Record<string, string> = {};
 
-      // Which of my contacts are actually connected users?
-      const myContactsLinkedToConnectedUser = new Set<string>();
-      for (const c of myContacts) {
-        if (c.linked_profile_id && mutualUserIds.has(c.linked_profile_id)) {
-          myContactsLinkedToConnectedUser.add(c.id);
-        }
-      }
-
       const nodes: GraphNode[] = [];
       const links: GraphLink[] = [];
 
-      // 1. Self node
+      // 1. Self
       const myName = profileRes.data?.full_name || "You";
+      const selfConnectionCount = myContacts.length + mutualUserIds.size;
       nodes.push({
         id: "self",
         label: myName,
         type: "self",
-        radius: 16,
-        connectionCount: myContacts.length + mutualUserIds.size,
+        radius: nodeSizeFromConnections(selfConnectionCount),
+        connectionCount: selfConnectionCount,
         user_id: user.id,
         profileId: user.id,
       });
       profileToNodeId[user.id] = "self";
       nameToNodeId[myName.toLowerCase()] = "self";
 
-      // 2. Connected users
+      // 2. Connected users — use my contact card data for link properties
       for (const uid of Array.from(mutualUserIds)) {
         const profile = connectedProfiles[uid];
         const name = profile?.full_name || "Connected User";
@@ -239,33 +235,43 @@ export default function NetworkPage() {
         ).length;
         const nodeId = `user-${uid}`;
 
+        // Get my contact card for this person (if I have one)
+        const myCard = myContactsLinkedToConnectedUser.get(uid);
+        const stats = myCard ? interactionMap[myCard.id] : null;
+        const relType = myCard?.relationship_type || "Acquaintance";
+
         nodes.push({
           id: nodeId,
           label: name,
           type: "connected_user",
-          radius: nodeSizeFromConnections(theirContactCount, "connected_user"),
-          connectionCount: theirContactCount,
+          radius: nodeSizeFromConnections(theirContactCount + 1),
+          connectionCount: theirContactCount + 1,
           user_id: uid,
           profileId: uid,
+          relationship_type: relType,
         });
 
         profileToNodeId[uid] = nodeId;
         nameToNodeId[name.toLowerCase()] = nodeId;
 
+        // Link follows same rules: distance from relationship, thickness from interactions, recency from last interaction
         links.push({
           source: "self",
           target: nodeId,
-          distance: 120,
-          thickness: 4,
-          recency: 1,
+          distance: CLOSENESS[relType] || 190,
+          thickness: thicknessFromCount(stats?.count || 0),
+          recency: computeRecency(stats?.most_recent || myCard?.last_contact_date || null),
           isMutual: true,
-          isOwn: false,
+          isOwn: true,
         });
       }
 
-      // 3. My contacts — SKIP if linked to a connected user (dedup)
+      // 3. My contacts — skip if linked to a connected user
       for (const c of myContacts) {
-        if (myContactsLinkedToConnectedUser.has(c.id)) {
+        if (
+          c.linked_profile_id &&
+          myContactsLinkedToConnectedUser.has(c.linked_profile_id)
+        ) {
           continue;
         }
 
@@ -276,7 +282,7 @@ export default function NetworkPage() {
           id: nodeId,
           label: c.full_name || "Unknown",
           type: "contact",
-          radius: nodeSizeFromConnections(1, "contact"),
+          radius: nodeSizeFromConnections(1),
           connectionCount: 1,
           relationship_type: c.relationship_type,
           company: c.company ?? undefined,
@@ -295,18 +301,18 @@ export default function NetworkPage() {
           target: nodeId,
           distance: CLOSENESS[c.relationship_type] || 230,
           thickness: thicknessFromCount(stats?.count || 0),
-          recency: computeRecency(stats?.most_recent || null),
+          recency: computeRecency(stats?.most_recent || c.last_contact_date || null),
           isMutual: false,
           isOwn: true,
         });
       }
 
-      // 4. Their contacts — dedup against existing nodes
+      // 4. Their contacts — dedup, same visual rules
       for (const c of theirContacts) {
-        // Skip if this contact is ME
+        // Skip if this is me
         if (c.linked_profile_id === user.id) continue;
 
-        // Check if node already exists for this person
+        // Check for existing node
         let existingNodeId: string | null = null;
 
         if (c.linked_profile_id && profileToNodeId[c.linked_profile_id]) {
@@ -320,7 +326,7 @@ export default function NetworkPage() {
         }
 
         if (existingNodeId) {
-          // Shared contact — add link from their owner, no new node
+          // Shared — add link from their owner, mark mutual
           const ownerNodeId = `user-${c.owner_id}`;
           const linkExists = links.some(
             (l) =>
@@ -334,17 +340,25 @@ export default function NetworkPage() {
               target: existingNodeId,
               distance: CLOSENESS[c.relationship_type] || 230,
               thickness: thicknessFromCount(stats?.count || 0),
-              recency: computeRecency(stats?.most_recent || null),
+              recency: computeRecency(stats?.most_recent || c.last_contact_date || null),
               isMutual: true,
               isOwn: false,
             });
+          }
+          // Also mark the existing link as mutual (the one from self)
+          const selfLink = links.find(
+            (l) =>
+              (l.source === "self" && l.target === existingNodeId) ||
+              (l.source === existingNodeId && l.target === "self")
+          );
+          if (selfLink) {
+            selfLink.isMutual = true;
           }
           const existingNode = nodes.find((n) => n.id === existingNodeId);
           if (existingNode) {
             existingNode.connectionCount++;
             existingNode.radius = nodeSizeFromConnections(
-              existingNode.connectionCount,
-              existingNode.type
+              existingNode.connectionCount
             );
           }
           continue;
@@ -365,12 +379,13 @@ export default function NetworkPage() {
           id: nodeId,
           label: initials,
           type: "their_contact",
-          radius: nodeSizeFromConnections(1, "their_contact"),
+          radius: nodeSizeFromConnections(1),
           connectionCount: 1,
           company: c.company ?? undefined,
           role: c.role ?? undefined,
           owner_id: c.owner_id,
           profileId: c.linked_profile_id ?? undefined,
+          relationship_type: c.relationship_type,
         });
 
         if (c.linked_profile_id) {
@@ -383,7 +398,7 @@ export default function NetworkPage() {
           target: nodeId,
           distance: CLOSENESS[c.relationship_type] || 230,
           thickness: thicknessFromCount(stats?.count || 0),
-          recency: computeRecency(stats?.most_recent || null),
+          recency: computeRecency(stats?.most_recent || c.last_contact_date || null),
           isMutual: false,
           isOwn: false,
         });
@@ -465,7 +480,7 @@ export default function NetworkPage() {
       .data(links)
       .enter()
       .append("line")
-      .attr("stroke", (d) => lineColor(d.isOwn, d.isMutual, d.recency))
+      .attr("stroke", (d) => lineColor(d.isMutual, d.recency))
       .attr("stroke-width", (d) => d.thickness)
       .attr("stroke-linecap", "round");
 
@@ -711,7 +726,7 @@ export default function NetworkPage() {
         }}
       >
         <span>— Your connections</span>
-        <span style={{ color: "#dc2626" }}>━ Mutual (linked)</span>
+        <span style={{ color: "#dc2626" }}>━ Mutual (shared)</span>
         <span>| Thickness = interaction density</span>
         <span>| Brightness = recency</span>
         <span>| Node size = # connections</span>
@@ -777,9 +792,16 @@ export default function NetworkPage() {
             </>
           )}
           {hoveredNode.type === "connected_user" && (
-            <div style={{ color: "#60a5fa" }}>
-              Linked user · {hoveredNode.connectionCount} contacts
-            </div>
+            <>
+              {hoveredNode.relationship_type && (
+                <div style={{ color: "#94a3b8" }}>
+                  {hoveredNode.relationship_type}
+                </div>
+              )}
+              <div style={{ color: "#60a5fa" }}>
+                Linked user · {hoveredNode.connectionCount} contacts
+              </div>
+            </>
           )}
           {hoveredNode.type === "their_contact" && (
             <>
