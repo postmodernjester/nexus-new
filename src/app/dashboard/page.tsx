@@ -5,7 +5,6 @@ import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getOrCreateInviteCode } from "@/lib/connections";
 import Link from "next/link";
-import QRCode from "react-qr-code";
 
 // ─── Nav ───
 const NAV_ITEMS = [
@@ -114,7 +113,9 @@ export default function DashboardPage() {
           .single(),
         supabase
           .from("contacts")
-          .select("id, full_name, company, role, relationship_type, last_contact_date")
+          .select(
+            "id, full_name, company, role, relationship_type, last_contact_date"
+          )
           .eq("owner_id", user.id)
           .order("last_contact_date", { ascending: false, nullsFirst: false })
           .limit(5),
@@ -302,7 +303,9 @@ export default function DashboardPage() {
                 View all →
               </Link>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+            >
               {contacts.map((c) => (
                 <div
                   key={c.id}
@@ -331,7 +334,13 @@ export default function DashboardPage() {
                 </div>
               ))}
               {contacts.length === 0 && (
-                <div style={{ color: "#475569", fontSize: "13px", padding: "12px" }}>
+                <div
+                  style={{
+                    color: "#475569",
+                    fontSize: "13px",
+                    padding: "12px",
+                  }}
+                >
                   No contacts yet. Add your first one!
                 </div>
               )}
@@ -370,7 +379,13 @@ export default function DashboardPage() {
                     borderRadius: "8px",
                   }}
                 >
-                  <QRCode value={getInviteUrl()} size={140} />
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(getInviteUrl())}`}
+                    alt="Invite QR Code"
+                    width={140}
+                    height={140}
+                    style={{ display: "block" }}
+                  />
                 </div>
               )}
 
