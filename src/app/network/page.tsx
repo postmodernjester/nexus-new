@@ -1,10 +1,74 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import Link from "next/link";
 import * as d3 from "d3";
 
+// ─── Nav (inline so network page is self-contained) ───
+const NAV_ITEMS = [
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/network", label: "Network" },
+  { href: "/contacts", label: "Contacts" },
+];
+
+function Nav() {
+  const pathname = usePathname();
+  return (
+    <nav
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "10px 20px",
+        background: "#0f172a",
+        borderBottom: "1px solid #1e293b",
+        zIndex: 30,
+        position: "relative",
+      }}
+    >
+      <Link
+        href="/dashboard"
+        style={{
+          fontSize: "18px",
+          fontWeight: "bold",
+          color: "#fff",
+          textDecoration: "none",
+          letterSpacing: "-0.5px",
+        }}
+      >
+        NEXUS
+      </Link>
+      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+        {NAV_ITEMS.map((item) => {
+          const active = pathname === item.href;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                fontSize: "13px",
+                fontWeight: 500,
+                textDecoration: "none",
+                color: active ? "#0f172a" : "#94a3b8",
+                background: active ? "#fff" : "transparent",
+                transition: "all 0.15s",
+              }}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+// ─── Types ───
 interface Contact {
   id: string;
   full_name: string;
@@ -13,8 +77,6 @@ interface Contact {
   role: string | null;
   owner_id: string;
   linked_profile_id: string | null;
-  communication_frequency: string | null;
-  collaboration_depth: string | null;
   last_contact_date: string | null;
 }
 
@@ -22,7 +84,6 @@ interface Connection {
   id: string;
   inviter_id: string;
   invitee_id: string;
-  invite_code: string;
   status: string;
 }
 
@@ -35,6 +96,7 @@ interface InteractionStats {
 interface GraphNode extends d3.SimulationNodeDatum {
   id: string;
   label: string;
+  fullName: string;
   type: "self" | "contact" | "connected_user" | "their_contact";
   radius: number;
   connectionCount: number;
@@ -51,9 +113,10 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
   thickness: number;
   recency: number;
   isMutual: boolean;
-  isOwn: boolean;
+  isLinkedUser: boolean; // solid red for self↔connected_user
 }
 
+// ─── Constants ───
 const CLOSENESS: Record<string, number> = {
   Family: 60,
   "Close Friend": 90,
@@ -67,9 +130,8 @@ const CLOSENESS: Record<string, number> = {
 
 function computeRecency(mostRecent: string | null): number {
   if (!mostRecent) return 0.1;
-  const now = Date.now();
-  const then = new Date(mostRecent).getTime();
-  const daysSince = (now - then) / (1000 * 60 * 60 * 24);
+  const daysSince =
+    (Date.now() - new Date(mostRecent).getTime()) / (1000 * 60 * 60 * 24);
   if (daysSince <= 1) return 1;
   if (daysSince <= 7) return 0.9;
   if (daysSince <= 14) return 0.75;
@@ -80,16 +142,30 @@ function computeRecency(mostRecent: string | null): number {
   return 0.1;
 }
 
-function lineColor(isMutual: boolean, recency: number): string {
+function lineColor(
+  isMutual: boolean,
+  isLinkedUser: boolean,
+  recency: number
+): string {
+  if (isLinkedUser) {
+    // Solid bold red for linked user connections
+    return "rgba(220, 38, 38, 1)";
+  }
   if (isMutual) {
-    const alpha = 0.2 + recency * 0.8;
+    // Red with recency alpha for shared contacts
+    const alpha = 0.3 + recency * 0.7;
     return `rgba(220, 38, 38, ${alpha})`;
   }
+  // White with recency alpha
   const alpha = 0.15 + recency * 0.7;
   return `rgba(255, 255, 255, ${alpha})`;
 }
 
-function thicknessFromCount(count: number): number {
+function lineThickness(
+  count: number,
+  isLinkedUser: boolean
+): number {
+  if (isLinkedUser) return 4; // bold for linked connections
   if (count === 0) return 0.8;
   if (count <= 2) return 1.5;
   if (count <= 5) return 2.5;
@@ -98,10 +174,11 @@ function thicknessFromCount(count: number): number {
   return 6;
 }
 
-function nodeSizeFromConnections(count: number): number {
+function nodeSize(count: number): number {
   return 8 + Math.min(count * 1.2, 16);
 }
 
+// ─── Component ───
 export default function NetworkPage() {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -146,7 +223,7 @@ export default function NetworkPage() {
       const connections: Connection[] = connectionsRes.data || [];
       const allInteractions = interactionsRes.data || [];
 
-      // Interaction stats per contact
+      // Interaction stats
       const interactionMap: Record<string, InteractionStats> = {};
       for (const i of allInteractions) {
         if (!interactionMap[i.contact_id]) {
@@ -162,14 +239,11 @@ export default function NetworkPage() {
         }
       }
 
-      // Connected user IDs
+      // Connected user IDs (directly connected to me)
       const mutualUserIds = new Set<string>();
       for (const conn of connections) {
-        if (conn.inviter_id === user.id) {
-          mutualUserIds.add(conn.invitee_id);
-        } else if (conn.invitee_id === user.id) {
-          mutualUserIds.add(conn.inviter_id);
-        }
+        if (conn.inviter_id === user.id) mutualUserIds.add(conn.invitee_id);
+        else if (conn.invitee_id === user.id) mutualUserIds.add(conn.inviter_id);
       }
 
       // Connected user profiles
@@ -190,14 +264,12 @@ export default function NetworkPage() {
         }
       }
 
-      // Their contacts
+      // Other users' contacts (visible because they're connected to me)
       const theirContacts = allContacts.filter(
         (c) => mutualUserIds.has(c.owner_id) && c.owner_id !== user.id
       );
 
-      // ========== DEDUP ==========
-      // My contacts with linked_profile_id pointing to a connected user
-      // → skip contact node, but USE the contact's data for the link
+      // ═══ DEDUP ═══
       const myContactsLinkedToConnectedUser = new Map<string, Contact>();
       for (const c of myContacts) {
         if (c.linked_profile_id && mutualUserIds.has(c.linked_profile_id)) {
@@ -207,35 +279,35 @@ export default function NetworkPage() {
 
       const profileToNodeId: Record<string, string> = {};
       const nameToNodeId: Record<string, string> = {};
-
       const nodes: GraphNode[] = [];
       const links: GraphLink[] = [];
 
-      // 1. Self
+      // ① Self
       const myName = profileRes.data?.full_name || "You";
-      const selfConnectionCount = myContacts.length + mutualUserIds.size;
+      const selfConnCount = myContacts.length + mutualUserIds.size;
       nodes.push({
         id: "self",
         label: myName,
+        fullName: myName,
         type: "self",
-        radius: nodeSizeFromConnections(selfConnectionCount),
-        connectionCount: selfConnectionCount,
+        radius: nodeSize(selfConnCount),
+        connectionCount: selfConnCount,
         user_id: user.id,
         profileId: user.id,
       });
       profileToNodeId[user.id] = "self";
       nameToNodeId[myName.toLowerCase()] = "self";
 
-      // 2. Connected users — use my contact card data for link properties
+      // ② Connected users (linked via invite code)
       for (const uid of Array.from(mutualUserIds)) {
         const profile = connectedProfiles[uid];
         const name = profile?.full_name || "Connected User";
-        const theirContactCount = theirContacts.filter(
+        const theirCount = theirContacts.filter(
           (c) => c.owner_id === uid
         ).length;
         const nodeId = `user-${uid}`;
 
-        // Get my contact card for this person (if I have one)
+        // Use my contact card for this person (for relationship data)
         const myCard = myContactsLinkedToConnectedUser.get(uid);
         const stats = myCard ? interactionMap[myCard.id] : null;
         const relType = myCard?.relationship_type || "Acquaintance";
@@ -243,30 +315,34 @@ export default function NetworkPage() {
         nodes.push({
           id: nodeId,
           label: name,
+          fullName: name,
           type: "connected_user",
-          radius: nodeSizeFromConnections(theirContactCount + 1),
-          connectionCount: theirContactCount + 1,
+          radius: nodeSize(theirCount + 1),
+          connectionCount: theirCount + 1,
           user_id: uid,
           profileId: uid,
           relationship_type: relType,
+          company: myCard?.company ?? undefined,
+          role: myCard?.role ?? undefined,
         });
-
         profileToNodeId[uid] = nodeId;
         nameToNodeId[name.toLowerCase()] = nodeId;
 
-        // Link follows same rules: distance from relationship, thickness from interactions, recency from last interaction
+        // SOLID RED link — this is a linked user connection
         links.push({
           source: "self",
           target: nodeId,
           distance: CLOSENESS[relType] || 190,
-          thickness: thicknessFromCount(stats?.count || 0),
-          recency: computeRecency(stats?.most_recent || myCard?.last_contact_date || null),
+          thickness: 4,
+          recency: computeRecency(
+            stats?.most_recent || myCard?.last_contact_date || null
+          ),
           isMutual: true,
-          isOwn: true,
+          isLinkedUser: true,
         });
       }
 
-      // 3. My contacts — skip if linked to a connected user
+      // ③ My contacts (skip if linked to a connected user — already shown)
       for (const c of myContacts) {
         if (
           c.linked_profile_id &&
@@ -277,12 +353,18 @@ export default function NetworkPage() {
 
         const stats = interactionMap[c.id];
         const nodeId = c.id;
+        const parts = (c.full_name || "Unknown").split(" ");
+        const displayLabel =
+          parts.length > 1
+            ? `${parts[0][0]}. ${parts[parts.length - 1]}`
+            : parts[0];
 
         nodes.push({
           id: nodeId,
-          label: c.full_name || "Unknown",
+          label: displayLabel,
+          fullName: c.full_name || "Unknown",
           type: "contact",
-          radius: nodeSizeFromConnections(1),
+          radius: nodeSize(1),
           connectionCount: 1,
           relationship_type: c.relationship_type,
           company: c.company ?? undefined,
@@ -290,96 +372,95 @@ export default function NetworkPage() {
           owner_id: c.owner_id,
           profileId: c.linked_profile_id ?? undefined,
         });
-
-        if (c.linked_profile_id) {
-          profileToNodeId[c.linked_profile_id] = nodeId;
-        }
+        if (c.linked_profile_id) profileToNodeId[c.linked_profile_id] = nodeId;
         nameToNodeId[(c.full_name || "").toLowerCase()] = nodeId;
 
         links.push({
           source: "self",
           target: nodeId,
           distance: CLOSENESS[c.relationship_type] || 230,
-          thickness: thicknessFromCount(stats?.count || 0),
-          recency: computeRecency(stats?.most_recent || c.last_contact_date || null),
+          thickness: lineThickness(stats?.count || 0, false),
+          recency: computeRecency(
+            stats?.most_recent || c.last_contact_date || null
+          ),
           isMutual: false,
-          isOwn: true,
+          isLinkedUser: false,
         });
       }
 
-      // 4. Their contacts — dedup, same visual rules
+      // ④ Their contacts — dedup against existing nodes
       for (const c of theirContacts) {
         // Skip if this is me
         if (c.linked_profile_id === user.id) continue;
 
-        // Check for existing node
+        // Check for existing node (by linked profile or name)
         let existingNodeId: string | null = null;
-
         if (c.linked_profile_id && profileToNodeId[c.linked_profile_id]) {
           existingNodeId = profileToNodeId[c.linked_profile_id];
         }
         if (!existingNodeId) {
           const nameKey = (c.full_name || "").toLowerCase();
-          if (nameToNodeId[nameKey]) {
-            existingNodeId = nameToNodeId[nameKey];
-          }
+          if (nameToNodeId[nameKey]) existingNodeId = nameToNodeId[nameKey];
         }
 
         if (existingNodeId) {
-          // Shared — add link from their owner, mark mutual
+          // Shared contact — add link from their owner to existing node
           const ownerNodeId = `user-${c.owner_id}`;
-          const linkExists = links.some(
+          const alreadyLinked = links.some(
             (l) =>
               (l.source === ownerNodeId && l.target === existingNodeId) ||
               (l.source === existingNodeId && l.target === ownerNodeId)
           );
-          if (!linkExists) {
+          if (!alreadyLinked) {
             const stats = interactionMap[c.id];
+            // Is the connected user also a linked user to this person?
+            const targetIsLinkedUser =
+              !!c.linked_profile_id &&
+              !!profileToNodeId[c.linked_profile_id];
             links.push({
               source: ownerNodeId,
               target: existingNodeId,
               distance: CLOSENESS[c.relationship_type] || 230,
-              thickness: thicknessFromCount(stats?.count || 0),
-              recency: computeRecency(stats?.most_recent || c.last_contact_date || null),
+              thickness: lineThickness(stats?.count || 0, !!c.linked_profile_id),
+              recency: computeRecency(
+                stats?.most_recent || c.last_contact_date || null
+              ),
               isMutual: true,
-              isOwn: false,
+              isLinkedUser: !!c.linked_profile_id,
             });
           }
-          // Also mark the existing link as mutual (the one from self)
+          // Mark original self→node link as mutual too
           const selfLink = links.find(
             (l) =>
               (l.source === "self" && l.target === existingNodeId) ||
               (l.source === existingNodeId && l.target === "self")
           );
-          if (selfLink) {
-            selfLink.isMutual = true;
-          }
-          const existingNode = nodes.find((n) => n.id === existingNodeId);
-          if (existingNode) {
-            existingNode.connectionCount++;
-            existingNode.radius = nodeSizeFromConnections(
-              existingNode.connectionCount
-            );
+          if (selfLink) selfLink.isMutual = true;
+          // Bump connection count
+          const node = nodes.find((n) => n.id === existingNodeId);
+          if (node) {
+            node.connectionCount++;
+            node.radius = nodeSize(node.connectionCount);
           }
           continue;
         }
 
         // New 2nd-degree node
         const nameParts = (c.full_name || "??").split(" ");
-        const firstInitial = (nameParts[0] || "?")[0];
-        const lastInitial =
+        const initials = `${(nameParts[0] || "?")[0]}${
           nameParts.length > 1
             ? (nameParts[nameParts.length - 1] || "?")[0]
-            : "?";
-        const initials = `${firstInitial}${lastInitial}`.toUpperCase();
+            : "?"
+        }`.toUpperCase();
         const stats = interactionMap[c.id];
         const nodeId = `their-${c.id}`;
 
         nodes.push({
           id: nodeId,
           label: initials,
+          fullName: c.full_name || "Unknown",
           type: "their_contact",
-          radius: nodeSizeFromConnections(1),
+          radius: nodeSize(1),
           connectionCount: 1,
           company: c.company ?? undefined,
           role: c.role ?? undefined,
@@ -387,20 +468,19 @@ export default function NetworkPage() {
           profileId: c.linked_profile_id ?? undefined,
           relationship_type: c.relationship_type,
         });
-
-        if (c.linked_profile_id) {
-          profileToNodeId[c.linked_profile_id] = nodeId;
-        }
+        if (c.linked_profile_id) profileToNodeId[c.linked_profile_id] = nodeId;
         nameToNodeId[(c.full_name || "").toLowerCase()] = nodeId;
 
         links.push({
           source: `user-${c.owner_id}`,
           target: nodeId,
           distance: CLOSENESS[c.relationship_type] || 230,
-          thickness: thicknessFromCount(stats?.count || 0),
-          recency: computeRecency(stats?.most_recent || c.last_contact_date || null),
+          thickness: lineThickness(stats?.count || 0, !!c.linked_profile_id),
+          recency: computeRecency(
+            stats?.most_recent || c.last_contact_date || null
+          ),
           isMutual: false,
-          isOwn: false,
+          isLinkedUser: !!c.linked_profile_id,
         });
       }
 
@@ -411,7 +491,7 @@ export default function NetworkPage() {
     fetchAll();
   }, [router]);
 
-  // Render D3 graph
+  // ─── D3 Render ───
   useEffect(() => {
     if (loading || !svgRef.current || !containerRef.current) return;
     if (graphData.nodes.length === 0) return;
@@ -429,15 +509,13 @@ export default function NetworkPage() {
 
     const g = svg.append("g");
 
-    const svgElement = svgRef.current;
-    if (svgElement) {
-      d3.select(svgElement).call(
+    const svgEl = svgRef.current;
+    if (svgEl) {
+      d3.select(svgEl).call(
         d3
           .zoom<SVGSVGElement, unknown>()
           .scaleExtent([0.2, 4])
-          .on("zoom", (event) => {
-            g.attr("transform", event.transform);
-          })
+          .on("zoom", (event) => g.attr("transform", event.transform))
       );
     }
 
@@ -475,15 +553,17 @@ export default function NetworkPage() {
 
     simulationRef.current = simulation;
 
+    // Links
     const linkGroup = g
       .selectAll<SVGLineElement, GraphLink>("line")
       .data(links)
       .enter()
       .append("line")
-      .attr("stroke", (d) => lineColor(d.isMutual, d.recency))
+      .attr("stroke", (d) => lineColor(d.isMutual, d.isLinkedUser, d.recency))
       .attr("stroke-width", (d) => d.thickness)
       .attr("stroke-linecap", "round");
 
+    // Node groups
     const nodeGroup = g
       .selectAll<SVGGElement, GraphNode>("g.node")
       .data(nodes)
@@ -492,7 +572,7 @@ export default function NetworkPage() {
       .attr("class", "node")
       .style("cursor", "pointer");
 
-    // Node circles — no border
+    // Circles — no border
     nodeGroup
       .append("circle")
       .attr("r", (d) => d.radius)
@@ -515,19 +595,17 @@ export default function NetworkPage() {
       .attr("stroke", "none")
       .attr("stroke-width", 0);
 
-    // Node labels
+    // Labels
     nodeGroup
       .append("text")
       .text((d) => {
         if (d.type === "self") return d.label;
         if (d.type === "connected_user") return d.label;
         if (d.type === "their_contact") {
-          const company = d.company || d.role || "";
-          return company ? `${d.label} @ ${company}` : d.label;
+          const place = d.company || d.role || "";
+          return place ? `${d.label} @ ${place}` : d.label;
         }
-        const parts = d.label.split(" ");
-        if (parts.length > 1)
-          return `${parts[0][0]}. ${parts[parts.length - 1]}`;
+        // 1st degree: already formatted as "F. Last"
         return d.label;
       })
       .attr("text-anchor", "middle")
@@ -545,7 +623,7 @@ export default function NetworkPage() {
       .attr("font-weight", (d) => (d.type === "self" ? "bold" : "normal"))
       .attr("pointer-events", "none");
 
-    // Hover + click
+    // ─── Hover / Click ───
     nodeGroup
       .on("mouseover", function (event, d) {
         setHoveredNode(d);
@@ -562,10 +640,8 @@ export default function NetworkPage() {
           .attr("stroke", "none")
           .attr("stroke-width", 0);
       })
-      .on("click", (event, d) => {
-        if (d.type === "contact") {
-          router.push(`/contacts/${d.id}`);
-        }
+      .on("click", (_event, d) => {
+        if (d.type === "contact") router.push(`/contacts/${d.id}`);
       })
       .on("dblclick", (event, d) => {
         event.stopPropagation();
@@ -601,24 +677,23 @@ export default function NetworkPage() {
         })
     );
 
+    // Tick
     simulation.on("tick", () => {
       linkGroup
         .attr("x1", (d) => (d.source as GraphNode).x || 0)
         .attr("y1", (d) => (d.source as GraphNode).y || 0)
         .attr("x2", (d) => (d.target as GraphNode).x || 0)
         .attr("y2", (d) => (d.target as GraphNode).y || 0);
-
       nodeGroup.attr(
         "transform",
         (d) => `translate(${d.x || 0},${d.y || 0})`
       );
     });
 
-    return () => {
-      simulation.stop();
-    };
+    return () => simulation.stop();
   }, [loading, graphData, centeredNodeId, router]);
 
+  // Counts
   const myContactCount = graphData.nodes.filter(
     (n) => n.type === "contact"
   ).length;
@@ -654,42 +729,31 @@ export default function NetworkPage() {
         height: "100vh",
         background: "#0f172a",
         overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      {/* Inline header */}
+      {/* Shared Nav */}
+      <Nav />
+
+      {/* Sub-header: filter + counts */}
       <div
         style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 20,
           display: "flex",
           alignItems: "center",
           gap: "16px",
-          padding: "12px 20px",
+          padding: "8px 20px",
           background: "rgba(15,23,42,0.92)",
           borderBottom: "1px solid #1e293b",
+          zIndex: 20,
         }}
       >
-        <span
-          onClick={() => router.push("/dashboard")}
-          style={{ cursor: "pointer", color: "#64748b", fontSize: "14px" }}
-        >
-          ← Dashboard
-        </span>
-        <span
-          style={{ fontWeight: "bold", color: "#e2e8f0", fontSize: "16px" }}
-        >
-          Network
-        </span>
         <input
           type="text"
           placeholder="Filter…"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
           style={{
-            marginLeft: "auto",
             padding: "4px 12px",
             borderRadius: "6px",
             border: "1px solid #334155",
@@ -705,31 +769,22 @@ export default function NetworkPage() {
           {myContactCount} contacts · {connectedUserCount} linked ·{" "}
           {theirContactCount} 2nd°
         </span>
-      </div>
-
-      {/* Legend bar */}
-      <div
-        style={{
-          position: "absolute",
-          top: "52px",
-          left: 0,
-          right: 0,
-          zIndex: 20,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "20px",
-          padding: "6px 20px",
-          background: "rgba(15,23,42,0.85)",
-          fontSize: "11px",
-          color: "#64748b",
-        }}
-      >
-        <span>— Your connections</span>
-        <span style={{ color: "#dc2626" }}>━ Mutual (shared)</span>
-        <span>| Thickness = interaction density</span>
-        <span>| Brightness = recency</span>
-        <span>| Node size = # connections</span>
+        <div
+          style={{
+            marginLeft: "auto",
+            display: "flex",
+            gap: "20px",
+            fontSize: "11px",
+            color: "#64748b",
+          }}
+        >
+          <span>— Your connections</span>
+          <span style={{ color: "#dc2626", fontWeight: "bold" }}>
+            ━ Linked / Mutual
+          </span>
+          <span>Thickness = density</span>
+          <span>Brightness = recency</span>
+        </div>
       </div>
 
       {/* Hint */}
@@ -747,11 +802,8 @@ export default function NetworkPage() {
         Dbl-click = re-center · Click = dossier
       </div>
 
-      {/* SVG */}
-      <div
-        ref={containerRef}
-        style={{ width: "100%", height: "100%", paddingTop: "76px" }}
-      >
+      {/* SVG container */}
+      <div ref={containerRef} style={{ flex: 1, width: "100%" }}>
         <svg ref={svgRef} style={{ width: "100%", height: "100%" }} />
       </div>
 
@@ -770,58 +822,74 @@ export default function NetworkPage() {
             color: "#e2e8f0",
             fontSize: "13px",
             pointerEvents: "none",
-            maxWidth: "260px",
+            maxWidth: "280px",
           }}
         >
           <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
-            {hoveredNode.label}
+            {hoveredNode.fullName}
           </div>
+
+          {/* 1st degree: role + company */}
           {hoveredNode.type === "contact" && (
             <>
               {hoveredNode.relationship_type && (
-                <div style={{ color: "#94a3b8" }}>
+                <div style={{ color: "#94a3b8", fontSize: "12px" }}>
                   {hoveredNode.relationship_type}
                 </div>
               )}
               {hoveredNode.role && (
-                <div style={{ color: "#94a3b8" }}>{hoveredNode.role}</div>
+                <div style={{ color: "#94a3b8", fontSize: "12px" }}>
+                  {hoveredNode.role}
+                </div>
               )}
               {hoveredNode.company && (
-                <div style={{ color: "#94a3b8" }}>{hoveredNode.company}</div>
+                <div style={{ color: "#94a3b8", fontSize: "12px" }}>
+                  {hoveredNode.company}
+                </div>
               )}
             </>
           )}
+
+          {/* Connected user: relationship + headline */}
           {hoveredNode.type === "connected_user" && (
             <>
               {hoveredNode.relationship_type && (
-                <div style={{ color: "#94a3b8" }}>
+                <div style={{ color: "#94a3b8", fontSize: "12px" }}>
                   {hoveredNode.relationship_type}
                 </div>
               )}
-              <div style={{ color: "#60a5fa" }}>
+              <div style={{ color: "#60a5fa", fontSize: "12px" }}>
                 Linked user · {hoveredNode.connectionCount} contacts
               </div>
             </>
           )}
+
+          {/* 2nd degree: just role (job title) */}
           {hoveredNode.type === "their_contact" && (
             <>
               {hoveredNode.role && (
-                <div style={{ color: "#94a3b8" }}>{hoveredNode.role}</div>
+                <div style={{ color: "#94a3b8", fontSize: "12px" }}>
+                  {hoveredNode.role}
+                </div>
               )}
-              {hoveredNode.company && (
-                <div style={{ color: "#94a3b8" }}>{hoveredNode.company}</div>
-              )}
-              <div style={{ color: "#475569", fontSize: "11px" }}>
+              <div
+                style={{
+                  color: "#475569",
+                  fontSize: "11px",
+                  marginTop: "2px",
+                }}
+              >
                 2nd° connection
               </div>
             </>
           )}
-          <div
-            style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}
-          >
-            {hoveredNode.connectionCount} connection
-            {hoveredNode.connectionCount !== 1 ? "s" : ""}
-          </div>
+
+          {/* Self */}
+          {hoveredNode.type === "self" && (
+            <div style={{ color: "#a78bfa", fontSize: "12px" }}>
+              {hoveredNode.connectionCount} connections
+            </div>
+          )}
         </div>
       )}
     </div>
