@@ -229,7 +229,8 @@ export default function NetworkPage() {
       .attr('stroke-width', (d) => d.type === 'mutual' ? 4 : 2)
       .attr('stroke-opacity', (d) => d.type === 'second_degree' ? 0.4 : 0.6);
 
-    const nodeSel = g.append('g').selectAll('circle').data(nodes).join('circle')
+    const nodeGrp = g.append('g').selectAll<SVGCircleElement, GraphNode>('circle')
+      .data(nodes).join('circle')
       .attr('r', (d) => d.radius)
       .attr('fill', (d) => palette[d.group])
       .attr('stroke', '#000')
@@ -246,19 +247,20 @@ export default function NetworkPage() {
         tip.style.left = (ev.clientX - r.left + 14) + 'px';
         tip.style.top = (ev.clientY - r.top - 10) + 'px';
       })
-      .on('mouseout', function() { tip.style.opacity = '0'; })
-      .call(
-        d3.drag<SVGCircleElement, GraphNode>()
-          .on('start', function(e, d) {
-            if (!e.active) sim.alphaTarget(0.3).restart();
-            d.fx = d.x; d.fy = d.y;
-          })
-          .on('drag', function(e, d) { d.fx = e.x; d.fy = e.y; })
-          .on('end', function(e, d) {
-            if (!e.active) sim.alphaTarget(0);
-            d.fx = null; d.fy = null;
-          })
-      );
+      .on('mouseout', function() { tip.style.opacity = '0'; });
+
+    const dragBehavior = d3.drag<SVGCircleElement, GraphNode>()
+      .on('start', function(e, d) {
+        if (!e.active) sim.alphaTarget(0.3).restart();
+        d.fx = d.x; d.fy = d.y;
+      })
+      .on('drag', function(e, d) { d.fx = e.x; d.fy = e.y; })
+      .on('end', function(e, d) {
+        if (!e.active) sim.alphaTarget(0);
+        d.fx = null; d.fy = null;
+      });
+
+    nodeGrp.call(dragBehavior);
 
     const labelSel = g.append('g').selectAll('text').data(nodes).join('text')
       .text((d) => d.label)
@@ -269,35 +271,33 @@ export default function NetworkPage() {
       .attr('paint-order', 'stroke')
       .attr('stroke', '#000')
       .attr('stroke-width', 3)
-      .attr('stroke-linecap', 'round')
-      .attr('stroke-linejoin', 'round')
       .style('pointer-events', 'none');
 
-    sim.on('tick', function() {
+    sim.on('tick', () => {
       linkSel
-        .attr('x1', (d) => (d.source as GraphNode).x!)
-        .attr('y1', (d) => (d.source as GraphNode).y!)
-        .attr('x2', (d) => (d.target as GraphNode).x!)
-        .attr('y2', (d) => (d.target as GraphNode).y!);
-      nodeSel
-        .attr('cx', (d) => d.x!)
-        .attr('cy', (d) => d.y!);
+        .attr('x1', (d: any) => d.source.x)
+        .attr('y1', (d: any) => d.source.y)
+        .attr('x2', (d: any) => d.target.x)
+        .attr('y2', (d: any) => d.target.y);
+      nodeGrp
+        .attr('cx', (d: any) => d.x)
+        .attr('cy', (d: any) => d.y);
       labelSel
-        .attr('x', (d) => d.x!)
-        .attr('y', (d) => d.y! + d.radius + 16);
+        .attr('x', (d: any) => d.x)
+        .attr('y', (d: any) => d.y + d.radius + 14);
     });
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] flex flex-col">
+    <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col">
       <TopNav />
       <div ref={containerRef} className="flex-1 relative" style={{ minHeight: 'calc(100vh - 56px)' }}>
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center z-10">
-            <div className="text-white/50 text-sm">Loading network...</div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-400" />
           </div>
         )}
-        <svg ref={svgRef} className="w-full h-full" />
+        <svg ref={svgRef} className="w-full h-full" style={{ display: 'block' }} />
       </div>
     </div>
   );
