@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabase';
 import * as d3 from 'd3';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -44,10 +44,10 @@ function TopNav() {
 
 /* Muted palette */
 const PALETTE: Record<string, string> = {
-  you: '#C9A84C',        // muted gold
-  connected_user: '#7B9EC4', // muted blue
-  contact: '#A68BC1',    // muted purple
-  second_degree: '#7A7A7A',  // muted gray
+  you: '#C9A84C',
+  connected_user: '#7B9EC4',
+  contact: '#A68BC1',
+  second_degree: '#7A7A7A',
 };
 
 const LINK_COLORS: Record<string, string> = {
@@ -59,7 +59,6 @@ const LINK_COLORS: Record<string, string> = {
 export default function NetworkPage() {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const supabase = createClientComponentClient();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nodeCount, setNodeCount] = useState(0);
@@ -192,9 +191,10 @@ export default function NetworkPage() {
 
     async function buildGraph() {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { setError('Not signed in'); setLoading(false); return; }
-        const uid = user.id;
+        /* Use getSession instead of getUser — works with the same client as other pages */
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) { setError('Not signed in'); setLoading(false); return; }
+        const uid = session.user.id;
 
         const { data: profile } = await supabase
           .from('profiles').select('full_name, title, company').eq('id', uid).single();
@@ -214,12 +214,13 @@ export default function NetworkPage() {
           connectedProfiles = data || [];
         }
 
+        /* contacts table uses full_name, NOT first_name/last_name */
         const { data: myContacts } = await supabase
-          .from('contacts').select('id, first_name, last_name, title, company, linked_profile_id')
+          .from('contacts').select('id, full_name, role, company, linked_profile_id')
           .eq('owner_id', uid);
 
         const { data: allContacts } = await supabase
-          .from('contacts').select('id, owner_id, first_name, last_name, title, company, linked_profile_id');
+          .from('contacts').select('id, owner_id, full_name, role, company, linked_profile_id');
 
         const { data: allConnections } = await supabase
           .from('connections').select('user_id, connected_user_id, status').eq('status', 'accepted');
@@ -237,12 +238,10 @@ export default function NetworkPage() {
           }
         }
 
-        const fmtInitialLast = (first: string, last: string) => {
-          const f = (first || '').trim();
-          const l = (last || '').trim();
-          if (!f && !l) return '?';
-          if (!l) return f;
-          return f.charAt(0) + '. ' + l;
+        const fmtShortName = (fullName: string) => {
+          const parts = (fullName || '').trim().split(/\s+/);
+          if (parts.length < 2) return fullName || '?';
+          return parts[0].charAt(0) + '. ' + parts[parts.length - 1];
         };
 
         const fmtDetail = (t: string | null, c: string | null) => {
@@ -262,7 +261,7 @@ export default function NetworkPage() {
         });
         nodeIds.add(uid);
 
-        /* Connected users (mutual) */
+        /* Connected users (mutual NEXUS users) */
         for (const cp of connectedProfiles) {
           nodes.push({
             id: cp.id, label: cp.full_name || 'User',
@@ -274,53 +273,75 @@ export default function NetworkPage() {
           links.push({ source: uid, target: cp.id, type: 'mutual' });
         }
 
-        /* My contacts */
-        for (const c of (myContacts || [])) {
-          const nid = 'contact-' + c.id;
-          if (nodeIds.has(nid)) continue;
-          if (c.linked_profile_id && nodeIds.has(c.linked_profile_id)) continue;
-          const full = ((c.first_name || '') + ' ' + (c.last_name || '')).trim();
+        /* My contacts — use full_name */
+        for (const ct of (myContacts || [])) {
+          const name = ct.full_name || '?';
+          /* Skip if this contact is already represented as a connected user via linked_profile_id */
+          if (ct.linked_profile_id && nodeIds.has(ct.linked_profile_id)) continue;
+
+          const nodeId = ct.linked_profile_id || `contact-${ct.id}`;
+          if (nodeIds.has(nodeId)) continue;
+
           nodes.push({
-            id: nid, label: fmtInitialLast(c.first_name, c.last_name),
-            hoverName: full || '?',
-            hoverDetail: fmtDetail(c.title, c.company),
-            group: 'contact', radius: 12,
+            id: nodeId, label: fmtShortName(name),
+            hoverName: name,
+            hoverDetail: fmtDetail(ct.role, ct.company),
+            group: 'contact', radius: 14,
           });
-          nodeIds.add(nid);
-          links.push({ source: uid, target: nid, type: 'direct' });
+          nodeIds.add(nodeId);
+          links.push({ source: uid, target: nodeId, type: 'direct' });
         }
 
-        /* Second-degree contacts */
-        for (const c of (allContacts || [])) {
-          if (c.owner_id === uid) continue;
-          if (!mutualUserIds.includes(c.owner_id)) continue;
-          if (c.linked_profile_id === uid) continue;
-          const nid = 'contact-' + c.id;
-          if (nodeIds.has(nid)) continue;
-          if (c.linked_profile_id && nodeIds.has(c.linked_profile_id)) {
-            links.push({ source: c.owner_id, target: c.linked_profile_id, type: 'second_degree' });
-            continue;
+        /* Second-degree: contacts of my connections */
+        const secondDegreeUserIds = new Set<string>();
+        for (const muId of mutualUserIds) {
+          /* Get contacts owned by this connected user */
+          const theirContacts = (allContacts || []).filter((c: any) => c.owner_id === muId);
+          for (const tc of theirContacts) {
+            const tcNodeId = tc.linked_profile_id || `contact-${tc.id}`;
+            /* Skip if already in graph or is me */
+            if (nodeIds.has(tcNodeId) || tc.linked_profile_id === uid) continue;
+            if (secondDegreeUserIds.has(tcNodeId)) continue;
+            secondDegreeUserIds.add(tcNodeId);
+
+            const name = tc.full_name || '?';
+            nodes.push({
+              id: tcNodeId, label: fmtShortName(name),
+              hoverName: name,
+              hoverDetail: fmtDetail(tc.role, tc.company),
+              group: 'second_degree', radius: 10,
+            });
+            nodeIds.add(tcNodeId);
+            links.push({ source: muId, target: tcNodeId, type: 'second_degree' });
           }
-          const isConn = c.linked_profile_id && connectedToMyConnections.has(c.linked_profile_id);
-          const full = ((c.first_name || '') + ' ' + (c.last_name || '')).trim();
-          let lbl: string;
-          let hName: string;
-          let hDetail: string;
-          if (isConn) {
-            lbl = fmtInitialLast(c.first_name, c.last_name);
-            hName = full || '?';
-            hDetail = fmtDetail(c.title, c.company);
-          } else {
-            lbl = c.title || '?';
-            hName = c.title || '?';
-            hDetail = c.company || '';
-          }
+        }
+
+        /* Also add second-degree via connections table */
+        for (const sdId of connectedToMyConnections) {
+          if (nodeIds.has(sdId)) continue;
+          /* Find this user's profile */
+          const { data: sdProfile } = await supabase
+            .from('profiles').select('id, full_name, title, company').eq('id', sdId).single();
+          if (!sdProfile) continue;
+
           nodes.push({
-            id: nid, label: lbl, hoverName: hName,
-            hoverDetail: hDetail, group: 'second_degree', radius: 9,
+            id: sdId, label: sdProfile.full_name || 'User',
+            hoverName: sdProfile.full_name || 'User',
+            hoverDetail: fmtDetail(sdProfile.title, sdProfile.company),
+            group: 'second_degree', radius: 10,
           });
-          nodeIds.add(nid);
-          links.push({ source: c.owner_id, target: nid, type: 'second_degree' });
+          nodeIds.add(sdId);
+          /* Link to whichever of my connections they're connected to */
+          for (const conn of (allConnections || [])) {
+            if (conn.user_id === sdId && mutualUserIds.includes(conn.connected_user_id)) {
+              links.push({ source: conn.connected_user_id, target: sdId, type: 'second_degree' });
+              break;
+            }
+            if (conn.connected_user_id === sdId && mutualUserIds.includes(conn.user_id)) {
+              links.push({ source: conn.user_id, target: sdId, type: 'second_degree' });
+              break;
+            }
+          }
         }
 
         if (cancelled) return;
@@ -329,107 +350,68 @@ export default function NetworkPage() {
         linksRef.current = links;
         setNodeCount(nodes.length);
         setLoading(false);
+
+        /* Render after a tick so the container has layout dimensions */
+        requestAnimationFrame(() => {
+          setTimeout(() => renderGraph(), 50);
+        });
+
       } catch (err: any) {
-        if (!cancelled) {
-          console.error('Network graph error:', err);
-          setError(err.message || 'Failed to load network');
-          setLoading(false);
-        }
+        console.error('Network graph error:', err);
+        if (!cancelled) { setError(err.message || 'Failed to load'); setLoading(false); }
       }
     }
 
     buildGraph();
     return () => { cancelled = true; };
-  }, [supabase]);
+  }, [renderGraph]);
 
-  /* Render when data is ready or on resize */
+  /* Re-render on resize */
   useEffect(() => {
-    if (loading || nodeCount === 0) return;
-
-    /* Small delay to ensure container has laid out */
-    const t = setTimeout(() => renderGraph(), 50);
-
-    const handleResize = () => renderGraph();
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener('resize', handleResize);
-    };
-  }, [loading, nodeCount, renderGraph]);
+    const onResize = () => renderGraph();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [renderGraph]);
 
   return (
-    <div className="h-screen flex flex-col bg-[#0a0a0a] text-white overflow-hidden">
+    <div className="h-screen w-screen overflow-hidden bg-[#0a0a0a] flex flex-col">
       <TopNav />
-
-      {/* Legend */}
-      <div className="flex items-center gap-5 px-4 py-2 text-xs text-white/50 border-b border-white/5">
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full" style={{ background: PALETTE.you }} />
-          You
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full" style={{ background: PALETTE.connected_user }} />
-          Connections
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full" style={{ background: PALETTE.contact }} />
-          Contacts
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full" style={{ background: PALETTE.second_degree }} />
-          2nd Degree
-        </span>
+      {/* Legend bar */}
+      <div className="w-full border-b border-white/5 bg-[#0a0a0a] px-4 py-2 flex items-center gap-6 text-xs text-white/50">
+        {Object.entries(PALETTE).map(([key, color]) => (
+          <span key={key} className="flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+            {key === 'you' ? 'You' : key === 'connected_user' ? '1st Degree' : key === 'contact' ? 'Contact' : '2nd Degree'}
+          </span>
+        ))}
+        {nodeCount > 0 && <span className="ml-auto">{nodeCount} nodes</span>}
       </div>
 
-      {/* Graph area */}
-      <div
-        ref={containerRef}
-        className="flex-1 relative"
-        style={{ minHeight: 0 }}
-      >
+      <div ref={containerRef} className="flex-1 relative" style={{ position: 'relative', overflow: 'hidden' }}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center z-10">
-            <div className="flex flex-col items-center gap-3">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#C9A84C]" />
-              <span className="text-white/40 text-sm">Loading network…</span>
-            </div>
+            <div className="text-white/50 text-sm">Loading network…</div>
           </div>
         )}
-
         {error && (
           <div className="absolute inset-0 flex items-center justify-center z-10">
             <div className="text-center">
-              <p className="text-red-400 text-sm mb-2">{error}</p>
-              <button
-                onClick={() => window.location.reload()}
-                className="text-xs text-white/50 underline hover:text-white/80"
-              >
-                Retry
-              </button>
+              <div className="text-red-400 text-sm mb-2">{error}</div>
+              <Link href="/dashboard" className="text-white/50 hover:text-white text-sm underline">Go to Dashboard</Link>
             </div>
           </div>
         )}
-
         {!loading && !error && nodeCount === 0 && (
           <div className="absolute inset-0 flex items-center justify-center z-10">
-            <div className="text-center text-white/40">
-              <p className="text-lg mb-2">No network data yet</p>
-              <p className="text-sm">Add contacts or connect with other users to see your graph.</p>
+            <div className="text-center">
+              <div className="text-white/40 text-sm mb-2">No network data yet</div>
+              <Link href="/contacts" className="text-white/50 hover:text-white text-sm underline">Add contacts to get started</Link>
             </div>
           </div>
         )}
-
         <svg
           ref={svgRef}
-          style={{
-            display: 'block',
-            width: '100%',
-            height: '100%',
-            position: 'absolute',
-            top: 0,
-            left: 0,
-          }}
+          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'block' }}
         />
       </div>
     </div>
