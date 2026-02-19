@@ -451,6 +451,7 @@ export default function NetworkPage() {
   // ─── D3 Rendering ───
   useEffect(() => {
     if (loading || graphData.nodes.length === 0) return;
+    if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     const container = containerRef.current;
     if (!container) return;
@@ -470,7 +471,7 @@ export default function NetworkPage() {
       .on("zoom", (event) => {
         g.attr("transform", event.transform);
       });
-    svg.call(zoom);
+    (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>).call(zoom);
 
     const simulation = d3
       .forceSimulation<GraphNode>(graphData.nodes)
