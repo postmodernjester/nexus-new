@@ -51,29 +51,27 @@ export async function POST(req: Request) {
         ? `\n\nSource material from linked pages:\n${urlContents.join("\n\n")}`
         : "";
 
-    // Basic contact fields for context
-    const contactFields = [
-      contactInfo,
-    ].filter(Boolean).join("\n");
+    const prompt = `You are writing two things about a person for a networking CRM, based ONLY on the linked source material below.
 
-    const prompt = `Write a tight professional dossier entry about a person based ONLY on the linked source material below (Wikipedia, LinkedIn, articles). Do not reference any personal notes or CRM data.
+TASK 1 - FULL SUMMARY:
+Write 3-5 sentences in a measured, academic tone. Be factual and specific. Include age/DOB and location if found. State their current role, organization, industry, career highlights. No promotional language. No speculation.
 
-Rules:
-- 3-5 sentences maximum
-- Academic, factual tone — no promotional language
-- Include age and/or date of birth if found in the sources
-- Include location/city if found in the sources
-- State their current role, organization, industry
-- Note career highlights, notable positions, achievements, or expertise
-- Do not speculate or infer beyond what the sources state
-- Do not use phrases like "visionary," "passionate," "thought leader"
-- If sources are sparse or could not be retrieved, write only what you can confirm
+TASK 2 - ONE-LINER:
+Write a single short phrase (under 15 words) that captures what this person does in a descriptive, slightly expanded way. Not just their job title — explain what they actually do. Examples:
+- "Veteran entertainment attorney specializing in talent deals"
+- "Serial tech founder building AI tools for healthcare"
+- "Award-winning documentary filmmaker and media executive"
+- "Investment banker focused on mid-market M&A transactions"
 
-Contact context (for reference only, do not include in summary):
-${contactFields}
+Contact context:
+${contactInfo}
 ${urlSection}
 
-${urlContents.length === 0 ? "No source URLs were provided or could be retrieved. Write a minimal summary using only the contact fields above — name, role, company, location." : "Write the dossier summary based on the source material:"}`;
+${urlContents.length === 0 ? "No source URLs provided. Use only the contact fields above." : ""}
+
+Respond in this exact format:
+SUMMARY: [your 3-5 sentence summary]
+ONELINER: [your one-line description]`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -84,7 +82,7 @@ ${urlContents.length === 0 ? "No source URLs were provided or could be retrieved
       },
       body: JSON.stringify({
         model: "claude-3-haiku-20240307",
-        max_tokens: 300,
+        max_tokens: 400,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -104,7 +102,14 @@ ${urlContents.length === 0 ? "No source URLs were provided or could be retrieved
         ? data.content[0].text
         : "";
 
-    return NextResponse.json({ summary: text.trim() });
+    // Parse SUMMARY and ONELINER
+    const summaryMatch = text.match(/SUMMARY:\s*([\s\S]*?)(?=ONELINER:|$)/i);
+    const onelinerMatch = text.match(/ONELINER:\s*(.*)/i);
+
+    const summary = summaryMatch ? summaryMatch[1].trim() : text.trim();
+    const oneliner = onelinerMatch ? onelinerMatch[1].trim() : "";
+
+    return NextResponse.json({ summary, oneliner });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Unknown error";
     console.error("AI summarize error:", msg);
