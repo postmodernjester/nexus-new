@@ -216,7 +216,7 @@ export default function NewContactPage() {
             padding: "24px",
           }}
         >
-          {/* Name — the only thing that matters */}
+          {/* Name */}
           <div style={{ marginBottom: "16px" }}>
             <label style={labelStyle}>Name</label>
             <input
@@ -233,7 +233,7 @@ export default function NewContactPage() {
             />
           </div>
 
-          {/* Role + Company side by side */}
+          {/* Role + Company */}
           <div
             style={{
               display: "grid",
@@ -331,7 +331,6 @@ export default function NewContactPage() {
             </div>
           </div>
 
-          {/* Divider */}
           <div
             style={{
               borderTop: "1px solid #334155",
