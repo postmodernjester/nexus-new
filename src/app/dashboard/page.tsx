@@ -27,7 +27,6 @@ export default function DashboardPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
-  const [totalContacts, setTotalContacts] = useState(0);
   const [connectionCount, setConnectionCount] = useState(0);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -47,7 +46,7 @@ export default function DashboardPage() {
 
       setUserId(user.id);
 
-      const [profileRes, contactsRes, totalRes, connectionsRes] = await Promise.all([
+      const [profileRes, contactsRes, connectionsRes] = await Promise.all([
         supabase
           .from("profiles")
           .select("id, full_name, headline, avatar_url")
@@ -62,10 +61,6 @@ export default function DashboardPage() {
           .order("last_contact_date", { ascending: false, nullsFirst: false })
           .limit(5),
         supabase
-          .from("contacts")
-          .select("id", { count: "exact", head: true })
-          .eq("owner_id", user.id),
-        supabase
           .from("connections")
           .select("id")
           .eq("status", "accepted")
@@ -74,7 +69,6 @@ export default function DashboardPage() {
 
       setProfile(profileRes.data as Profile);
       setContacts((contactsRes.data as ContactRow[]) || []);
-      setTotalContacts(totalRes.count || 0);
       setConnectionCount(connectionsRes.data?.length || 0);
 
       try {
@@ -116,19 +110,17 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", background: "#0f172a" }}>
-        <Nav />
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            height: "60vh",
-            color: "#94a3b8",
-          }}
-        >
-          Loading…
-        </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100vh",
+          background: "#0f172a",
+          color: "#94a3b8",
+        }}
+      >
+        Loading…
       </div>
     );
   }
@@ -200,7 +192,7 @@ export default function DashboardPage() {
               }}
             >
               <div style={{ fontWeight: "bold", fontSize: "18px" }}>
-                {totalContacts}
+                {contacts.length}
               </div>
               <div style={{ color: "#64748b", fontSize: "11px" }}>Contacts</div>
             </div>
@@ -313,22 +305,34 @@ export default function DashboardPage() {
                 background: "#1e293b",
                 borderRadius: "12px",
                 padding: "20px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "16px",
               }}
             >
+              <p
+                style={{
+                  color: "#94a3b8",
+                  fontSize: "13px",
+                  marginBottom: "16px",
+                  lineHeight: "1.5",
+                }}
+              >
+                Share your invite link or code with someone. When they join,
+                you'll be automatically connected.
+              </p>
+
               {/* Invite URL */}
-              <div>
-                <div
+              <div style={{ marginBottom: "16px" }}>
+                <label
                   style={{
-                    fontSize: "12px",
                     color: "#64748b",
+                    fontSize: "11px",
+                    display: "block",
                     marginBottom: "6px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
                   }}
                 >
-                  Share this link to connect with someone:
-                </div>
+                  Invite Link
+                </label>
                 <div
                   style={{
                     display: "flex",
@@ -339,63 +343,54 @@ export default function DashboardPage() {
                   <div
                     style={{
                       flex: 1,
-                      padding: "8px 12px",
+                      padding: "10px 14px",
                       background: "#0f172a",
-                      borderRadius: "6px",
+                      border: "1px solid #334155",
+                      borderRadius: "8px",
+                      color: "#a78bfa",
                       fontSize: "13px",
-                      color: "#94a3b8",
+                      fontFamily: "monospace",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
-                      border: "1px solid #334155",
                     }}
                   >
-                    {getInviteUrl() || "Loading…"}
+                    {getInviteUrl() || "Loading..."}
                   </div>
                   <button
                     onClick={copyUrl}
                     style={{
-                      padding: "8px 14px",
-                      background: copiedUrl ? "#059669" : "#a78bfa",
+                      padding: "10px 16px",
+                      background: copiedUrl ? "#22c55e" : "#a78bfa",
                       color: copiedUrl ? "#fff" : "#0f172a",
                       border: "none",
-                      borderRadius: "6px",
+                      borderRadius: "8px",
                       fontWeight: 600,
-                      fontSize: "12px",
+                      fontSize: "13px",
                       cursor: "pointer",
                       whiteSpace: "nowrap",
+                      transition: "background 0.2s",
                     }}
                   >
-                    {copiedUrl ? "Copied!" : "Copy URL"}
+                    {copiedUrl ? "Copied!" : "Copy"}
                   </button>
                 </div>
               </div>
 
-              {/* Divider */}
-              <div
-                style={{
-                  borderTop: "1px solid #334155",
-                  position: "relative",
-                }}
-              >
-                <span
-                  style={{
-                    position: "absolute",
-                    top: "-10px",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    background: "#1e293b",
-                    padding: "0 8px",
-                    fontSize: "11px",
-                    color: "#475569",
-                  }}
-                >
-                  or use code
-                </span>
-              </div>
-
               {/* Invite Code */}
               <div>
+                <label
+                  style={{
+                    color: "#64748b",
+                    fontSize: "11px",
+                    display: "block",
+                    marginBottom: "6px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  Invite Code
+                </label>
                 <div
                   style={{
                     display: "flex",
@@ -406,44 +401,108 @@ export default function DashboardPage() {
                   <div
                     style={{
                       flex: 1,
-                      padding: "8px 12px",
+                      padding: "10px 14px",
                       background: "#0f172a",
-                      borderRadius: "6px",
-                      fontSize: "15px",
-                      fontWeight: 600,
-                      color: "#e2e8f0",
-                      fontFamily: "monospace",
-                      letterSpacing: "1px",
-                      textAlign: "center",
                       border: "1px solid #334155",
+                      borderRadius: "8px",
+                      color: "#e2e8f0",
+                      fontSize: "15px",
+                      fontFamily: "monospace",
+                      fontWeight: "bold",
+                      letterSpacing: "1px",
                     }}
                   >
-                    {inviteCode || "…"}
+                    {inviteCode || "Loading..."}
                   </div>
                   <button
                     onClick={copyCode}
                     style={{
-                      padding: "8px 14px",
-                      background: copied ? "#059669" : "transparent",
+                      padding: "10px 16px",
+                      background: copied ? "#22c55e" : "transparent",
                       color: copied ? "#fff" : "#94a3b8",
                       border: copied ? "none" : "1px solid #334155",
-                      borderRadius: "6px",
-                      fontWeight: 500,
-                      fontSize: "12px",
+                      borderRadius: "8px",
+                      fontWeight: 600,
+                      fontSize: "13px",
                       cursor: "pointer",
                       whiteSpace: "nowrap",
+                      transition: "all 0.2s",
                     }}
                   >
-                    {copied ? "Copied!" : "Copy Code"}
+                    {copied ? "Copied!" : "Copy"}
                   </button>
                 </div>
               </div>
+            </div>
 
-              <div
-                style={{ fontSize: "11px", color: "#475569", lineHeight: 1.4 }}
+            {/* Quick links */}
+            <div style={{ marginTop: "24px" }}>
+              <span
+                style={{
+                  fontWeight: "bold",
+                  fontSize: "15px",
+                  display: "block",
+                  marginBottom: "12px",
+                }}
               >
-                When someone signs up using your link or enters your code, you'll
-                automatically be connected and can see each other in your networks.
+                Quick Links
+              </span>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                }}
+              >
+                {[
+                  {
+                    href: "/resume",
+                    label: "My Profile",
+                    desc: "Edit your resume & profile",
+                  },
+                  {
+                    href: "/contacts",
+                    label: "Contacts",
+                    desc: "Manage your CRM",
+                  },
+                  {
+                    href: "/network",
+                    label: "Network",
+                    desc: "Visualize connections",
+                  },
+                ].map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    style={{
+                      padding: "12px 14px",
+                      background: "#1e293b",
+                      borderRadius: "8px",
+                      textDecoration: "none",
+                      transition: "background 0.15s",
+                      display: "block",
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background = "#334155")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.background = "#1e293b")
+                    }
+                  >
+                    <div
+                      style={{
+                        fontWeight: 500,
+                        fontSize: "14px",
+                        color: "#e2e8f0",
+                      }}
+                    >
+                      {link.label}
+                    </div>
+                    <div style={{ color: "#64748b", fontSize: "12px" }}>
+                      {link.desc}
+                    </div>
+                  </Link>
+                ))}
               </div>
             </div>
           </div>
