@@ -1,14 +1,17 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { contactInfo, notes, urls } = body;
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "ANTHROPIC_API_KEY not configured" },
+        { status: 500 }
+      );
+    }
 
     // Fetch URL contents in parallel
     const urlContents: string[] = [];
@@ -27,7 +30,6 @@ export async function POST(req: Request) {
           clearTimeout(timeout);
           if (!res.ok) return `[${url}: failed to fetch]`;
           const html = await res.text();
-          // Strip HTML tags, keep text
           const text = html
             .replace(/<script[\s\S]*?<\/script>/gi, "")
             .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -67,21 +69,39 @@ ${notes || "(No notes entered yet)"}${urlSection}
 
 Write the dossier summary:`;
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 400,
-      messages: [{ role: "user", content: prompt }],
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 400,
+        messages: [{ role: "user", content: prompt }],
+      }),
     });
 
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("Anthropic API error:", errText);
+      return NextResponse.json(
+        { error: "AI API error: " + response.status },
+        { status: 500 }
+      );
+    }
+
+    const data = await response.json();
     const text =
-      message.content[0].type === "text" ? message.content[0].text : "";
+      data.content && data.content[0] && data.content[0].type === "text"
+        ? data.content[0].text
+        : "";
 
     return NextResponse.json({ summary: text.trim() });
-  } catch (error: any) {
-    console.error("AI summarize error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to generate summary" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    console.error("AI summarize error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
