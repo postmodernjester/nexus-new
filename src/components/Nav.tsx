@@ -7,29 +7,55 @@ const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/network',   label: 'Network' },
   { href: '/contacts',  label: 'Contacts' },
+  { href: '/resume',    label: 'My Profile' },
 ];
 
 export default function Nav() {
   const pathname = usePathname();
 
   return (
-    <nav className="w-full flex items-center justify-between px-6 py-3 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 shadow-sm">
-      <Link href="/dashboard" className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white">
+    <nav
+      style={{
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '10px 20px',
+        background: '#0f172a',
+        borderBottom: '1px solid #1e293b',
+        zIndex: 30,
+        position: 'relative',
+      }}
+    >
+      <Link
+        href="/dashboard"
+        style={{
+          fontSize: '18px',
+          fontWeight: 'bold',
+          color: '#fff',
+          textDecoration: 'none',
+          letterSpacing: '-0.5px',
+        }}
+      >
         NEXUS
       </Link>
-
-      <div className="flex items-center gap-1">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
         {NAV_ITEMS.map((item) => {
           const active = pathname === item.href;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                active
-                  ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800'
-              }`}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '13px',
+                fontWeight: 500,
+                textDecoration: 'none',
+                color: active ? '#0f172a' : '#94a3b8',
+                background: active ? '#fff' : 'transparent',
+                transition: 'all 0.15s',
+              }}
             >
               {item.label}
             </Link>
