@@ -69,11 +69,8 @@ function Nav() {
 const REL_TYPES = [
   "Family",
   "Close Friend",
-  "Friend",
-  "Colleague",
   "Business Contact",
   "Acquaintance",
-  "Other",
 ];
 
 export default function NewContactPage() {
@@ -111,7 +108,7 @@ export default function NewContactPage() {
         email: email.trim() || null,
         phone: phone.trim() || null,
         location: location.trim() || null,
-        relationship_type: relationship,
+        relationship_type: relationship || "Acquaintance",
       })
       .select()
       .single();
