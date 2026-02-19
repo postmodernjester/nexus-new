@@ -1,73 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import Link from "next/link";
+import Nav from "@/components/Nav";
 import * as d3 from "d3";
-
-// ─── Nav ───
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/network", label: "Network" },
-  { href: "/contacts", label: "Contacts" },
-  { href: "/resume", label: "My Profile" },
-];
-
-function Nav() {
-  const pathname = usePathname();
-  return (
-    <nav
-      style={{
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "10px 20px",
-        background: "#0f172a",
-        borderBottom: "1px solid #1e293b",
-        zIndex: 30,
-        position: "relative",
-      }}
-    >
-      <Link
-        href="/dashboard"
-        style={{
-          fontSize: "18px",
-          fontWeight: "bold",
-          color: "#fff",
-          textDecoration: "none",
-          letterSpacing: "-0.5px",
-        }}
-      >
-        NEXUS
-      </Link>
-      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-        {NAV_ITEMS.map((item) => {
-          const active = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              style={{
-                padding: "6px 14px",
-                borderRadius: "6px",
-                fontSize: "13px",
-                fontWeight: 500,
-                textDecoration: "none",
-                color: active ? "#0f172a" : "#94a3b8",
-                background: active ? "#fff" : "transparent",
-                transition: "all 0.15s",
-              }}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
-  );
-}
 
 // ─── Types ───
 interface Contact {
@@ -262,7 +199,6 @@ export default function NetworkPage() {
         }
       }
 
-      // Also fetch profiles for contacts with linked_profile_id (to check their anonymity)
       const linkedProfileIds = allContacts
         .filter((c) => c.linked_profile_id && !mutualUserIds.has(c.linked_profile_id))
         .map((c) => c.linked_profile_id!)
@@ -313,7 +249,7 @@ export default function NetworkPage() {
       profileToNodeId[user.id] = "self";
       nameToNodeId[myName.toLowerCase()] = "self";
 
-      // ② Connected users
+      // ② Connected users (linked via connections table)
       for (const uid of Array.from(mutualUserIds)) {
         const profile = connectedProfiles[uid];
         const name = profile?.full_name || "Connected User";
@@ -339,157 +275,169 @@ export default function NetworkPage() {
           company: myCard?.company ?? undefined,
           role: myCard?.role ?? undefined,
         });
+
         profileToNodeId[uid] = nodeId;
         nameToNodeId[name.toLowerCase()] = nodeId;
+
+        const dist = CLOSENESS[relType] || 200;
+        const thick = lineThickness(stats?.count || 0);
+        const rec = computeRecency(
+          stats?.most_recent || myCard?.last_contact_date || null
+        );
 
         links.push({
           source: "self",
           target: nodeId,
-          distance: CLOSENESS[relType] || 190,
-          thickness: lineThickness(stats?.count || 0),
-          recency: computeRecency(
-            stats?.most_recent || myCard?.last_contact_date || null
-          ),
+          distance: dist,
+          thickness: thick,
+          recency: rec,
           isMutual: true,
           isLinkedUser: true,
         });
       }
 
-      // ③ My contacts (skip if linked to connected user)
+      // ③ My contacts (that are NOT linked to a connected user — those are already shown above)
       for (const c of myContacts) {
         if (
           c.linked_profile_id &&
-          myContactsLinkedToConnectedUser.has(c.linked_profile_id)
+          mutualUserIds.has(c.linked_profile_id)
         ) {
-          continue;
+          continue; // skip — already shown as connected_user node
         }
 
+        const nodeId = `contact-${c.id}`;
         const stats = noteMap[c.id];
-        const nodeId = c.id;
-        const parts = (c.full_name || "Unknown").split(" ");
-        const displayLabel =
-          parts.length > 1
-            ? `${parts[0][0]}. ${parts[parts.length - 1]}`
-            : parts[0];
+        const relType = c.relationship_type || "Acquaintance";
 
         nodes.push({
           id: nodeId,
-          label: displayLabel,
-          fullName: c.full_name || "Unknown",
+          label: c.full_name,
+          fullName: c.full_name,
           type: "contact",
           radius: nodeSize(1),
           connectionCount: 1,
-          relationship_type: c.relationship_type,
+          relationship_type: relType,
           company: c.company ?? undefined,
           role: c.role ?? undefined,
           owner_id: c.owner_id,
-          profileId: c.linked_profile_id ?? undefined,
         });
-        if (c.linked_profile_id) profileToNodeId[c.linked_profile_id] = nodeId;
-        nameToNodeId[(c.full_name || "").toLowerCase()] = nodeId;
+
+        nameToNodeId[c.full_name.toLowerCase()] = nodeId;
+        if (c.linked_profile_id) {
+          profileToNodeId[c.linked_profile_id] = nodeId;
+        }
+
+        const dist = CLOSENESS[relType] || 200;
+        const thick = lineThickness(stats?.count || 0);
+        const rec = computeRecency(
+          stats?.most_recent || c.last_contact_date || null
+        );
 
         links.push({
           source: "self",
           target: nodeId,
-          distance: CLOSENESS[c.relationship_type] || 230,
-          thickness: lineThickness(stats?.count || 0),
-          recency: computeRecency(
-            stats?.most_recent || c.last_contact_date || null
-          ),
+          distance: dist,
+          thickness: thick,
+          recency: rec,
           isMutual: false,
           isLinkedUser: false,
         });
       }
 
-      // ④ Their contacts (dedup)
-      for (const c of theirContacts) {
-        if (c.linked_profile_id === user.id) continue;
+      // ④ Their contacts (second-degree) — contacts owned by connected users
+      const addedSecondDegreeIds = new Set<string>();
+      for (const tc of theirContacts) {
+        // Skip if this contact is actually me
+        if (tc.linked_profile_id === user.id) continue;
 
-        // Check anonymity: contact-level or profile-level
-        const isAnon =
-          c.anonymous_to_connections === true ||
-          (c.linked_profile_id && anonymousProfiles.has(c.linked_profile_id));
+        // Check if this person's profile opted for anonymity beyond first degree
+        const ownerProfile = connectedProfiles[tc.owner_id];
+        if (ownerProfile?.anonymous_beyond_first_degree) continue;
 
-        let existingNodeId: string | null = null;
-        if (c.linked_profile_id && profileToNodeId[c.linked_profile_id]) {
-          existingNodeId = profileToNodeId[c.linked_profile_id];
+        // Check if contact itself is anonymous
+        if (tc.linked_profile_id && anonymousProfiles.has(tc.linked_profile_id)) continue;
+        if (tc.anonymous_to_connections) continue;
+
+        // Check if this person already exists as a node (dedup by linked_profile_id or name)
+        let existingNodeId: string | undefined;
+        if (tc.linked_profile_id) {
+          existingNodeId = profileToNodeId[tc.linked_profile_id];
         }
         if (!existingNodeId) {
-          const nameKey = (c.full_name || "").toLowerCase();
-          if (nameToNodeId[nameKey]) existingNodeId = nameToNodeId[nameKey];
+          existingNodeId = nameToNodeId[tc.full_name.toLowerCase()];
         }
 
+        const ownerNodeId = profileToNodeId[tc.owner_id];
+        if (!ownerNodeId) continue;
+
         if (existingNodeId) {
-          const ownerNodeId = `user-${c.owner_id}`;
+          // Already have this person — just add a link from the owner to them if not already linked
           const alreadyLinked = links.some(
             (l) =>
-              (l.source === ownerNodeId && l.target === existingNodeId) ||
-              (l.source === existingNodeId && l.target === ownerNodeId)
+              (((l.source as GraphNode).id || l.source) === ownerNodeId &&
+                ((l.target as GraphNode).id || l.target) === existingNodeId) ||
+              (((l.source as GraphNode).id || l.source) === existingNodeId &&
+                ((l.target as GraphNode).id || l.target) === ownerNodeId)
           );
           if (!alreadyLinked) {
-            const stats = noteMap[c.id];
             links.push({
               source: ownerNodeId,
               target: existingNodeId,
-              distance: CLOSENESS[c.relationship_type] || 230,
-              thickness: lineThickness(stats?.count || 0),
-              recency: computeRecency(
-                stats?.most_recent || c.last_contact_date || null
-              ),
+              distance: 180,
+              thickness: 1,
+              recency: 0.3,
               isMutual: true,
-              isLinkedUser: !!c.linked_profile_id,
+              isLinkedUser: false,
             });
           }
-          const selfLink = links.find(
-            (l) =>
-              (l.source === "self" && l.target === existingNodeId) ||
-              (l.source === existingNodeId && l.target === "self")
-          );
-          if (selfLink) selfLink.isMutual = true;
-          const node = nodes.find((n) => n.id === existingNodeId);
-          if (node) {
-            node.connectionCount++;
-            node.radius = nodeSize(node.connectionCount);
+          // Increase connection count
+          const existingNode = nodes.find((n) => n.id === existingNodeId);
+          if (existingNode) {
+            existingNode.connectionCount++;
+            existingNode.radius = nodeSize(existingNode.connectionCount);
           }
           continue;
         }
 
-        const nameParts = (c.full_name || "??").split(" ");
-        const initials = `${(nameParts[0] || "?")[0]}${
-          nameParts.length > 1
-            ? (nameParts[nameParts.length - 1] || "?")[0]
-            : "?"
-        }`.toUpperCase();
-        const stats = noteMap[c.id];
-        const nodeId = `their-${c.id}`;
+        // New second-degree contact
+        const dedupKey = tc.linked_profile_id || `name:${tc.full_name.toLowerCase()}`;
+        if (addedSecondDegreeIds.has(dedupKey)) continue;
+        addedSecondDegreeIds.add(dedupKey);
+
+        const nodeId = `their-${tc.id}`;
+        const initials =
+          tc.full_name
+            .split(" ")
+            .map((w) => w[0])
+            .join("")
+            .toUpperCase()
+            .slice(0, 2) || "?";
 
         nodes.push({
           id: nodeId,
-          label: isAnon ? "•" : initials,
-          fullName: isAnon ? "Anonymous" : c.full_name || "Unknown",
+          label: initials,
+          fullName: tc.full_name,
           type: "their_contact",
-          radius: nodeSize(1),
+          radius: 6,
           connectionCount: 1,
-          company: isAnon ? undefined : c.company ?? undefined,
-          role: isAnon ? undefined : c.role ?? undefined,
-          owner_id: c.owner_id,
-          profileId: c.linked_profile_id ?? undefined,
-          relationship_type: c.relationship_type,
-          isAnonymous: !!isAnon,
+          relationship_type: tc.relationship_type || undefined,
+          company: tc.company ?? undefined,
+          role: tc.role ?? undefined,
+          owner_id: tc.owner_id,
+          isAnonymous: false,
         });
-        if (c.linked_profile_id) profileToNodeId[c.linked_profile_id] = nodeId;
-        if (!isAnon) nameToNodeId[(c.full_name || "").toLowerCase()] = nodeId;
+
+        if (tc.linked_profile_id) profileToNodeId[tc.linked_profile_id] = nodeId;
+        nameToNodeId[tc.full_name.toLowerCase()] = nodeId;
 
         links.push({
-          source: `user-${c.owner_id}`,
+          source: ownerNodeId,
           target: nodeId,
-          distance: CLOSENESS[c.relationship_type] || 230,
-          thickness: lineThickness(stats?.count || 0),
-          recency: computeRecency(
-            stats?.most_recent || c.last_contact_date || null
-          ),
+          distance: 160,
+          thickness: 1,
+          recency: 0.3,
           isMutual: false,
-          isLinkedUser: !!c.linked_profile_id,
+          isLinkedUser: false,
         });
       }
 
@@ -500,394 +448,377 @@ export default function NetworkPage() {
     fetchAll();
   }, [router]);
 
-  // ─── D3 Render ───
+  // ─── D3 Rendering ───
   useEffect(() => {
-    if (loading || !svgRef.current || !containerRef.current) return;
-    if (graphData.nodes.length === 0) return;
-
+    if (loading || graphData.nodes.length === 0) return;
+    const svg = d3.select(svgRef.current);
     const container = containerRef.current;
+    if (!container) return;
+
     const width = container.clientWidth;
     const height = container.clientHeight;
 
-    d3.select(svgRef.current).selectAll("*").remove();
-
-    const svg = d3
-      .select(svgRef.current)
-      .attr("width", width)
-      .attr("height", height);
+    svg.selectAll("*").remove();
+    svg.attr("width", width).attr("height", height);
 
     const g = svg.append("g");
 
-    const svgEl = svgRef.current;
-    if (svgEl) {
-      d3.select(svgEl).call(
-        d3
-          .zoom<SVGSVGElement, unknown>()
-          .scaleExtent([0.2, 4])
-          .on("zoom", (event) => g.attr("transform", event.transform))
-      );
-    }
-
-    const nodes: GraphNode[] = graphData.nodes.map((n) => ({ ...n }));
-    const links: GraphLink[] = graphData.links.map((l) => ({
-      ...l,
-      source:
-        typeof l.source === "object" ? (l.source as GraphNode).id : l.source,
-      target:
-        typeof l.target === "object" ? (l.target as GraphNode).id : l.target,
-    }));
-
-    // Start self at center (not pinned)
-    const selfNode = nodes.find((n) => n.id === "self");
-    if (selfNode) {
-      selfNode.x = width / 2;
-      selfNode.y = height / 2;
-    }
-
-    if (centeredNodeId !== "self") {
-      const centerNode = nodes.find((n) => n.id === centeredNodeId);
-      if (centerNode) {
-        centerNode.fx = width / 2;
-        centerNode.fy = height / 2;
-      }
-    }
+    // Zoom
+    const zoom = d3
+      .zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.2, 4])
+      .on("zoom", (event) => {
+        g.attr("transform", event.transform);
+      });
+    svg.call(zoom);
 
     const simulation = d3
-      .forceSimulation<GraphNode>(nodes)
+      .forceSimulation<GraphNode>(graphData.nodes)
       .force(
         "link",
         d3
-          .forceLink<GraphNode, GraphLink>(links)
+          .forceLink<GraphNode, GraphLink>(graphData.links)
           .id((d) => d.id)
           .distance((d) => d.distance)
-          .strength(0.4)
       )
-      .force("charge", d3.forceManyBody().strength(-400).distanceMax(600))
-      .force("center", d3.forceCenter(width / 2, height / 2).strength(0.03))
+      .force("charge", d3.forceManyBody().strength(-120))
+      .force("center", d3.forceCenter(width / 2, height / 2))
       .force(
         "collision",
-        d3
-          .forceCollide<GraphNode>()
-          .radius((d) => d.radius + 20)
-          .strength(0.8)
-      )
-      .force("x", d3.forceX(width / 2).strength(0.015))
-      .force("y", d3.forceY(height / 2).strength(0.015));
+        d3.forceCollide<GraphNode>().radius((d) => d.radius + 4)
+      );
 
     simulationRef.current = simulation;
 
-    const linkGroup = g
+    // Links
+    const link = g
+      .append("g")
       .selectAll<SVGLineElement, GraphLink>("line")
-      .data(links)
-      .enter()
-      .append("line")
+      .data(graphData.links)
+      .join("line")
       .attr("stroke", (d) => lineColor(d.isMutual, d.isLinkedUser, d.recency))
       .attr("stroke-width", (d) => d.thickness)
       .attr("stroke-linecap", "round");
 
-    const nodeGroup = g
-      .selectAll<SVGGElement, GraphNode>("g.node")
-      .data(nodes)
-      .enter()
+    // Node groups
+    const node = g
       .append("g")
-      .attr("class", "node")
+      .selectAll<SVGGElement, GraphNode>("g")
+      .data(graphData.nodes)
+      .join("g")
       .style("cursor", "pointer");
 
-    nodeGroup
+    // Circles
+    node
       .append("circle")
       .attr("r", (d) => d.radius)
       .attr("fill", (d) => {
         if (d.type === "self") return "#a78bfa";
-        if (d.type === "connected_user") return "#60a5fa";
-        if (d.type === "their_contact") return "#475569";
-        const colors: Record<string, string> = {
-          Family: "#7c6f64",
-          "Close Friend": "#6b7280",
-          "Work-Friend": "#6b8090",
-          Friend: "#6b7280",
-          Colleague: "#64748b",
-          Business: "#64748b",
-          "Business Contact": "#64748b",
-          Acquaintance: "#4b5563",
-          None: "#374151",
-          Stranger: "#374151",
-        };
-        return colors[d.relationship_type || ""] || "#4b5563";
+        if (d.type === "connected_user") return "#dc2626";
+        if (d.type === "their_contact") return "#334155";
+        return "#e2e8f0";
       })
-      .attr("stroke", "none")
-      .attr("stroke-width", 0);
+      .attr("stroke", (d) => {
+        if (d.type === "self") return "#c4b5fd";
+        if (d.type === "connected_user") return "#fca5a5";
+        return "none";
+      })
+      .attr("stroke-width", (d) =>
+        d.type === "self" || d.type === "connected_user" ? 2 : 0
+      );
 
-    nodeGroup
+    // Labels
+    node
       .append("text")
       .text((d) => {
-        if (d.isAnonymous) return "•";
-        if (d.type === "self") return d.label;
-        if (d.type === "connected_user") return d.label;
-        if (d.type === "their_contact") {
-          const place = d.company || d.role || "";
-          return place ? `${d.label} @ ${place}` : d.label;
-        }
-        return d.label;
+        if (d.type === "their_contact") return d.label; // initials
+        return d.fullName.split(" ")[0]; // first name
       })
       .attr("text-anchor", "middle")
       .attr("dy", (d) => d.radius + 14)
-      .attr("fill", (d) =>
-        d.type === "their_contact" ? "#64748b" : "#94a3b8"
-      )
-      .attr("font-size", (d) =>
-        d.type === "self"
-          ? "13px"
-          : d.type === "their_contact"
-            ? "10px"
-            : "11px"
-      )
-      .attr("font-weight", (d) => (d.type === "self" ? "bold" : "normal"))
-      .attr("pointer-events", "none");
+      .attr("fill", (d) => {
+        if (d.type === "self") return "#c4b5fd";
+        if (d.type === "connected_user") return "#fca5a5";
+        if (d.type === "their_contact") return "#475569";
+        return "#94a3b8";
+      })
+      .attr("font-size", (d) => (d.type === "their_contact" ? "9px" : "11px"))
+      .attr("font-weight", (d) =>
+        d.type === "self" ? "bold" : "normal"
+      );
 
-    nodeGroup
-      .on("mouseover", function (event, d) {
+    // Second-degree: show role/company below initials
+    node
+      .filter((d) => d.type === "their_contact")
+      .append("text")
+      .text((d) => {
+        if (d.role && d.company) return `${d.role}, ${d.company}`;
+        return d.role || d.company || "";
+      })
+      .attr("text-anchor", "middle")
+      .attr("dy", (d) => d.radius + 24)
+      .attr("fill", "#334155")
+      .attr("font-size", "8px");
+
+    // Hover events
+    node
+      .on("mouseenter", function (event, d) {
         setHoveredNode(d);
         setTooltipPos({ x: event.pageX, y: event.pageY });
-        d3.select(this)
-          .select("circle")
-          .attr("stroke", "#fff")
-          .attr("stroke-width", 2);
       })
-      .on("mouseout", function () {
+      .on("mousemove", function (event) {
+        setTooltipPos({ x: event.pageX, y: event.pageY });
+      })
+      .on("mouseleave", function () {
         setHoveredNode(null);
-        d3.select(this)
-          .select("circle")
-          .attr("stroke", "none")
-          .attr("stroke-width", 0);
-      })
-      .on("click", (_event, d) => {
-        if (d.type === "contact") router.push(`/contacts/${d.id}`);
-      })
-      .on("dblclick", (event, d) => {
-        event.stopPropagation();
-        nodes.forEach((n) => {
-          n.fx = null;
-          n.fy = null;
-        });
-        d.fx = width / 2;
-        d.fy = height / 2;
-        setCenteredNodeId(d.id);
-        simulation.alpha(0.5).restart();
       });
 
-    nodeGroup.call(
-      d3
-        .drag<SVGGElement, GraphNode>()
-        .on("start", (event, d) => {
-          if (!event.active) simulation.alphaTarget(0.3).restart();
-          d.fx = d.x;
-          d.fy = d.y;
-        })
-        .on("drag", (event, d) => {
-          d.fx = event.x;
-          d.fy = event.y;
-        })
-        .on("end", (event, d) => {
-          if (!event.active) simulation.alphaTarget(0);
-          if (d.id !== centeredNodeId) {
-            d.fx = null;
-            d.fy = null;
-          }
-        })
-    );
+    // Double-click to re-center
+    node.on("dblclick", function (event, d) {
+      event.stopPropagation();
+      setCenteredNodeId(d.id);
+      const x = d.x || width / 2;
+      const y = d.y || height / 2;
+      svg
+        .transition()
+        .duration(500)
+        .call(
+          zoom.transform,
+          d3.zoomIdentity
+            .translate(width / 2, height / 2)
+            .scale(1.5)
+            .translate(-x, -y)
+        );
+    });
 
+    // Drag
+    const drag = d3
+      .drag<SVGGElement, GraphNode>()
+      .on("start", (event, d) => {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      })
+      .on("drag", (event, d) => {
+        d.fx = event.x;
+        d.fy = event.y;
+      })
+      .on("end", (event, d) => {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+      });
+
+    node.call(drag);
+
+    // Tick
     simulation.on("tick", () => {
-      linkGroup
+      link
         .attr("x1", (d) => (d.source as GraphNode).x || 0)
         .attr("y1", (d) => (d.source as GraphNode).y || 0)
         .attr("x2", (d) => (d.target as GraphNode).x || 0)
         .attr("y2", (d) => (d.target as GraphNode).y || 0);
-      nodeGroup.attr(
-        "transform",
-        (d) => `translate(${d.x || 0},${d.y || 0})`
-      );
+
+      node.attr("transform", (d) => `translate(${d.x || 0},${d.y || 0})`);
     });
+
+    // Filter highlight
+    if (filterText.trim()) {
+      const q = filterText.toLowerCase();
+      node.attr("opacity", (d) =>
+        d.fullName.toLowerCase().includes(q) ? 1 : 0.15
+      );
+      link.attr("opacity", 0.05);
+    } else {
+      node.attr("opacity", 1);
+      link.attr("opacity", 1);
+    }
 
     return () => {
       simulation.stop();
     };
-  }, [loading, graphData, centeredNodeId, router]);
-
-  const myContactCount = graphData.nodes.filter(
-    (n) => n.type === "contact"
-  ).length;
-  const connectedUserCount = graphData.nodes.filter(
-    (n) => n.type === "connected_user"
-  ).length;
-  const theirContactCount = graphData.nodes.filter(
-    (n) => n.type === "their_contact"
-  ).length;
-
-  if (loading) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100vh",
-          background: "#0f172a",
-          color: "#94a3b8",
-        }}
-      >
-        Loading network…
-      </div>
-    );
-  }
+  }, [loading, graphData, filterText]);
 
   return (
     <div
       style={{
-        position: "relative",
-        width: "100vw",
-        height: "100vh",
+        minHeight: "100vh",
         background: "#0f172a",
-        overflow: "hidden",
         display: "flex",
         flexDirection: "column",
       }}
     >
       <Nav />
 
+      {/* Search bar */}
       <div
         style={{
+          padding: "8px 20px",
+          background: "#0f172a",
+          borderBottom: "1px solid #1e293b",
           display: "flex",
           alignItems: "center",
-          gap: "16px",
-          padding: "8px 20px",
-          background: "rgba(15,23,42,0.92)",
-          borderBottom: "1px solid #1e293b",
-          zIndex: 20,
+          gap: "12px",
         }}
       >
         <input
           type="text"
-          placeholder="Filter…"
+          placeholder="Filter by name…"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
           style={{
-            padding: "4px 12px",
-            borderRadius: "6px",
-            border: "1px solid #334155",
+            padding: "6px 12px",
             background: "#1e293b",
+            border: "1px solid #334155",
+            borderRadius: "6px",
             color: "#e2e8f0",
             fontSize: "13px",
-            width: "180px",
+            outline: "none",
+            width: "220px",
           }}
         />
-        <span
-          style={{ color: "#64748b", fontSize: "12px", whiteSpace: "nowrap" }}
-        >
-          {myContactCount} contacts · {connectedUserCount} linked ·{" "}
-          {theirContactCount} 2nd°
+        <span style={{ color: "#475569", fontSize: "12px" }}>
+          {graphData.nodes.length} nodes · {graphData.links.length} connections
         </span>
-        <div
-          style={{
-            marginLeft: "auto",
-            display: "flex",
-            gap: "20px",
-            fontSize: "11px",
-            color: "#64748b",
-          }}
-        >
-          <span>— Your connections</span>
-          <span style={{ color: "#dc2626", fontWeight: "bold" }}>
-            ━ Linked / Mutual
-          </span>
-          <span>Thickness = density</span>
-          <span>Brightness = recency</span>
-        </div>
+        <span style={{ color: "#334155", fontSize: "11px", marginLeft: "auto" }}>
+          Double-click a node to re-center
+        </span>
       </div>
 
+      {/* Graph container */}
       <div
+        ref={containerRef}
         style={{
-          position: "absolute",
-          bottom: "12px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: 20,
-          fontSize: "11px",
-          color: "#475569",
+          flex: 1,
+          position: "relative",
+          minHeight: "calc(100vh - 100px)",
         }}
       >
-        Dbl-click = re-center · Click = dossier
-      </div>
+        {loading ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              color: "#64748b",
+            }}
+          >
+            Loading network…
+          </div>
+        ) : (
+          <svg
+            ref={svgRef}
+            style={{
+              width: "100%",
+              height: "100%",
+              position: "absolute",
+              top: 0,
+              left: 0,
+            }}
+          />
+        )}
 
-      <div ref={containerRef} style={{ flex: 1, width: "100%" }}>
-        <svg ref={svgRef} style={{ width: "100%", height: "100%" }} />
-      </div>
-
-      {hoveredNode && (
-        <div
-          style={{
-            position: "fixed",
-            left: tooltipPos.x + 12,
-            top: tooltipPos.y - 8,
-            background: "#1e293b",
-            border: "1px solid #334155",
-            borderRadius: "8px",
-            padding: "10px 14px",
-            zIndex: 30,
-            color: "#e2e8f0",
-            fontSize: "13px",
-            pointerEvents: "none",
-            maxWidth: "280px",
-          }}
-        >
-          {hoveredNode.isAnonymous ? (
-            <div style={{ color: "#475569", fontStyle: "italic" }}>
-              Anonymous contact
+        {/* Tooltip */}
+        {hoveredNode && (
+          <div
+            style={{
+              position: "fixed",
+              left: tooltipPos.x + 12,
+              top: tooltipPos.y - 10,
+              background: "#1e293b",
+              border: "1px solid #334155",
+              borderRadius: "10px",
+              padding: "12px 16px",
+              zIndex: 50,
+              pointerEvents: "none",
+              maxWidth: "280px",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            }}
+          >
+            <div style={{ fontWeight: 600, fontSize: "14px", color: "#e2e8f0" }}>
+              {hoveredNode.fullName}
             </div>
-          ) : (
-            <>
-              <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
-                {hoveredNode.fullName}
+            {hoveredNode.role && (
+              <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
+                {hoveredNode.role}
+                {hoveredNode.company ? ` at ${hoveredNode.company}` : ""}
               </div>
+            )}
+            {!hoveredNode.role && hoveredNode.company && (
+              <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
+                {hoveredNode.company}
+              </div>
+            )}
+            {hoveredNode.relationship_type && (
+              <div style={{ color: "#64748b", fontSize: "11px", marginTop: "4px" }}>
+                {hoveredNode.relationship_type}
+              </div>
+            )}
+            <div style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}>
+              {hoveredNode.connectionCount} connection{hoveredNode.connectionCount !== 1 ? "s" : ""}
+              {hoveredNode.type === "connected_user" && " · NEXUS user"}
+              {hoveredNode.type === "their_contact" && " · 2nd degree"}
+            </div>
+          </div>
+        )}
+      </div>
 
-              {hoveredNode.type === "contact" && (
-                <>
-                  {hoveredNode.role && (
-                    <div style={{ color: "#94a3b8", fontSize: "12px" }}>
-                      {hoveredNode.role}
-                    </div>
-                  )}
-                  {hoveredNode.company && (
-                    <div style={{ color: "#94a3b8", fontSize: "12px" }}>
-                      {hoveredNode.company}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {hoveredNode.type === "connected_user" && (
-                <>
-                  {hoveredNode.role && (
-                    <div style={{ color: "#94a3b8", fontSize: "12px" }}>
-                      {hoveredNode.role}
-                    </div>
-                  )}
-                  {hoveredNode.company && (
-                    <div style={{ color: "#94a3b8", fontSize: "12px" }}>
-                      {hoveredNode.company}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {hoveredNode.type === "their_contact" && hoveredNode.role && (
-                <div style={{ color: "#94a3b8", fontSize: "12px" }}>
-                  {hoveredNode.role}
-                </div>
-              )}
-            </>
-          )}
+      {/* Legend */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: "16px",
+          right: "16px",
+          background: "#1e293b",
+          border: "1px solid #334155",
+          borderRadius: "10px",
+          padding: "12px 16px",
+          fontSize: "11px",
+          color: "#94a3b8",
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+          zIndex: 20,
+        }}
+      >
+        <div style={{ fontWeight: 600, color: "#e2e8f0", fontSize: "12px", marginBottom: "2px" }}>
+          Legend
         </div>
-      )}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#a78bfa" }} />
+          <span>You</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#dc2626" }} />
+          <span>Connected NEXUS user</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#e2e8f0" }} />
+          <span>Your contact</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#334155" }} />
+          <span>2nd degree contact</span>
+        </div>
+        <div style={{ borderTop: "1px solid #334155", paddingTop: "6px", marginTop: "2px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ width: "20px", height: "3px", background: "rgba(220,38,38,1)", borderRadius: "2px" }} />
+            <span>NEXUS link (red)</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+            <div style={{ width: "20px", height: "2px", background: "rgba(255,255,255,0.5)", borderRadius: "2px" }} />
+            <span>Contact link (brighter = more recent)</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+            <div style={{ width: "20px", height: "5px", background: "rgba(255,255,255,0.3)", borderRadius: "2px" }} />
+            <span>Thicker = more interactions</span>
+          </div>
+        </div>
+        <div style={{ color: "#475569", fontSize: "10px", marginTop: "2px" }}>
+          Node size = connection count
+        </div>
+      </div>
     </div>
   );
 }
