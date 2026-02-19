@@ -36,7 +36,7 @@ export async function POST(req: Request) {
             .replace(/<[^>]+>/g, " ")
             .replace(/\s+/g, " ")
             .trim()
-            .slice(0, 3000);
+            .slice(0, 4000);
           return `[Content from ${url}]:\n${text}`;
         } catch {
           return `[${url}: could not be retrieved]`;
@@ -48,26 +48,32 @@ export async function POST(req: Request) {
 
     const urlSection =
       urlContents.length > 0
-        ? `\n\nWeb content retrieved from links:\n${urlContents.join("\n\n")}`
+        ? `\n\nSource material from linked pages:\n${urlContents.join("\n\n")}`
         : "";
 
-    const prompt = `You are writing a professional dossier entry about a person for a private networking CRM. Your audience is the CRM owner — a professional who wants a concise, useful summary of who this person is.
+    // Basic contact fields for context
+    const contactFields = [
+      contactInfo,
+    ].filter(Boolean).join("\n");
 
-Write 3-5 sentences in a measured, academic tone. Be factual and specific. Include:
-- Their current role, organization, and field of work
-- Notable career history, achievements, or expertise if available
-- Any relevant context about how the CRM owner knows them
-- Key professional details that would be useful for networking
+    const prompt = `Write a tight professional dossier entry about a person based ONLY on the linked source material below (Wikipedia, LinkedIn, articles). Do not reference any personal notes or CRM data.
 
-Do not use flowery or promotional language. Do not speculate. Do not use phrases like "is a visionary" or "passionate about." Just state facts clearly. If information is sparse, say what you can and keep it short.
+Rules:
+- 3-5 sentences maximum
+- Academic, factual tone — no promotional language
+- Include age and/or date of birth if found in the sources
+- Include location/city if found in the sources
+- State their current role, organization, industry
+- Note career highlights, notable positions, achievements, or expertise
+- Do not speculate or infer beyond what the sources state
+- Do not use phrases like "visionary," "passionate," "thought leader"
+- If sources are sparse or could not be retrieved, write only what you can confirm
 
-Contact information from CRM:
-${contactInfo}
+Contact context (for reference only, do not include in summary):
+${contactFields}
+${urlSection}
 
-Notes and research entries:
-${notes || "(No notes entered yet)"}${urlSection}
-
-Write the dossier summary:`;
+${urlContents.length === 0 ? "No source URLs were provided or could be retrieved. Write a minimal summary using only the contact fields above — name, role, company, location." : "Write the dossier summary based on the source material:"}`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -78,7 +84,7 @@ Write the dossier summary:`;
       },
       body: JSON.stringify({
         model: "claude-3-haiku-20240307",
-        max_tokens: 400,
+        max_tokens: 300,
         messages: [{ role: "user", content: prompt }],
       }),
     });
