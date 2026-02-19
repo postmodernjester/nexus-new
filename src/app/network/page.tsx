@@ -170,8 +170,7 @@ function lineThickness(count: number, isLinkedUser: boolean): number {
   return 6;
 }
 
-function nodeSize(count: number, isSelf: boolean): number {
-  if (isSelf) return Math.max(20, 12 + Math.min(count * 1.2, 16));
+function nodeSize(count: number): number {
   return 8 + Math.min(count * 1.2, 16);
 }
 
@@ -284,7 +283,7 @@ export default function NetworkPage() {
         label: myName,
         fullName: myName,
         type: "self",
-        radius: nodeSize(selfConnCount, true),
+        radius: nodeSize(selfConnCount),
         connectionCount: selfConnCount,
         user_id: user.id,
         profileId: user.id,
@@ -310,7 +309,7 @@ export default function NetworkPage() {
           label: name,
           fullName: name,
           type: "connected_user",
-          radius: nodeSize(theirCount + 1, false),
+          radius: nodeSize(theirCount + 1),
           connectionCount: theirCount + 1,
           user_id: uid,
           profileId: uid,
@@ -356,7 +355,7 @@ export default function NetworkPage() {
           label: displayLabel,
           fullName: c.full_name || "Unknown",
           type: "contact",
-          radius: nodeSize(1, false),
+          radius: nodeSize(1),
           connectionCount: 1,
           relationship_type: c.relationship_type,
           company: c.company ?? undefined,
@@ -426,7 +425,7 @@ export default function NetworkPage() {
           const node = nodes.find((n) => n.id === existingNodeId);
           if (node) {
             node.connectionCount++;
-            node.radius = nodeSize(node.connectionCount, node.type === "self");
+            node.radius = nodeSize(node.connectionCount);
           }
           continue;
         }
@@ -445,7 +444,7 @@ export default function NetworkPage() {
           label: initials,
           fullName: c.full_name || "Unknown",
           type: "their_contact",
-          radius: nodeSize(1, false),
+          radius: nodeSize(1),
           connectionCount: 1,
           company: c.company ?? undefined,
           role: c.role ?? undefined,
@@ -513,21 +512,17 @@ export default function NetworkPage() {
         typeof l.target === "object" ? (l.target as GraphNode).id : l.target,
     }));
 
-    // Always pin self at dead center
+    // Start self at center (not pinned — can be dragged freely)
     const selfNode = nodes.find((n) => n.id === "self");
     if (selfNode) {
-      selfNode.fx = width / 2;
-      selfNode.fy = height / 2;
+      selfNode.x = width / 2;
+      selfNode.y = height / 2;
     }
 
-    // If re-centered on another node, pin that one instead
+    // If re-centered on another node via double-click, pin that one
     if (centeredNodeId !== "self") {
       const centerNode = nodes.find((n) => n.id === centeredNodeId);
       if (centerNode) {
-        if (selfNode) {
-          selfNode.fx = null;
-          selfNode.fy = null;
-        }
         centerNode.fx = width / 2;
         centerNode.fy = height / 2;
       }
@@ -547,16 +542,13 @@ export default function NetworkPage() {
       .force("center", d3.forceCenter(width / 2, height / 2).strength(0.03))
       .force(
         "collision",
-        d3.forceCollide<GraphNode>().radius((d) => d.radius + 20).strength(0.8)
+        d3
+          .forceCollide<GraphNode>()
+          .radius((d) => d.radius + 20)
+          .strength(0.8)
       )
-      .force(
-        "x",
-        d3.forceX(width / 2).strength(0.015)
-      )
-      .force(
-        "y",
-        d3.forceY(height / 2).strength(0.015)
-      );
+      .force("x", d3.forceX(width / 2).strength(0.015))
+      .force("y", d3.forceY(height / 2).strength(0.015));
 
     simulationRef.current = simulation;
 
@@ -646,12 +638,10 @@ export default function NetworkPage() {
       })
       .on("dblclick", (event, d) => {
         event.stopPropagation();
-        // Unpin all
         nodes.forEach((n) => {
           n.fx = null;
           n.fy = null;
         });
-        // Pin this one at center
         d.fx = width / 2;
         d.fy = height / 2;
         setCenteredNodeId(d.id);
@@ -672,11 +662,7 @@ export default function NetworkPage() {
         })
         .on("end", (event, d) => {
           if (!event.active) simulation.alphaTarget(0);
-          // Keep self pinned unless user re-centered elsewhere
-          if (d.id === "self" && centeredNodeId === "self") {
-            d.fx = width / 2;
-            d.fy = height / 2;
-          } else if (d.id !== centeredNodeId) {
+          if (d.id !== centeredNodeId) {
             d.fx = null;
             d.fy = null;
           }
@@ -741,7 +727,6 @@ export default function NetworkPage() {
     >
       <Nav />
 
-      {/* Sub-header */}
       <div
         style={{
           display: "flex",
@@ -792,7 +777,6 @@ export default function NetworkPage() {
         </div>
       </div>
 
-      {/* Hint */}
       <div
         style={{
           position: "absolute",
@@ -807,12 +791,10 @@ export default function NetworkPage() {
         Dbl-click = re-center · Click = dossier
       </div>
 
-      {/* SVG */}
       <div ref={containerRef} style={{ flex: 1, width: "100%" }}>
         <svg ref={svgRef} style={{ width: "100%", height: "100%" }} />
       </div>
 
-      {/* Tooltip */}
       {hoveredNode && (
         <div
           style={{
