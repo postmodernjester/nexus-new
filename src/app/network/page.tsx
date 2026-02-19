@@ -79,6 +79,7 @@ interface Contact {
   owner_id: string;
   linked_profile_id: string | null;
   last_contact_date: string | null;
+  anonymous_to_connections: boolean | null;
 }
 
 interface Connection {
@@ -88,7 +89,7 @@ interface Connection {
   status: string;
 }
 
-interface InteractionStats {
+interface NoteStats {
   contact_id: string;
   count: number;
   most_recent: string;
@@ -107,6 +108,7 @@ interface GraphNode extends d3.SimulationNodeDatum {
   owner_id?: string;
   user_id?: string;
   profileId?: string;
+  isAnonymous?: boolean;
 }
 
 interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
@@ -122,9 +124,14 @@ const CLOSENESS: Record<string, number> = {
   Family: 60,
   "Close Friend": 90,
   "Work-Friend": 140,
+  Colleague: 160,
+  Friend: 130,
+  Business: 190,
   "Business Contact": 190,
   Acquaintance: 230,
   None: 300,
+  Other: 250,
+  Stranger: 280,
 };
 
 function computeRecency(mostRecent: string | null): number {
@@ -157,8 +164,7 @@ function lineColor(
   return `rgba(255, 255, 255, ${alpha})`;
 }
 
-function lineThickness(count: number, isLinkedUser: boolean): number {
-  if (isLinkedUser) return 4;
+function lineThickness(count: number): number {
   if (count === 0) return 0.8;
   if (count <= 2) return 1.5;
   if (count <= 5) return 2.5;
@@ -199,7 +205,7 @@ export default function NetworkPage() {
         return;
       }
 
-      const [contactsRes, connectionsRes, interactionsRes, profileRes] =
+      const [contactsRes, connectionsRes, notesRes, profileRes] =
         await Promise.all([
           supabase.from("contacts").select("*"),
           supabase.from("connections").select("*").eq("status", "accepted"),
@@ -214,20 +220,20 @@ export default function NetworkPage() {
       const allContacts: Contact[] = contactsRes.data || [];
       const myContacts = allContacts.filter((c) => c.owner_id === user.id);
       const connections: Connection[] = connectionsRes.data || [];
-      const allInteractions = interactionsRes.data || [];
+      const allNotes = notesRes.data || [];
 
-      const interactionMap: Record<string, InteractionStats> = {};
-      for (const i of allInteractions) {
-        if (!interactionMap[i.contact_id]) {
-          interactionMap[i.contact_id] = {
-            contact_id: i.contact_id,
+      const noteMap: Record<string, NoteStats> = {};
+      for (const n of allNotes) {
+        if (!noteMap[n.contact_id]) {
+          noteMap[n.contact_id] = {
+            contact_id: n.contact_id,
             count: 0,
-            most_recent: i.entry_date,
+            most_recent: n.entry_date,
           };
         }
-        interactionMap[i.contact_id].count++;
-        if (i.entry_date > interactionMap[i.contact_id].most_recent) {
-          interactionMap[i.contact_id].most_recent = i.entry_date;
+        noteMap[n.contact_id].count++;
+        if (n.entry_date > noteMap[n.contact_id].most_recent) {
+          noteMap[n.contact_id].most_recent = n.entry_date;
         }
       }
 
@@ -240,18 +246,37 @@ export default function NetworkPage() {
 
       const connectedProfiles: Record<
         string,
-        { full_name: string; headline: string }
+        { full_name: string; headline: string; anonymous_beyond_first_degree: boolean }
       > = {};
       if (mutualUserIds.size > 0) {
         const { data: profiles } = await supabase
           .from("profiles")
-          .select("id, full_name, headline")
+          .select("id, full_name, headline, anonymous_beyond_first_degree")
           .in("id", Array.from(mutualUserIds));
         for (const p of profiles || []) {
           connectedProfiles[p.id] = {
             full_name: p.full_name || "Unknown",
             headline: p.headline || "",
+            anonymous_beyond_first_degree: p.anonymous_beyond_first_degree || false,
           };
+        }
+      }
+
+      // Also fetch profiles for contacts with linked_profile_id (to check their anonymity)
+      const linkedProfileIds = allContacts
+        .filter((c) => c.linked_profile_id && !mutualUserIds.has(c.linked_profile_id))
+        .map((c) => c.linked_profile_id!)
+        .filter((id, i, arr) => arr.indexOf(id) === i);
+
+      const anonymousProfiles = new Set<string>();
+      if (linkedProfileIds.length > 0) {
+        const { data: lps } = await supabase
+          .from("profiles")
+          .select("id, anonymous_beyond_first_degree")
+          .in("id", linkedProfileIds)
+          .eq("anonymous_beyond_first_degree", true);
+        for (const p of lps || []) {
+          anonymousProfiles.add(p.id);
         }
       }
 
@@ -272,7 +297,7 @@ export default function NetworkPage() {
       const nodes: GraphNode[] = [];
       const links: GraphLink[] = [];
 
-      // ① Self — always the logged-in user
+      // ① Self
       const myName = profileRes.data?.full_name || "You";
       const selfConnCount = myContacts.length + mutualUserIds.size;
       nodes.push({
@@ -298,7 +323,7 @@ export default function NetworkPage() {
         const nodeId = `user-${uid}`;
 
         const myCard = myContactsLinkedToConnectedUser.get(uid);
-        const stats = myCard ? interactionMap[myCard.id] : null;
+        const stats = myCard ? noteMap[myCard.id] : null;
         const relType = myCard?.relationship_type || "Acquaintance";
 
         nodes.push({
@@ -321,7 +346,7 @@ export default function NetworkPage() {
           source: "self",
           target: nodeId,
           distance: CLOSENESS[relType] || 190,
-          thickness: 4,
+          thickness: lineThickness(stats?.count || 0),
           recency: computeRecency(
             stats?.most_recent || myCard?.last_contact_date || null
           ),
@@ -339,7 +364,7 @@ export default function NetworkPage() {
           continue;
         }
 
-        const stats = interactionMap[c.id];
+        const stats = noteMap[c.id];
         const nodeId = c.id;
         const parts = (c.full_name || "Unknown").split(" ");
         const displayLabel =
@@ -367,7 +392,7 @@ export default function NetworkPage() {
           source: "self",
           target: nodeId,
           distance: CLOSENESS[c.relationship_type] || 230,
-          thickness: lineThickness(stats?.count || 0, false),
+          thickness: lineThickness(stats?.count || 0),
           recency: computeRecency(
             stats?.most_recent || c.last_contact_date || null
           ),
@@ -379,6 +404,11 @@ export default function NetworkPage() {
       // ④ Their contacts (dedup)
       for (const c of theirContacts) {
         if (c.linked_profile_id === user.id) continue;
+
+        // Check anonymity: contact-level or profile-level
+        const isAnon =
+          c.anonymous_to_connections === true ||
+          (c.linked_profile_id && anonymousProfiles.has(c.linked_profile_id));
 
         let existingNodeId: string | null = null;
         if (c.linked_profile_id && profileToNodeId[c.linked_profile_id]) {
@@ -397,15 +427,12 @@ export default function NetworkPage() {
               (l.source === existingNodeId && l.target === ownerNodeId)
           );
           if (!alreadyLinked) {
-            const stats = interactionMap[c.id];
+            const stats = noteMap[c.id];
             links.push({
               source: ownerNodeId,
               target: existingNodeId,
               distance: CLOSENESS[c.relationship_type] || 230,
-              thickness: lineThickness(
-                stats?.count || 0,
-                !!c.linked_profile_id
-              ),
+              thickness: lineThickness(stats?.count || 0),
               recency: computeRecency(
                 stats?.most_recent || c.last_contact_date || null
               ),
@@ -433,30 +460,31 @@ export default function NetworkPage() {
             ? (nameParts[nameParts.length - 1] || "?")[0]
             : "?"
         }`.toUpperCase();
-        const stats = interactionMap[c.id];
+        const stats = noteMap[c.id];
         const nodeId = `their-${c.id}`;
 
         nodes.push({
           id: nodeId,
-          label: initials,
-          fullName: c.full_name || "Unknown",
+          label: isAnon ? "•" : initials,
+          fullName: isAnon ? "Anonymous" : c.full_name || "Unknown",
           type: "their_contact",
           radius: nodeSize(1),
           connectionCount: 1,
-          company: c.company ?? undefined,
-          role: c.role ?? undefined,
+          company: isAnon ? undefined : c.company ?? undefined,
+          role: isAnon ? undefined : c.role ?? undefined,
           owner_id: c.owner_id,
           profileId: c.linked_profile_id ?? undefined,
           relationship_type: c.relationship_type,
+          isAnonymous: !!isAnon,
         });
         if (c.linked_profile_id) profileToNodeId[c.linked_profile_id] = nodeId;
-        nameToNodeId[(c.full_name || "").toLowerCase()] = nodeId;
+        if (!isAnon) nameToNodeId[(c.full_name || "").toLowerCase()] = nodeId;
 
         links.push({
           source: `user-${c.owner_id}`,
           target: nodeId,
           distance: CLOSENESS[c.relationship_type] || 230,
-          thickness: lineThickness(stats?.count || 0, !!c.linked_profile_id),
+          thickness: lineThickness(stats?.count || 0),
           recency: computeRecency(
             stats?.most_recent || c.last_contact_date || null
           ),
@@ -509,14 +537,13 @@ export default function NetworkPage() {
         typeof l.target === "object" ? (l.target as GraphNode).id : l.target,
     }));
 
-    // Start self at center (not pinned — can be dragged freely)
+    // Start self at center (not pinned)
     const selfNode = nodes.find((n) => n.id === "self");
     if (selfNode) {
       selfNode.x = width / 2;
       selfNode.y = height / 2;
     }
 
-    // If re-centered on another node via double-click, pin that one
     if (centeredNodeId !== "self") {
       const centerNode = nodes.find((n) => n.id === centeredNodeId);
       if (centerNode) {
@@ -576,11 +603,13 @@ export default function NetworkPage() {
         const colors: Record<string, string> = {
           Family: "#7c6f64",
           "Close Friend": "#6b7280",
+          "Work-Friend": "#6b8090",
           Friend: "#6b7280",
           Colleague: "#64748b",
           Business: "#64748b",
           "Business Contact": "#64748b",
           Acquaintance: "#4b5563",
+          None: "#374151",
           Stranger: "#374151",
         };
         return colors[d.relationship_type || ""] || "#4b5563";
@@ -591,6 +620,7 @@ export default function NetworkPage() {
     nodeGroup
       .append("text")
       .text((d) => {
+        if (d.isAnonymous) return "•";
         if (d.type === "self") return d.label;
         if (d.type === "connected_user") return d.label;
         if (d.type === "their_contact") {
@@ -809,44 +839,52 @@ export default function NetworkPage() {
             maxWidth: "280px",
           }}
         >
-          <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
-            {hoveredNode.fullName}
-          </div>
-
-          {hoveredNode.type === "contact" && (
-            <>
-              {hoveredNode.role && (
-                <div style={{ color: "#94a3b8", fontSize: "12px" }}>
-                  {hoveredNode.role}
-                </div>
-              )}
-              {hoveredNode.company && (
-                <div style={{ color: "#94a3b8", fontSize: "12px" }}>
-                  {hoveredNode.company}
-                </div>
-              )}
-            </>
-          )}
-
-          {hoveredNode.type === "connected_user" && (
-            <>
-              {hoveredNode.role && (
-                <div style={{ color: "#94a3b8", fontSize: "12px" }}>
-                  {hoveredNode.role}
-                </div>
-              )}
-              {hoveredNode.company && (
-                <div style={{ color: "#94a3b8", fontSize: "12px" }}>
-                  {hoveredNode.company}
-                </div>
-              )}
-            </>
-          )}
-
-          {hoveredNode.type === "their_contact" && hoveredNode.role && (
-            <div style={{ color: "#94a3b8", fontSize: "12px" }}>
-              {hoveredNode.role}
+          {hoveredNode.isAnonymous ? (
+            <div style={{ color: "#475569", fontStyle: "italic" }}>
+              Anonymous contact
             </div>
+          ) : (
+            <>
+              <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
+                {hoveredNode.fullName}
+              </div>
+
+              {hoveredNode.type === "contact" && (
+                <>
+                  {hoveredNode.role && (
+                    <div style={{ color: "#94a3b8", fontSize: "12px" }}>
+                      {hoveredNode.role}
+                    </div>
+                  )}
+                  {hoveredNode.company && (
+                    <div style={{ color: "#94a3b8", fontSize: "12px" }}>
+                      {hoveredNode.company}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {hoveredNode.type === "connected_user" && (
+                <>
+                  {hoveredNode.role && (
+                    <div style={{ color: "#94a3b8", fontSize: "12px" }}>
+                      {hoveredNode.role}
+                    </div>
+                  )}
+                  {hoveredNode.company && (
+                    <div style={{ color: "#94a3b8", fontSize: "12px" }}>
+                      {hoveredNode.company}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {hoveredNode.type === "their_contact" && hoveredNode.role && (
+                <div style={{ color: "#94a3b8", fontSize: "12px" }}>
+                  {hoveredNode.role}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
