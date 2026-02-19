@@ -28,7 +28,7 @@ export async function POST(req: Request) {
             },
           });
           clearTimeout(timeout);
-          if (!res.ok) return `[${url}: failed to fetch]`;
+          if (!res.ok) return `[${url}: failed to fetch, status ${res.status}]`;
           const html = await res.text();
           const text = html
             .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -77,17 +77,17 @@ Write the dossier summary:`;
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-3-5-sonnet-20241022",
         max_tokens: 400,
         messages: [{ role: "user", content: prompt }],
       }),
     });
 
     if (!response.ok) {
-      const errText = await response.text();
-      console.error("Anthropic API error:", errText);
+      const errBody = await response.text();
+      console.error("Anthropic API error:", response.status, errBody);
       return NextResponse.json(
-        { error: "AI API error: " + response.status },
+        { error: "Anthropic API error " + response.status + ": " + errBody },
         { status: 500 }
       );
     }
