@@ -1,69 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import Link from "next/link";
-
-// ─── Nav ───
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/network", label: "Network" },
-  { href: "/contacts", label: "Contacts" },
-];
-
-function Nav() {
-  const pathname = usePathname();
-  return (
-    <nav
-      style={{
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "10px 20px",
-        background: "#0f172a",
-        borderBottom: "1px solid #1e293b",
-      }}
-    >
-      <Link
-        href="/dashboard"
-        style={{
-          fontSize: "18px",
-          fontWeight: "bold",
-          color: "#fff",
-          textDecoration: "none",
-          letterSpacing: "-0.5px",
-        }}
-      >
-        NEXUS
-      </Link>
-      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-        {NAV_ITEMS.map((item) => {
-          const active = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              style={{
-                padding: "6px 14px",
-                borderRadius: "6px",
-                fontSize: "13px",
-                fontWeight: 500,
-                textDecoration: "none",
-                color: active ? "#0f172a" : "#94a3b8",
-                background: active ? "#fff" : "transparent",
-                transition: "all 0.15s",
-              }}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
-  );
-}
+import Nav from "@/components/Nav";
 
 // ─── Types ───
 interface ContactRow {
@@ -104,7 +44,6 @@ function getLastName(fullName: string): string {
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : fullName.toLowerCase();
 }
 
-// Generate a mini description from available data when no AI mini_summary exists
 function deriveMiniDescription(c: ContactRow): string {
   if (c.mini_summary) return c.mini_summary;
   if (c.role && c.company) return `${c.role} at ${c.company}`;
@@ -368,26 +307,21 @@ export default function ContactsPage() {
             All
           </button>
           {ALPHA.map((letter) => {
-            const has = activeLetters.has(letter);
-            const active = alphaFilter === letter;
+            const hasContacts = activeLetters.has(letter);
+            const isActive = alphaFilter === letter;
             return (
               <button
                 key={letter}
-                onClick={() => {
-                  if (has) {
-                    setAlphaFilter(active ? null : letter);
-                    setSearch("");
-                  }
-                }}
+                onClick={() => hasContacts && setAlphaFilter(isActive ? null : letter)}
                 style={{
-                  padding: "2px 5px",
+                  padding: "2px 6px",
                   fontSize: "11px",
                   border: "none",
                   borderRadius: "3px",
-                  cursor: has ? "pointer" : "default",
-                  background: active ? "#a78bfa" : "transparent",
-                  color: active ? "#0f172a" : has ? "#94a3b8" : "#1e293b",
-                  fontWeight: active ? 600 : 400,
+                  cursor: hasContacts ? "pointer" : "default",
+                  background: isActive ? "#a78bfa" : "transparent",
+                  color: isActive ? "#0f172a" : hasContacts ? "#94a3b8" : "#334155",
+                  fontWeight: isActive ? 600 : 400,
                 }}
               >
                 {letter}
@@ -396,155 +330,161 @@ export default function ContactsPage() {
           })}
         </div>
 
-        {/* Contact rows */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
+        {/* Contact list */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          {filtered.length === 0 && (
+            <div
+              style={{
+                textAlign: "center",
+                color: "#475569",
+                padding: "40px 0",
+                fontSize: "14px",
+              }}
+            >
+              {search || alphaFilter ? "No contacts match your filter." : "No contacts yet. Add your first one!"}
+            </div>
+          )}
+
           {filtered.map((c) => {
             const action = actions[c.id];
-            const mini = deriveMiniDescription(c);
-            const isOverdue =
-              action?.action_due_date &&
-              new Date(action.action_due_date) < new Date();
-
+            const miniDesc = deriveMiniDescription(c);
             return (
               <div
                 key={c.id}
                 onClick={() => router.push(`/contacts/${c.id}`)}
                 style={{
                   display: "flex",
-                  alignItems: "flex-start",
+                  alignItems: "center",
                   gap: "12px",
-                  padding: "12px",
-                  borderBottom: "1px solid #1e293b",
+                  padding: "12px 14px",
+                  background: "#1e293b",
+                  borderRadius: "10px",
                   cursor: "pointer",
-                  transition: "background 0.12s",
+                  transition: "background 0.15s",
+                  border: "1px solid transparent",
                 }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.background = "rgba(30,41,59,0.6)")
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.background = "transparent")
-                }
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "#334155";
+                  e.currentTarget.style.borderColor = "#475569";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "#1e293b";
+                  e.currentTarget.style.borderColor = "transparent";
+                }}
               >
                 {/* Avatar */}
                 <div
                   style={{
-                    width: "36px",
-                    height: "36px",
+                    width: "40px",
+                    height: "40px",
                     borderRadius: "50%",
-                    background: c.linked_profile_id
-                      ? "rgba(96,165,250,0.15)"
-                      : "#1e293b",
+                    background: c.linked_profile_id ? "#7c3aed" : "#334155",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    color: c.linked_profile_id ? "#60a5fa" : "#64748b",
-                    fontSize: "13px",
-                    fontWeight: "bold",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: c.linked_profile_id ? "#fff" : "#94a3b8",
                     flexShrink: 0,
-                    marginTop: "2px",
                   }}
                 >
                   {initials(c.full_name)}
                 </div>
 
-                {/* Left: name + mini description */}
+                {/* Info */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: "6px",
+                      gap: "8px",
                     }}
                   >
                     <span
                       style={{
+                        fontWeight: 500,
                         fontSize: "14px",
-                        fontWeight: 600,
-                        color: "#e2e8f0",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     >
                       {c.full_name}
                     </span>
                     {c.linked_profile_id && (
-                      <span style={{ fontSize: "10px", color: "#60a5fa" }}>
-                        ●
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          color: "#a78bfa",
+                          background: "#1e1b4b",
+                          padding: "1px 6px",
+                          borderRadius: "4px",
+                          fontWeight: 500,
+                        }}
+                      >
+                        Linked
+                      </span>
+                    )}
+                    {c.relationship_type && (
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          color: "#64748b",
+                        }}
+                      >
+                        {c.relationship_type}
                       </span>
                     )}
                   </div>
-                  {mini && (
+                  {miniDesc && (
                     <div
                       style={{
                         fontSize: "12px",
-                        color: "#94a3b8",
-                        marginTop: "2px",
+                        color: "#64748b",
+                        whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        marginTop: "2px",
                       }}
                     >
-                      {mini}
+                      {miniDesc}
                     </div>
                   )}
-                </div>
-
-                {/* Right: action item or "no action now" */}
-                <div
-                  style={{
-                    flexShrink: 0,
-                    textAlign: "right",
-                    maxWidth: "220px",
-                    minWidth: "120px",
-                  }}
-                >
-                  {action ? (
-                    <>
-                      <div
+                  {action && (
+                    <div
+                      style={{
+                        fontSize: "11px",
+                        color: "#f59e0b",
+                        marginTop: "3px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <span>⚡</span>
+                      <span
                         style={{
-                          fontSize: "12px",
-                          color: isOverdue ? "#f87171" : "#fbbf24",
+                          whiteSpace: "nowrap",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
                         }}
                       >
                         {action.action_text}
-                      </div>
+                      </span>
                       {action.action_due_date && (
-                        <div
-                          style={{
-                            fontSize: "11px",
-                            color: isOverdue ? "#f87171" : "#64748b",
-                            marginTop: "1px",
-                          }}
-                        >
-                          {formatDate(action.action_due_date)}
-                        </div>
+                        <span style={{ color: "#92400e", flexShrink: 0 }}>
+                          · {formatDate(action.action_due_date)}
+                        </span>
                       )}
-                    </>
-                  ) : (
-                    <div style={{ fontSize: "11px", color: "#334155" }}>
-                      no action now
                     </div>
                   )}
                 </div>
+
+                {/* Arrow */}
+                <span style={{ color: "#334155", fontSize: "16px", flexShrink: 0 }}>›</span>
               </div>
             );
           })}
-
-          {filtered.length === 0 && (
-            <div
-              style={{
-                padding: "40px 0",
-                textAlign: "center",
-                color: "#475569",
-                fontSize: "14px",
-              }}
-            >
-              {search || alphaFilter
-                ? "No contacts match your search."
-                : "No contacts yet. Add your first one!"}
-            </div>
-          )}
         </div>
       </div>
     </div>
