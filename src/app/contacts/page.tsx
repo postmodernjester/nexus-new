@@ -73,6 +73,7 @@ interface ContactRow {
   role: string | null;
   relationship_type: string | null;
   ai_summary: string | null;
+  mini_summary: string | null;
   linked_profile_id: string | null;
   updated_at: string | null;
   created_at: string;
@@ -98,6 +99,21 @@ function initials(name: string) {
     : name.slice(0, 2).toUpperCase();
 }
 
+function getLastName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : fullName.toLowerCase();
+}
+
+// Generate a mini description from available data when no AI mini_summary exists
+function deriveMiniDescription(c: ContactRow): string {
+  if (c.mini_summary) return c.mini_summary;
+  if (c.role && c.company) return `${c.role} at ${c.company}`;
+  if (c.role) return c.role;
+  if (c.company) return `Works at ${c.company}`;
+  if (c.relationship_type) return c.relationship_type;
+  return "";
+}
+
 const ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
 export default function ContactsPage() {
@@ -106,7 +122,7 @@ export default function ContactsPage() {
   const [actions, setActions] = useState<Record<string, PendingAction>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [sortMode, setSortMode] = useState<"alpha" | "recent">("recent");
+  const [sortMode, setSortMode] = useState<"alpha" | "recent">("alpha");
   const [alphaFilter, setAlphaFilter] = useState<string | null>(null);
 
   useEffect(() => {
@@ -126,10 +142,9 @@ export default function ContactsPage() {
       supabase
         .from("contacts")
         .select(
-          "id, full_name, company, role, relationship_type, ai_summary, linked_profile_id, updated_at, created_at"
+          "id, full_name, company, role, relationship_type, ai_summary, mini_summary, linked_profile_id, updated_at, created_at"
         )
-        .eq("owner_id", user.id)
-        .order("full_name", { ascending: true }),
+        .eq("owner_id", user.id),
       supabase
         .from("contact_notes")
         .select("contact_id, action_text, action_due_date")
@@ -141,7 +156,6 @@ export default function ContactsPage() {
 
     setContacts(contactsRes.data || []);
 
-    // Build map of latest pending action per contact
     const actionMap: Record<string, PendingAction> = {};
     for (const a of actionsRes.data || []) {
       if (!actionMap[a.contact_id]) {
@@ -152,7 +166,7 @@ export default function ContactsPage() {
     setLoading(false);
   }
 
-  // Filter and sort
+  // Filter
   let filtered = contacts;
 
   if (search.trim()) {
@@ -166,11 +180,13 @@ export default function ContactsPage() {
   }
 
   if (alphaFilter) {
-    filtered = filtered.filter((c) =>
-      c.full_name.toUpperCase().startsWith(alphaFilter!)
-    );
+    filtered = filtered.filter((c) => {
+      const ln = getLastName(c.full_name);
+      return ln[0]?.toUpperCase() === alphaFilter;
+    });
   }
 
+  // Sort
   if (sortMode === "recent") {
     filtered = [...filtered].sort((a, b) => {
       const aDate = a.updated_at || a.created_at;
@@ -179,13 +195,15 @@ export default function ContactsPage() {
     });
   } else {
     filtered = [...filtered].sort((a, b) =>
-      a.full_name.localeCompare(b.full_name)
+      getLastName(a.full_name).localeCompare(getLastName(b.full_name))
     );
   }
 
-  // Which letters have contacts
-  const activeLettrs = new Set(
-    contacts.map((c) => c.full_name[0]?.toUpperCase()).filter(Boolean)
+  // Which letters have contacts (by last name)
+  const activeLetters = new Set(
+    contacts
+      .map((c) => getLastName(c.full_name)[0]?.toUpperCase())
+      .filter(Boolean)
   );
 
   if (loading) {
@@ -208,13 +226,19 @@ export default function ContactsPage() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0f172a", color: "#e2e8f0" }}>
+    <div
+      style={{ minHeight: "100vh", background: "#0f172a", color: "#e2e8f0" }}
+    >
       <Nav />
 
       <div
-        style={{ maxWidth: "800px", margin: "0 auto", padding: "24px 20px 60px" }}
+        style={{
+          maxWidth: "800px",
+          margin: "0 auto",
+          padding: "24px 20px 60px",
+        }}
       >
-        {/* Header row */}
+        {/* Header */}
         <div
           style={{
             display: "flex",
@@ -319,7 +343,7 @@ export default function ContactsPage() {
           </div>
         </div>
 
-        {/* Alpha tabs */}
+        {/* Alpha tabs — by last name */}
         <div
           style={{
             display: "flex",
@@ -344,14 +368,14 @@ export default function ContactsPage() {
             All
           </button>
           {ALPHA.map((letter) => {
-            const hasContacts = activeLettrs.has(letter);
-            const isActive = alphaFilter === letter;
+            const has = activeLetters.has(letter);
+            const active = alphaFilter === letter;
             return (
               <button
                 key={letter}
                 onClick={() => {
-                  if (hasContacts) {
-                    setAlphaFilter(isActive ? null : letter);
+                  if (has) {
+                    setAlphaFilter(active ? null : letter);
                     setSearch("");
                   }
                 }}
@@ -360,14 +384,10 @@ export default function ContactsPage() {
                   fontSize: "11px",
                   border: "none",
                   borderRadius: "3px",
-                  cursor: hasContacts ? "pointer" : "default",
-                  background: isActive ? "#a78bfa" : "transparent",
-                  color: isActive
-                    ? "#0f172a"
-                    : hasContacts
-                      ? "#94a3b8"
-                      : "#1e293b",
-                  fontWeight: isActive ? 600 : 400,
+                  cursor: has ? "pointer" : "default",
+                  background: active ? "#a78bfa" : "transparent",
+                  color: active ? "#0f172a" : has ? "#94a3b8" : "#1e293b",
+                  fontWeight: active ? 600 : 400,
                 }}
               >
                 {letter}
@@ -376,15 +396,11 @@ export default function ContactsPage() {
           })}
         </div>
 
-        {/* Contact list */}
+        {/* Contact rows */}
         <div style={{ display: "flex", flexDirection: "column" }}>
           {filtered.map((c) => {
             const action = actions[c.id];
-            const summarySnippet = c.ai_summary
-              ? c.ai_summary.length > 120
-                ? c.ai_summary.slice(0, 120) + "…"
-                : c.ai_summary
-              : null;
+            const mini = deriveMiniDescription(c);
             const isOverdue =
               action?.action_due_date &&
               new Date(action.action_due_date) < new Date();
@@ -397,7 +413,7 @@ export default function ContactsPage() {
                   display: "flex",
                   alignItems: "flex-start",
                   gap: "12px",
-                  padding: "14px 12px",
+                  padding: "12px",
                   borderBottom: "1px solid #1e293b",
                   cursor: "pointer",
                   transition: "background 0.12s",
@@ -431,13 +447,13 @@ export default function ContactsPage() {
                   {initials(c.full_name)}
                 </div>
 
-                {/* Info */}
+                {/* Left: name + mini description */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: "8px",
+                      gap: "6px",
                     }}
                   >
                     <span
@@ -449,105 +465,67 @@ export default function ContactsPage() {
                     >
                       {c.full_name}
                     </span>
-                    {c.relationship_type && (
-                      <span
-                        style={{
-                          fontSize: "10px",
-                          padding: "1px 6px",
-                          borderRadius: "8px",
-                          background: "#334155",
-                          color: "#64748b",
-                        }}
-                      >
-                        {c.relationship_type}
-                      </span>
-                    )}
                     {c.linked_profile_id && (
-                      <span
-                        style={{
-                          fontSize: "10px",
-                          color: "#60a5fa",
-                        }}
-                      >
+                      <span style={{ fontSize: "10px", color: "#60a5fa" }}>
                         ●
                       </span>
                     )}
                   </div>
-
-                  {/* Role / Company */}
-                  {(c.role || c.company) && (
+                  {mini && (
                     <div
                       style={{
                         fontSize: "12px",
                         color: "#94a3b8",
-                        marginTop: "1px",
-                      }}
-                    >
-                      {[c.role, c.company].filter(Boolean).join(" · ")}
-                    </div>
-                  )}
-
-                  {/* AI summary snippet */}
-                  {summarySnippet && (
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#64748b",
-                        marginTop: "4px",
-                        lineHeight: "1.4",
+                        marginTop: "2px",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {summarySnippet}
+                      {mini}
                     </div>
                   )}
+                </div>
 
-                  {/* Pending action */}
-                  {action && (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        marginTop: "4px",
-                        fontSize: "11px",
-                        color: isOverdue ? "#f87171" : "#fbbf24",
-                      }}
-                    >
-                      <span style={{ fontSize: "9px" }}>
-                        {isOverdue ? "⚠" : "○"}
-                      </span>
-                      <span
+                {/* Right: action item or "no action now" */}
+                <div
+                  style={{
+                    flexShrink: 0,
+                    textAlign: "right",
+                    maxWidth: "220px",
+                    minWidth: "120px",
+                  }}
+                >
+                  {action ? (
+                    <>
+                      <div
                         style={{
+                          fontSize: "12px",
+                          color: isOverdue ? "#f87171" : "#fbbf24",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
                         }}
                       >
                         {action.action_text}
-                      </span>
+                      </div>
                       {action.action_due_date && (
-                        <span style={{ color: "#475569", flexShrink: 0 }}>
+                        <div
+                          style={{
+                            fontSize: "11px",
+                            color: isOverdue ? "#f87171" : "#64748b",
+                            marginTop: "1px",
+                          }}
+                        >
                           {formatDate(action.action_due_date)}
-                        </span>
+                        </div>
                       )}
+                    </>
+                  ) : (
+                    <div style={{ fontSize: "11px", color: "#334155" }}>
+                      no action now
                     </div>
                   )}
-                </div>
-
-                {/* Right: updated date */}
-                <div
-                  style={{
-                    fontSize: "11px",
-                    color: "#475569",
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                    marginTop: "2px",
-                  }}
-                >
-                  {formatDate(c.updated_at || c.created_at)}
                 </div>
               </div>
             );
