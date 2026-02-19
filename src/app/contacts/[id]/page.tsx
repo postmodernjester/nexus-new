@@ -1,214 +1,1309 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { useEffect, useState, useRef } from "react";
+import { useRouter, useParams, usePathname } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import Link from "next/link";
 
-interface Contact { id: string; owner_id: string; full_name: string; email: string | null; phone: string | null; company: string | null; role: string | null; location: string | null; relationship_type: string | null; website: string | null; avatar_url: string | null; linkedin_url: string | null; follow_up_status: string | null; last_contact_date: string | null; next_action_date: string | null; next_action_note: string | null; city: string | null; state: string | null; country: string | null; twitter_url: string | null; github_url: string | null; bio: string | null; ai_summary: string | null; created_at: string; updated_at: string | null; }
+// ─── Nav ───
+const NAV_ITEMS = [
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/network", label: "Network" },
+  { href: "/contacts", label: "Contacts" },
+];
 
-interface JournalEntry { id: string; contact_id: string; owner_id: string; content: string; context: string | null; entry_date: string; created_at: string; }
+function Nav() {
+  const pathname = usePathname();
+  return (
+    <nav
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "10px 20px",
+        background: "#0f172a",
+        borderBottom: "1px solid #1e293b",
+      }}
+    >
+      <Link
+        href="/dashboard"
+        style={{
+          fontSize: "18px",
+          fontWeight: "bold",
+          color: "#fff",
+          textDecoration: "none",
+          letterSpacing: "-0.5px",
+        }}
+      >
+        NEXUS
+      </Link>
+      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+        {NAV_ITEMS.map((item) => {
+          const active = pathname === item.href;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                fontSize: "13px",
+                fontWeight: 500,
+                textDecoration: "none",
+                color: active ? "#0f172a" : "#94a3b8",
+                background: active ? "#fff" : "transparent",
+                transition: "all 0.15s",
+              }}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
 
-const REL_TYPES = ['Family', 'Close Friend', 'Business Contact', 'Acquaintance', 'Stranger'];
+// ─── Types ───
+interface Contact {
+  id: string;
+  owner_id: string;
+  linked_profile_id: string | null;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  role: string | null;
+  location: string | null;
+  relationship_type: string | null;
+  website: string | null;
+  avatar_url: string | null;
+  linkedin_url: string | null;
+  follow_up_status: string | null;
+  last_contact_date: string | null;
+  next_action_date: string | null;
+  next_action_note: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  twitter_url: string | null;
+  github_url: string | null;
+  bio: string | null;
+  ai_summary: string | null;
+  how_we_met: string | null;
+  met_date: string | null;
+  communication_frequency: number | null;
+  collaboration_depth: number | null;
+  created_at: string;
+  updated_at: string | null;
+}
 
-export default function ContactDetailPage() {
+interface LinkedProfile {
+  full_name: string;
+  headline: string | null;
+  bio: string | null;
+  location: string | null;
+  website: string | null;
+  avatar_url: string | null;
+}
+
+interface NoteEntry {
+  id: string;
+  contact_id: string;
+  owner_id: string;
+  content: string;
+  context: string | null;
+  entry_date: string;
+  created_at: string;
+}
+
+const REL_TYPES = [
+  "Family",
+  "Close Friend",
+  "Friend",
+  "Colleague",
+  "Business Contact",
+  "Acquaintance",
+  "Other",
+];
+
+function formatDate(d: string) {
+  return new Date(d).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function initials(name: string) {
+  const p = name.trim().split(/\s+/);
+  return p.length >= 2
+    ? (p[0][0] + p[p.length - 1][0]).toUpperCase()
+    : name.slice(0, 2).toUpperCase();
+}
+
+// Detect URLs in text and make them clickable
+function renderContent(text: string) {
+  const urlRegex = /(https?:\/\/[^\s<]+)/g;
+  const parts = text.split(urlRegex);
+  return parts.map((part, i) => {
+    if (urlRegex.test(part)) {
+      // Reset regex lastIndex
+      urlRegex.lastIndex = 0;
+      const domain = new URL(part).hostname.replace("www.", "");
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            color: "#60a5fa",
+            textDecoration: "none",
+            borderBottom: "1px solid rgba(96,165,250,0.3)",
+            wordBreak: "break-all",
+          }}
+        >
+          {domain}
+          <span style={{ fontSize: "10px", marginLeft: "3px", opacity: 0.5 }}>
+            ↗
+          </span>
+        </a>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
+// ─── Styles ───
+const s = {
+  page: {
+    minHeight: "100vh",
+    background: "#0f172a",
+    color: "#e2e8f0",
+  } as React.CSSProperties,
+  container: {
+    maxWidth: "800px",
+    margin: "0 auto",
+    padding: "24px 20px 60px",
+  } as React.CSSProperties,
+  card: {
+    background: "#1e293b",
+    border: "1px solid #334155",
+    borderRadius: "12px",
+    padding: "20px",
+    marginBottom: "16px",
+  } as React.CSSProperties,
+  label: {
+    display: "block",
+    fontSize: "11px",
+    color: "#64748b",
+    marginBottom: "4px",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.5px",
+  },
+  input: {
+    width: "100%",
+    padding: "8px 12px",
+    background: "#0f172a",
+    border: "1px solid #334155",
+    borderRadius: "6px",
+    color: "#e2e8f0",
+    fontSize: "14px",
+    outline: "none",
+  } as React.CSSProperties,
+  textarea: {
+    width: "100%",
+    padding: "10px 12px",
+    background: "#0f172a",
+    border: "1px solid #334155",
+    borderRadius: "6px",
+    color: "#e2e8f0",
+    fontSize: "14px",
+    outline: "none",
+    resize: "vertical" as const,
+    fontFamily: "inherit",
+    lineHeight: "1.5",
+  } as React.CSSProperties,
+  select: {
+    width: "100%",
+    padding: "8px 12px",
+    background: "#0f172a",
+    border: "1px solid #334155",
+    borderRadius: "6px",
+    color: "#e2e8f0",
+    fontSize: "14px",
+    outline: "none",
+  } as React.CSSProperties,
+  btnPrimary: {
+    padding: "8px 20px",
+    background: "#a78bfa",
+    color: "#0f172a",
+    border: "none",
+    borderRadius: "6px",
+    fontWeight: 600,
+    fontSize: "13px",
+    cursor: "pointer",
+  } as React.CSSProperties,
+  btnSecondary: {
+    padding: "8px 16px",
+    background: "transparent",
+    color: "#94a3b8",
+    border: "1px solid #334155",
+    borderRadius: "6px",
+    fontSize: "13px",
+    cursor: "pointer",
+  } as React.CSSProperties,
+  btnDanger: {
+    padding: "6px 14px",
+    background: "rgba(220,38,38,0.15)",
+    color: "#f87171",
+    border: "1px solid rgba(220,38,38,0.3)",
+    borderRadius: "6px",
+    fontSize: "12px",
+    cursor: "pointer",
+  } as React.CSSProperties,
+};
+
+export default function ContactDossierPage() {
   const router = useRouter();
   const params = useParams();
   const cid = params.id as string;
-  const [c, setC] = useState<Contact | null>(null);
-  const [j, setJ] = useState<JournalEntry[]>([]);
+
+  const [contact, setContact] = useState<Contact | null>(null);
+  const [linkedProfile, setLinkedProfile] = useState<LinkedProfile | null>(
+    null
+  );
+  const [notes, setNotes] = useState<NoteEntry[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Edit mode
   const [editing, setEditing] = useState(false);
-  const [ef, setEf] = useState<Partial<Contact>>({});
+  const [editFields, setEditFields] = useState<Partial<Contact>>({});
   const [saving, setSaving] = useState(false);
-  const [ne, setNe] = useState('');
-  const [nc, setNc] = useState('');
-  const [nd, setNd] = useState(new Date().toISOString().split('T')[0]);
-  const [se, setSe] = useState(false);
-  const [eid, setEid] = useState<string | null>(null);
-  const [eec, setEec] = useState('');
-  const [eed, setEed] = useState('');
-  const [eex, setEex] = useState('');
 
-  useEffect(() => { load(); loadJ(); }, [cid]);
+  // New note
+  const [noteText, setNoteText] = useState("");
+  const [noteContext, setNoteContext] = useState("");
+  const [addingNote, setAddingNote] = useState(false);
+  const noteInputRef = useRef<HTMLTextAreaElement>(null);
 
-  async function load() {
+  // Edit note
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editNoteContent, setEditNoteContent] = useState("");
+  const [editNoteContext, setEditNoteContext] = useState("");
+
+  // AI summary
+  const [generatingSummary, setGeneratingSummary] = useState(false);
+
+  useEffect(() => {
+    loadContact();
+    loadNotes();
+  }, [cid]);
+
+  async function loadContact() {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push('/login'); return; }
-    const { data } = await supabase.from('contacts').select('*').eq('id', cid).eq('owner_id', user.id).single();
-    if (!data) { router.push('/contacts'); return; }
-    setC(data); setEf(data); setLoading(false);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+    const { data } = await supabase
+      .from("contacts")
+      .select("*")
+      .eq("id", cid)
+      .eq("owner_id", user.id)
+      .single();
+    if (!data) {
+      router.push("/contacts");
+      return;
+    }
+    setContact(data);
+    setEditFields(data);
+
+    // Load linked profile if exists
+    if (data.linked_profile_id) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name, headline, bio, location, website, avatar_url")
+        .eq("id", data.linked_profile_id)
+        .single();
+      if (profile) setLinkedProfile(profile);
+    }
+
+    setLoading(false);
   }
 
-  async function loadJ() {
-    const { data } = await supabase.from('contact_notes').select('*').eq('contact_id', cid).order('entry_date', { ascending: false });
-    setJ(data || []);
+  async function loadNotes() {
+    const { data } = await supabase
+      .from("contact_notes")
+      .select("*")
+      .eq("contact_id", cid)
+      .order("entry_date", { ascending: false });
+    setNotes(data || []);
   }
 
-  async function save() {
+  async function saveContact() {
     setSaving(true);
-    const { error } = await supabase.from('contacts').update({ full_name: ef.full_name, email: ef.email || null, phone: ef.phone || null, company: ef.company || null, role: ef.role || null, location: ef.location || null, relationship_type: ef.relationship_type || null, website: ef.website || null, linkedin_url: ef.linkedin_url || null, follow_up_status: ef.follow_up_status || null, last_contact_date: ef.last_contact_date || null, next_action_date: ef.next_action_date || null, next_action_note: ef.next_action_note || null, city: ef.city || null, state: ef.state || null, country: ef.country || null, twitter_url: ef.twitter_url || null, github_url: ef.github_url || null, bio: ef.bio || null, ai_summary: ef.ai_summary || null }).eq('id', cid);
-    if (error) alert('Failed: ' + error.message);
-    else { setC({ ...c!, ...ef } as Contact); setEditing(false); }
+    const { error } = await supabase
+      .from("contacts")
+      .update({
+        full_name: editFields.full_name,
+        email: editFields.email || null,
+        phone: editFields.phone || null,
+        company: editFields.company || null,
+        role: editFields.role || null,
+        location: editFields.location || null,
+        relationship_type: editFields.relationship_type || null,
+        how_we_met: editFields.how_we_met || null,
+        met_date: editFields.met_date || null,
+        follow_up_status: editFields.follow_up_status || null,
+        last_contact_date: editFields.last_contact_date || null,
+        next_action_date: editFields.next_action_date || null,
+        next_action_note: editFields.next_action_note || null,
+      })
+      .eq("id", cid);
+    if (error) {
+      alert("Failed: " + error.message);
+    } else {
+      setContact({ ...contact!, ...editFields } as Contact);
+      setEditing(false);
+    }
     setSaving(false);
   }
 
-  async function addE() {
-    if (!ne.trim()) return; setSe(true);
-    const { data: { user } } = await supabase.auth.getUser();
+  async function addNote() {
+    if (!noteText.trim()) return;
+    setAddingNote(true);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
-    const { data, error } = await supabase.from('contact_notes').insert({ contact_id: cid, owner_id: user.id, content: ne.trim(), context: nc.trim() || null, entry_date: nd }).select().single();
-    if (error) alert('Failed: ' + error.message);
-    else if (data) { setJ([data, ...j]); setNe(''); setNc(''); setNd(new Date().toISOString().split('T')[0]); }
-    setSe(false);
+    const { data, error } = await supabase
+      .from("contact_notes")
+      .insert({
+        contact_id: cid,
+        owner_id: user.id,
+        content: noteText.trim(),
+        context: noteContext.trim() || null,
+        entry_date: new Date().toISOString().split("T")[0],
+      })
+      .select()
+      .single();
+    if (error) {
+      alert("Failed: " + error.message);
+    } else if (data) {
+      setNotes([data, ...notes]);
+      setNoteText("");
+      setNoteContext("");
+    }
+    setAddingNote(false);
   }
 
-  async function upE(id: string) {
-    const { error } = await supabase.from('contact_notes').update({ content: eec, entry_date: eed, context: eex || null }).eq('id', id);
-    if (error) alert('Failed: ' + error.message);
-    else { setJ(j.map(x => x.id === id ? { ...x, content: eec, entry_date: eed, context: eex || null } : x)); setEid(null); }
+  async function updateNote(id: string) {
+    const { error } = await supabase
+      .from("contact_notes")
+      .update({
+        content: editNoteContent,
+        context: editNoteContext || null,
+      })
+      .eq("id", id);
+    if (error) {
+      alert("Failed: " + error.message);
+    } else {
+      setNotes(
+        notes.map((n) =>
+          n.id === id
+            ? { ...n, content: editNoteContent, context: editNoteContext || null }
+            : n
+        )
+      );
+      setEditingNoteId(null);
+    }
   }
 
-  async function delE(id: string) {
-    if (!confirm('Delete this entry?')) return;
-    await supabase.from('contact_notes').delete().eq('id', id);
-    setJ(j.filter(x => x.id !== id));
+  async function deleteNote(id: string) {
+    if (!confirm("Delete this note?")) return;
+    await supabase.from("contact_notes").delete().eq("id", id);
+    setNotes(notes.filter((n) => n.id !== id));
   }
 
-  async function delC() {
-    if (!confirm('Delete ' + c?.full_name + '?')) return;
-    await supabase.from('contacts').delete().eq('id', cid);
-    router.push('/contacts');
+  async function deleteContact() {
+    if (!confirm("Delete " + contact?.full_name + "?")) return;
+    await supabase.from("contacts").delete().eq("id", cid);
+    router.push("/contacts");
   }
 
-  function fmt(d: string) { return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); }
-  function ini(n: string) { const p = n.trim().split(/\s+/); return p.length >= 2 ? (p[0][0] + p[p.length - 1][0]).toUpperCase() : n.slice(0, 2).toUpperCase(); }
-  const sf = (k: string, v: string) => setEf({ ...ef, [k]: v });
-  const inp = (l: string, k: string, t?: string, p?: string) => (<div><label className="block text-sm text-gray-400 mb-1">{l}</label><input type={t || 'text'} value={(ef as any)[k] || ''} onChange={(e) => sf(k, e.target.value)} placeholder={p} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500" /></div>);
-  const rc = (t: string) => t === 'Family' ? 'bg-red-600' : t === 'Close Friend' ? 'bg-purple-600' : t === 'Business Contact' ? 'bg-blue-600' : t === 'Acquaintance' ? 'bg-gray-600' : 'bg-gray-700';
+  async function generateAISummary() {
+    setGeneratingSummary(true);
 
-  if (loading) return <div className="min-h-screen bg-black text-white flex items-center justify-center"><div className="text-gray-500">Loading...</div></div>;
-  if (!c) return null;
+    // Gather all context
+    const allNotes = notes.map((n) => `[${n.entry_date}] ${n.content}`).join("\n");
+    const contactInfo = [
+      contact?.full_name && `Name: ${contact.full_name}`,
+      contact?.role && `Role: ${contact.role}`,
+      contact?.company && `Company: ${contact.company}`,
+      contact?.location && `Location: ${contact.location}`,
+      contact?.relationship_type && `Relationship: ${contact.relationship_type}`,
+      contact?.how_we_met && `How we met: ${contact.how_we_met}`,
+      contact?.bio && `Bio: ${contact.bio}`,
+      linkedProfile?.headline && `Their headline: ${linkedProfile.headline}`,
+      linkedProfile?.bio && `Their bio: ${linkedProfile.bio}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
 
-  return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="border-b border-gray-800 bg-gray-950">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <button onClick={() => router.push('/contacts')} className="text-gray-400 hover:text-white transition">← All Contacts</button>
-          <div className="flex items-center gap-2">
-            {!editing && <button onClick={() => setEditing(true)} className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm transition">Edit</button>}
-            <button onClick={delC} className="bg-red-900/50 hover:bg-red-900 text-red-400 px-4 py-2 rounded-lg text-sm transition">Delete</button>
-          </div>
+    const prompt = `You are writing a brief professional dossier summary about a person for a networking CRM. Write 2-3 sentences in an academic, unemotional, professional tone. Focus on what would be useful for someone who is networking — their role, expertise, where they work, how you know them, and any notable context from the notes. Do not use flowery language. Do not speculate beyond what is stated.
+
+Contact information:
+${contactInfo}
+
+Notes and research:
+${allNotes || "(No notes yet)"}
+
+Write the summary paragraph:`;
+
+    try {
+      const response = await fetch("/api/ai/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+
+      if (!response.ok) {
+        // Fallback: generate a simple summary from available data
+        const parts = [];
+        if (contact?.full_name) parts.push(contact.full_name);
+        if (contact?.role && contact?.company)
+          parts.push(`serves as ${contact.role} at ${contact.company}`);
+        else if (contact?.role) parts.push(`works as ${contact.role}`);
+        else if (contact?.company) parts.push(`is affiliated with ${contact.company}`);
+        if (contact?.location) parts.push(`based in ${contact.location}`);
+        if (contact?.how_we_met) parts.push(`Connection originated via ${contact.how_we_met}.`);
+        if (contact?.relationship_type)
+          parts.push(`Classified as ${contact.relationship_type?.toLowerCase()}.`);
+
+        const summary = parts.join(". ") + ".";
+        await supabase
+          .from("contacts")
+          .update({ ai_summary: summary })
+          .eq("id", cid);
+        setContact((prev) => prev ? { ...prev, ai_summary: summary } : prev);
+      } else {
+        const data = await response.json();
+        const summary = data.summary || data.text || data.content || "";
+        if (summary) {
+          await supabase
+            .from("contacts")
+            .update({ ai_summary: summary })
+            .eq("id", cid);
+          setContact((prev) => prev ? { ...prev, ai_summary: summary } : prev);
+        }
+      }
+    } catch (e) {
+      // Fallback summary
+      const summary = `${contact?.full_name || "This contact"}${contact?.role ? ` is a ${contact.role}` : ""}${contact?.company ? ` at ${contact.company}` : ""}. ${contact?.relationship_type ? `Classified as ${contact.relationship_type.toLowerCase()}.` : ""}`;
+      await supabase
+        .from("contacts")
+        .update({ ai_summary: summary })
+        .eq("id", cid);
+      setContact((prev) => prev ? { ...prev, ai_summary: summary } : prev);
+    }
+
+    setGeneratingSummary(false);
+  }
+
+  function handleNoteKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      addNote();
+    }
+  }
+
+  const setField = (k: string, v: string) =>
+    setEditFields({ ...editFields, [k]: v });
+
+  if (loading) {
+    return (
+      <div style={s.page}>
+        <Nav />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "60vh",
+            color: "#64748b",
+          }}
+        >
+          Loading…
         </div>
       </div>
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          {editing ? (
-            <div className="space-y-4">
-              <h2 className="text-lg font-bold mb-2">Edit Profile</h2>
-              {inp('Full Name', 'full_name')}
-              <div className="grid grid-cols-2 gap-3">{inp('Role / Title', 'role')}{inp('Company', 'company')}</div>
-              <div className="grid grid-cols-2 gap-3">{inp('Email', 'email', 'email')}{inp('Phone', 'phone', 'tel')}</div>
-              {inp('Location', 'location', 'text', 'City, State or general area')}
-              <div><label className="block text-sm text-gray-400 mb-1">Relationship</label><select value={ef.relationship_type || 'Acquaintance'} onChange={(e) => sf('relationship_type', e.target.value)} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">{REL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
-              {inp('LinkedIn URL', 'linkedin_url', 'url', 'https://linkedin.com/in/...')}
-              <div className="grid grid-cols-2 gap-3">{inp('Website', 'website', 'url')}{inp('Twitter', 'twitter_url', 'url')}</div>
-              {inp('GitHub', 'github_url', 'url')}
-              <div className="grid grid-cols-3 gap-3">{inp('City', 'city')}{inp('State', 'state')}{inp('Country', 'country')}</div>
-              <div><label className="block text-sm text-gray-400 mb-1">Bio / About</label><textarea value={ef.bio || ''} onChange={(e) => sf('bio', e.target.value)} rows={3} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" /></div>
-              <div><label className="block text-sm text-gray-400 mb-1">AI Summary</label><textarea value={ef.ai_summary || ''} onChange={(e) => sf('ai_summary', e.target.value)} rows={3} placeholder="AI-generated summary of this person..." className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500" /></div>
-              <div className="grid grid-cols-2 gap-3">
-                {inp('Last Contact Date', 'last_contact_date', 'date')}
-                <div><label className="block text-sm text-gray-400 mb-1">Follow-up Status</label><select value={ef.follow_up_status || ''} onChange={(e) => sf('follow_up_status', e.target.value)} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"><option value="">None</option><option value="pending">Pending</option><option value="scheduled">Scheduled</option><option value="overdue">Overdue</option><option value="done">Done</option></select></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">{inp('Next Action Date', 'next_action_date', 'date')}{inp('Next Action Note', 'next_action_note')}</div>
-              <div className="flex justify-end gap-3 mt-4">
-                <button onClick={() => { setEditing(false); setEf(c); }} className="px-4 py-2 text-gray-400 hover:text-white transition">Cancel</button>
-                <button onClick={save} disabled={saving} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2 rounded-lg font-medium transition">{saving ? 'Saving...' : 'Save Changes'}</button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-start gap-6">
-              <div className="w-20 h-20 rounded-full bg-gray-700 flex items-center justify-center text-2xl font-bold text-gray-300 shrink-0">{ini(c.full_name)}</div>
-              <div className="flex-1">
-                <h1 className="text-2xl font-bold">{c.full_name}</h1>
-                <p className="text-gray-400 mt-1">{[c.role, c.company].filter(Boolean).join(' at ') || 'No details yet'}</p>
-                {c.location && <p className="text-gray-500 text-sm mt-1">📍 {c.location}</p>}
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {c.relationship_type && <span className={'text-xs px-3 py-1 rounded-full text-white ' + rc(c.relationship_type)}>{c.relationship_type}</span>}
-                  {c.follow_up_status && <span className={'text-xs px-3 py-1 rounded-full text-white ' + (c.follow_up_status === 'overdue' ? 'bg-red-600' : c.follow_up_status === 'pending' ? 'bg-yellow-600' : 'bg-green-600')}>{c.follow_up_status}</span>}
-                </div>
-                <div className="flex flex-wrap gap-3 mt-4 text-sm">
-                  {c.email && <a href={'mailto:' + c.email} className="text-blue-400 hover:text-blue-300">✉ {c.email}</a>}
-                  {c.phone && <a href={'tel:' + c.phone} className="text-blue-400 hover:text-blue-300">📱 {c.phone}</a>}
-                  {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">LinkedIn ↗</a>}
-                  {c.website && <a href={c.website} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">Website ↗</a>}
-                  {c.twitter_url && <a href={c.twitter_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">Twitter ↗</a>}
-                  {c.github_url && <a href={c.github_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">GitHub ↗</a>}
-                </div>
-                {c.bio && <p className="text-gray-300 mt-4 text-sm leading-relaxed">{c.bio}</p>}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-6 pt-4 border-t border-gray-800">
-                  {c.last_contact_date && <div><span className="text-xs text-gray-500 block">Last contact</span><span className="text-sm text-gray-300">{fmt(c.last_contact_date)}</span></div>}
-                  {c.next_action_date && <div><span className="text-xs text-gray-500 block">Next action</span><span className="text-sm text-gray-300">{fmt(c.next_action_date)}</span></div>}
-                  {c.next_action_note && <div className="col-span-2"><span className="text-xs text-gray-500 block">Action note</span><span className="text-sm text-gray-300">{c.next_action_note}</span></div>}
-                </div>
-              </div>
-            </div>
-          )}
+    );
+  }
+
+  if (!contact) return null;
+
+  return (
+    <div style={s.page}>
+      <Nav />
+
+      <div style={s.container}>
+        {/* Back + actions */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "20px",
+          }}
+        >
+          <Link
+            href="/contacts"
+            style={{
+              color: "#64748b",
+              textDecoration: "none",
+              fontSize: "14px",
+            }}
+          >
+            ← All Contacts
+          </Link>
+          <div style={{ display: "flex", gap: "8px" }}>
+            {!editing && (
+              <button
+                onClick={() => setEditing(true)}
+                style={s.btnSecondary}
+              >
+                Edit
+              </button>
+            )}
+            <button onClick={deleteContact} style={s.btnDanger}>
+              Delete
+            </button>
+          </div>
         </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <h2 className="text-lg font-bold mb-3">AI Summary</h2>
-          {c.ai_summary ? <p className="text-gray-300 text-sm leading-relaxed">{c.ai_summary}</p> : <p className="text-gray-600 text-sm">No AI summary yet. Click Edit to add one, or this will auto-generate in a future update.</p>}
-        </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-bold">Public Information</h2><span className="text-xs text-gray-600 bg-gray-800 px-2 py-1 rounded">Coming Soon</span></div>
-          <div className="border border-dashed border-gray-700 rounded-lg p-8 text-center text-gray-600 text-sm">Web-sourced information about this person will appear here.</div>
-        </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <h2 className="text-lg font-bold mb-4">Interaction Journal</h2>
-          <div className="border border-gray-700 rounded-lg p-4 mb-6">
-            <textarea value={ne} onChange={(e) => setNe(e.target.value)} placeholder="Log an interaction... (how you met, a conversation, an article you read about them, anything)" rows={3} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 mb-3" />
-            <div className="flex items-center gap-3 flex-wrap">
-              <input type="date" value={nd} onChange={(e) => setNd(e.target.value)} className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
-              <input type="text" value={nc} onChange={(e) => setNc(e.target.value)} placeholder="Context (e.g. Coffee, Phone, Email, Article)" className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500" />
-              <button onClick={addE} disabled={se || !ne.trim()} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition shrink-0">{se ? 'Saving...' : 'Add Entry'}</button>
+
+        {/* ═══ HEADER ═══ */}
+        <div style={{ ...s.card, display: "flex", gap: "16px", alignItems: "flex-start" }}>
+          {/* Avatar */}
+          <div
+            style={{
+              width: "64px",
+              height: "64px",
+              borderRadius: "50%",
+              background: "#a78bfa22",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#a78bfa",
+              fontSize: "22px",
+              fontWeight: "bold",
+              flexShrink: 0,
+            }}
+          >
+            {contact.avatar_url ? (
+              <img
+                src={contact.avatar_url}
+                alt=""
+                style={{
+                  width: "64px",
+                  height: "64px",
+                  borderRadius: "50%",
+                  objectFit: "cover",
+                }}
+              />
+            ) : (
+              initials(contact.full_name)
+            )}
+          </div>
+
+          <div style={{ flex: 1 }}>
+            <h1 style={{ fontSize: "22px", fontWeight: "bold", margin: 0 }}>
+              {contact.full_name}
+            </h1>
+            {(contact.role || contact.company) && (
+              <div style={{ color: "#94a3b8", fontSize: "14px", marginTop: "2px" }}>
+                {[contact.role, contact.company].filter(Boolean).join(" · ")}
+              </div>
+            )}
+            {contact.location && (
+              <div style={{ color: "#64748b", fontSize: "13px", marginTop: "2px" }}>
+                {contact.location}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: "12px", marginTop: "8px", flexWrap: "wrap" }}>
+              {contact.relationship_type && (
+                <span
+                  style={{
+                    fontSize: "11px",
+                    padding: "2px 10px",
+                    borderRadius: "10px",
+                    background: "#334155",
+                    color: "#94a3b8",
+                  }}
+                >
+                  {contact.relationship_type}
+                </span>
+              )}
+              {contact.email && (
+                <a
+                  href={`mailto:${contact.email}`}
+                  style={{ fontSize: "12px", color: "#60a5fa", textDecoration: "none" }}
+                >
+                  {contact.email}
+                </a>
+              )}
+              {contact.phone && (
+                <span style={{ fontSize: "12px", color: "#64748b" }}>
+                  {contact.phone}
+                </span>
+              )}
             </div>
           </div>
-          {j.length === 0 ? (
-            <p className="text-gray-600 text-sm text-center py-4">No journal entries yet. Start by logging how you first encountered this person.</p>
-          ) : (
-            <div className="space-y-3">
-              {j.map((entry) => (
-                <div key={entry.id} className="border border-gray-800 rounded-lg p-4 group">
-                  {eid === entry.id ? (
-                    <div className="space-y-3">
-                      <textarea value={eec} onChange={(e) => setEec(e.target.value)} rows={3} className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
-                      <div className="flex items-center gap-3">
-                        <input type="date" value={eed} onChange={(e) => setEed(e.target.value)} className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
-                        <input type="text" value={eex} onChange={(e) => setEex(e.target.value)} placeholder="Context" className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500" />
-                        <button onClick={() => upE(entry.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm transition">Save</button>
-                        <button onClick={() => setEid(null)} className="text-gray-400 hover:text-white px-3 py-2 text-sm transition">Cancel</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1">
-                        <p className="text-gray-200 text-sm whitespace-pre-wrap">{entry.content}</p>
-                        <div className="flex items-center gap-3 mt-2">
-                          <span className="text-gray-600 text-xs">{fmt(entry.entry_date)}</span>
-                          {entry.context && <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded">{entry.context}</span>}
-                        </div>
-                      </div>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                        <button onClick={() => { setEid(entry.id); setEec(entry.content); setEed(entry.entry_date); setEex(entry.context || ''); }} className="text-gray-600 hover:text-blue-400 text-sm px-1">✎</button>
-                        <button onClick={() => delE(entry.id)} className="text-gray-700 hover:text-red-400 text-sm px-1">✕</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+
+          {/* Linked indicator */}
+          {linkedProfile && (
+            <div
+              style={{
+                padding: "4px 10px",
+                background: "rgba(96,165,250,0.15)",
+                border: "1px solid rgba(96,165,250,0.3)",
+                borderRadius: "6px",
+                fontSize: "11px",
+                color: "#60a5fa",
+                whiteSpace: "nowrap",
+              }}
+            >
+              ● Linked
             </div>
           )}
+        </div>
+
+        {/* ═══ AI SUMMARY ═══ */}
+        <div style={s.card}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: "10px",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "11px",
+                color: "#64748b",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+              }}
+            >
+              Dossier Summary
+            </span>
+            <button
+              onClick={generateAISummary}
+              disabled={generatingSummary}
+              style={{
+                ...s.btnSecondary,
+                fontSize: "11px",
+                padding: "4px 12px",
+                opacity: generatingSummary ? 0.5 : 1,
+              }}
+            >
+              {generatingSummary
+                ? "Generating…"
+                : contact.ai_summary
+                  ? "Regenerate"
+                  : "Generate"}
+            </button>
+          </div>
+          {contact.ai_summary ? (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "14px",
+                lineHeight: "1.7",
+                color: "#cbd5e1",
+                fontStyle: "italic",
+              }}
+            >
+              {contact.ai_summary}
+            </p>
+          ) : (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "13px",
+                color: "#475569",
+                fontStyle: "italic",
+              }}
+            >
+              No summary yet. Add notes below, then click Generate to create an
+              AI-synthesized profile of this person.
+            </p>
+          )}
+        </div>
+
+        {/* ═══ LINKED PROFILE (their data) ═══ */}
+        {linkedProfile && (
+          <div
+            style={{
+              ...s.card,
+              borderColor: "rgba(96,165,250,0.2)",
+              background: "rgba(30,41,59,0.7)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "11px",
+                color: "#60a5fa",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                marginBottom: "10px",
+              }}
+            >
+              Their Profile (auto-updated)
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "12px",
+                fontSize: "13px",
+              }}
+            >
+              {linkedProfile.headline && (
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <span style={{ color: "#64748b" }}>Headline: </span>
+                  <span style={{ color: "#e2e8f0" }}>
+                    {linkedProfile.headline}
+                  </span>
+                </div>
+              )}
+              {linkedProfile.bio && (
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <span style={{ color: "#64748b" }}>Bio: </span>
+                  <span style={{ color: "#e2e8f0" }}>{linkedProfile.bio}</span>
+                </div>
+              )}
+              {linkedProfile.location && (
+                <div>
+                  <span style={{ color: "#64748b" }}>Location: </span>
+                  <span style={{ color: "#e2e8f0" }}>
+                    {linkedProfile.location}
+                  </span>
+                </div>
+              )}
+              {linkedProfile.website && (
+                <div>
+                  <span style={{ color: "#64748b" }}>Website: </span>
+                  <a
+                    href={linkedProfile.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "#60a5fa", textDecoration: "none" }}
+                  >
+                    {new URL(linkedProfile.website).hostname.replace(
+                      "www.",
+                      ""
+                    )}
+                    <span style={{ fontSize: "10px", marginLeft: "3px" }}>
+                      ↗
+                    </span>
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ═══ YOUR DETAILS (edit mode) ═══ */}
+        {editing && (
+          <div style={s.card}>
+            <div
+              style={{
+                fontSize: "11px",
+                color: "#64748b",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                marginBottom: "14px",
+              }}
+            >
+              Your Info
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "12px",
+              }}
+            >
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={s.label}>Full Name</label>
+                <input
+                  style={s.input}
+                  value={editFields.full_name || ""}
+                  onChange={(e) => setField("full_name", e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={s.label}>Role / Title</label>
+                <input
+                  style={s.input}
+                  value={editFields.role || ""}
+                  onChange={(e) => setField("role", e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={s.label}>Company</label>
+                <input
+                  style={s.input}
+                  value={editFields.company || ""}
+                  onChange={(e) => setField("company", e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={s.label}>Email</label>
+                <input
+                  style={s.input}
+                  type="email"
+                  value={editFields.email || ""}
+                  onChange={(e) => setField("email", e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={s.label}>Phone</label>
+                <input
+                  style={s.input}
+                  value={editFields.phone || ""}
+                  onChange={(e) => setField("phone", e.target.value)}
+                />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={s.label}>Location</label>
+                <input
+                  style={s.input}
+                  value={editFields.location || ""}
+                  onChange={(e) => setField("location", e.target.value)}
+                  placeholder="City, State or general area"
+                />
+              </div>
+              <div>
+                <label style={s.label}>Relationship</label>
+                <select
+                  style={s.select}
+                  value={editFields.relationship_type || "Acquaintance"}
+                  onChange={(e) => setField("relationship_type", e.target.value)}
+                >
+                  {REL_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={s.label}>Follow-up Status</label>
+                <select
+                  style={s.select}
+                  value={editFields.follow_up_status || ""}
+                  onChange={(e) => setField("follow_up_status", e.target.value)}
+                >
+                  <option value="">None</option>
+                  <option value="pending">Pending</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="done">Done</option>
+                </select>
+              </div>
+              <div>
+                <label style={s.label}>How We Met</label>
+                <input
+                  style={s.input}
+                  value={editFields.how_we_met || ""}
+                  onChange={(e) => setField("how_we_met", e.target.value)}
+                  placeholder="Conference, mutual friend, etc."
+                />
+              </div>
+              <div>
+                <label style={s.label}>Met Date</label>
+                <input
+                  style={s.input}
+                  type="date"
+                  value={editFields.met_date || ""}
+                  onChange={(e) => setField("met_date", e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={s.label}>Last Contact</label>
+                <input
+                  style={s.input}
+                  type="date"
+                  value={editFields.last_contact_date || ""}
+                  onChange={(e) => setField("last_contact_date", e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={s.label}>Next Action Date</label>
+                <input
+                  style={s.input}
+                  type="date"
+                  value={editFields.next_action_date || ""}
+                  onChange={(e) => setField("next_action_date", e.target.value)}
+                />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={s.label}>Next Action Note</label>
+                <input
+                  style={s.input}
+                  value={editFields.next_action_note || ""}
+                  onChange={(e) => setField("next_action_note", e.target.value)}
+                  placeholder="Follow up about..."
+                />
+              </div>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "8px",
+                marginTop: "16px",
+              }}
+            >
+              <button
+                onClick={() => {
+                  setEditing(false);
+                  setEditFields(contact);
+                }}
+                style={s.btnSecondary}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveContact}
+                disabled={saving}
+                style={{ ...s.btnPrimary, opacity: saving ? 0.5 : 1 }}
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ DETAILS (read mode) ═══ */}
+        {!editing && (
+          <div style={s.card}>
+            <div
+              style={{
+                fontSize: "11px",
+                color: "#64748b",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                marginBottom: "10px",
+              }}
+            >
+              Your Info
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "8px 16px",
+                fontSize: "13px",
+              }}
+            >
+              {contact.how_we_met && (
+                <div>
+                  <span style={{ color: "#64748b" }}>How we met: </span>
+                  <span>{contact.how_we_met}</span>
+                </div>
+              )}
+              {contact.met_date && (
+                <div>
+                  <span style={{ color: "#64748b" }}>Met: </span>
+                  <span>{formatDate(contact.met_date)}</span>
+                </div>
+              )}
+              {contact.last_contact_date && (
+                <div>
+                  <span style={{ color: "#64748b" }}>Last contact: </span>
+                  <span>{formatDate(contact.last_contact_date)}</span>
+                </div>
+              )}
+              {contact.follow_up_status && (
+                <div>
+                  <span style={{ color: "#64748b" }}>Follow-up: </span>
+                  <span
+                    style={{
+                      color:
+                        contact.follow_up_status === "overdue"
+                          ? "#f87171"
+                          : contact.follow_up_status === "pending"
+                            ? "#fbbf24"
+                            : "#e2e8f0",
+                    }}
+                  >
+                    {contact.follow_up_status}
+                  </span>
+                </div>
+              )}
+              {contact.next_action_date && (
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <span style={{ color: "#64748b" }}>Next action: </span>
+                  <span>
+                    {formatDate(contact.next_action_date)}
+                    {contact.next_action_note && ` — ${contact.next_action_note}`}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ═══ NOTES / RESEARCH ═══ */}
+        <div style={s.card}>
+          <div
+            style={{
+              fontSize: "11px",
+              color: "#64748b",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+              marginBottom: "14px",
+            }}
+          >
+            Notes & Research
+          </div>
+
+          {/* Add note input */}
+          <div
+            style={{
+              marginBottom: "20px",
+              background: "#0f172a",
+              borderRadius: "8px",
+              border: "1px solid #334155",
+              overflow: "hidden",
+            }}
+          >
+            <textarea
+              ref={noteInputRef}
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              onKeyDown={handleNoteKeyDown}
+              placeholder="Add a note, paste a URL, research info, anything…"
+              rows={3}
+              style={{
+                ...s.textarea,
+                border: "none",
+                borderRadius: "8px 8px 0 0",
+                background: "transparent",
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "8px 12px",
+                borderTop: "1px solid #1e293b",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <input
+                  value={noteContext}
+                  onChange={(e) => setNoteContext(e.target.value)}
+                  placeholder="context (meeting, email, research…)"
+                  style={{
+                    ...s.input,
+                    width: "220px",
+                    fontSize: "12px",
+                    padding: "4px 8px",
+                    background: "transparent",
+                    border: "1px solid #1e293b",
+                  }}
+                />
+                <span style={{ fontSize: "10px", color: "#475569" }}>
+                  ⌘+Enter to save
+                </span>
+              </div>
+              <button
+                onClick={addNote}
+                disabled={addingNote || !noteText.trim()}
+                style={{
+                  ...s.btnPrimary,
+                  fontSize: "12px",
+                  padding: "5px 14px",
+                  opacity: addingNote || !noteText.trim() ? 0.4 : 1,
+                }}
+              >
+                {addingNote ? "…" : "Add"}
+              </button>
+            </div>
+          </div>
+
+          {/* Notes list */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+            {notes.map((note) => (
+              <div
+                key={note.id}
+                style={{
+                  padding: "12px 0",
+                  borderBottom: "1px solid #1e293b",
+                }}
+              >
+                {editingNoteId === note.id ? (
+                  <div>
+                    <textarea
+                      value={editNoteContent}
+                      onChange={(e) => setEditNoteContent(e.target.value)}
+                      rows={3}
+                      style={{ ...s.textarea, marginBottom: "8px" }}
+                    />
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                      }}
+                    >
+                      <input
+                        value={editNoteContext}
+                        onChange={(e) => setEditNoteContext(e.target.value)}
+                        placeholder="context"
+                        style={{
+                          ...s.input,
+                          width: "160px",
+                          fontSize: "12px",
+                          padding: "4px 8px",
+                        }}
+                      />
+                      <button
+                        onClick={() => updateNote(note.id)}
+                        style={{
+                          ...s.btnPrimary,
+                          fontSize: "11px",
+                          padding: "4px 12px",
+                        }}
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setEditingNoteId(null)}
+                        style={{
+                          ...s.btnSecondary,
+                          fontSize: "11px",
+                          padding: "4px 10px",
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "14px",
+                        lineHeight: "1.6",
+                        color: "#e2e8f0",
+                        marginBottom: "6px",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {renderContent(note.content)}
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          fontSize: "11px",
+                          color: "#475569",
+                        }}
+                      >
+                        <span>{formatDate(note.entry_date)}</span>
+                        {note.context && (
+                          <span
+                            style={{
+                              padding: "1px 6px",
+                              background: "#334155",
+                              borderRadius: "4px",
+                              fontSize: "10px",
+                            }}
+                          >
+                            {note.context}
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "8px",
+                          opacity: 0.4,
+                        }}
+                        onMouseEnter={(e) =>
+                          (e.currentTarget.style.opacity = "1")
+                        }
+                        onMouseLeave={(e) =>
+                          (e.currentTarget.style.opacity = "0.4")
+                        }
+                      >
+                        <button
+                          onClick={() => {
+                            setEditingNoteId(note.id);
+                            setEditNoteContent(note.content);
+                            setEditNoteContext(note.context || "");
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#64748b",
+                            cursor: "pointer",
+                            fontSize: "11px",
+                          }}
+                        >
+                          edit
+                        </button>
+                        <button
+                          onClick={() => deleteNote(note.id)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#64748b",
+                            cursor: "pointer",
+                            fontSize: "11px",
+                          }}
+                        >
+                          delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {notes.length === 0 && (
+              <div
+                style={{
+                  padding: "20px 0",
+                  textAlign: "center",
+                  color: "#475569",
+                  fontSize: "13px",
+                }}
+              >
+                No notes yet. Add your first note above — paste URLs, meeting
+                notes, research, anything.
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
