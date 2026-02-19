@@ -111,13 +111,12 @@ interface NoteEntry {
 }
 
 const REL_TYPES = [
-  "Family",
-  "Close Friend",
-  "Friend",
-  "Colleague",
-  "Business Contact",
+  "None",
   "Acquaintance",
-  "Other",
+  "Business Contact",
+  "Work-Friend",
+  "Close Friend",
+  "Family",
 ];
 
 function formatDate(d: string) {
