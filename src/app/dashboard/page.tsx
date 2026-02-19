@@ -1,70 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getOrCreateInviteCode } from "@/lib/connections";
 import Link from "next/link";
-
-// ─── Nav ───
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/network", label: "Network" },
-  { href: "/contacts", label: "Contacts" },
-];
-
-function Nav() {
-  const pathname = usePathname();
-  return (
-    <nav
-      style={{
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "10px 20px",
-        background: "#0f172a",
-        borderBottom: "1px solid #1e293b",
-      }}
-    >
-      <Link
-        href="/dashboard"
-        style={{
-          fontSize: "18px",
-          fontWeight: "bold",
-          color: "#fff",
-          textDecoration: "none",
-          letterSpacing: "-0.5px",
-        }}
-      >
-        NEXUS
-      </Link>
-      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-        {NAV_ITEMS.map((item) => {
-          const active = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              style={{
-                padding: "6px 14px",
-                borderRadius: "6px",
-                fontSize: "13px",
-                fontWeight: 500,
-                textDecoration: "none",
-                color: active ? "#0f172a" : "#94a3b8",
-                background: active ? "#fff" : "transparent",
-                transition: "all 0.15s",
-              }}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
-  );
-}
+import Nav from "@/components/Nav";
 
 interface Profile {
   id: string;
@@ -86,6 +27,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
+  const [totalContacts, setTotalContacts] = useState(0);
   const [connectionCount, setConnectionCount] = useState(0);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -105,7 +47,7 @@ export default function DashboardPage() {
 
       setUserId(user.id);
 
-      const [profileRes, contactsRes, connectionsRes] = await Promise.all([
+      const [profileRes, contactsRes, totalRes, connectionsRes] = await Promise.all([
         supabase
           .from("profiles")
           .select("id, full_name, headline, avatar_url")
@@ -120,6 +62,10 @@ export default function DashboardPage() {
           .order("last_contact_date", { ascending: false, nullsFirst: false })
           .limit(5),
         supabase
+          .from("contacts")
+          .select("id", { count: "exact", head: true })
+          .eq("owner_id", user.id),
+        supabase
           .from("connections")
           .select("id")
           .eq("status", "accepted")
@@ -128,6 +74,7 @@ export default function DashboardPage() {
 
       setProfile(profileRes.data as Profile);
       setContacts((contactsRes.data as ContactRow[]) || []);
+      setTotalContacts(totalRes.count || 0);
       setConnectionCount(connectionsRes.data?.length || 0);
 
       try {
@@ -169,17 +116,19 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100vh",
-          background: "#0f172a",
-          color: "#94a3b8",
-        }}
-      >
-        Loading…
+      <div style={{ minHeight: "100vh", background: "#0f172a" }}>
+        <Nav />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "60vh",
+            color: "#94a3b8",
+          }}
+        >
+          Loading…
+        </div>
       </div>
     );
   }
@@ -251,7 +200,7 @@ export default function DashboardPage() {
               }}
             >
               <div style={{ fontWeight: "bold", fontSize: "18px" }}>
-                {contacts.length}
+                {totalContacts}
               </div>
               <div style={{ color: "#64748b", fontSize: "11px" }}>Contacts</div>
             </div>
@@ -366,159 +315,138 @@ export default function DashboardPage() {
                 padding: "20px",
                 display: "flex",
                 flexDirection: "column",
-                alignItems: "center",
                 gap: "16px",
               }}
             >
-              {/* QR Code */}
-              {userId && (
+              {/* Invite URL */}
+              <div>
                 <div
                   style={{
-                    background: "#fff",
-                    padding: "12px",
-                    borderRadius: "8px",
+                    fontSize: "12px",
+                    color: "#64748b",
+                    marginBottom: "6px",
                   }}
                 >
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(getInviteUrl())}`}
-                    alt="Invite QR Code"
-                    width={140}
-                    height={140}
-                    style={{ display: "block" }}
-                  />
+                  Share this link to connect with someone:
                 </div>
-              )}
-
-              {/* Invite code */}
-              {inviteCode && (
-                <div style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
                   <div
                     style={{
-                      fontSize: "11px",
-                      color: "#64748b",
-                      marginBottom: "4px",
-                    }}
-                  >
-                    Your invite code
-                  </div>
-                  <div
-                    onClick={copyCode}
-                    style={{
-                      fontSize: "20px",
-                      fontWeight: "bold",
-                      fontFamily: "monospace",
-                      letterSpacing: "2px",
-                      cursor: "pointer",
-                      color: copied ? "#10b981" : "#e2e8f0",
-                      transition: "color 0.2s",
-                    }}
-                  >
-                    {copied ? "Copied!" : inviteCode}
-                  </div>
-                </div>
-              )}
-
-              {/* Shareable URL */}
-              {userId && (
-                <div style={{ width: "100%", textAlign: "center" }}>
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      color: "#64748b",
-                      marginBottom: "6px",
-                    }}
-                  >
-                    Or share this link
-                  </div>
-                  <div
-                    onClick={copyUrl}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "8px",
+                      flex: 1,
                       padding: "8px 12px",
                       background: "#0f172a",
                       borderRadius: "6px",
-                      cursor: "pointer",
+                      fontSize: "13px",
+                      color: "#94a3b8",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
                       border: "1px solid #334155",
-                      transition: "all 0.2s",
                     }}
                   >
-                    <span
-                      style={{
-                        fontSize: "12px",
-                        color: copiedUrl ? "#10b981" : "#94a3b8",
-                        fontFamily: "monospace",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        maxWidth: "240px",
-                      }}
-                    >
-                      {copiedUrl ? "Copied!" : getInviteUrl()}
-                    </span>
-                    <span style={{ fontSize: "14px", flexShrink: 0 }}>
-                      {copiedUrl ? "✓" : "📋"}
-                    </span>
+                    {getInviteUrl() || "Loading…"}
                   </div>
+                  <button
+                    onClick={copyUrl}
+                    style={{
+                      padding: "8px 14px",
+                      background: copiedUrl ? "#059669" : "#a78bfa",
+                      color: copiedUrl ? "#fff" : "#0f172a",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontWeight: 600,
+                      fontSize: "12px",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {copiedUrl ? "Copied!" : "Copy URL"}
+                  </button>
                 </div>
-              )}
+              </div>
 
+              {/* Divider */}
               <div
                 style={{
-                  fontSize: "11px",
-                  color: "#475569",
-                  textAlign: "center",
-                  lineHeight: "1.5",
+                  borderTop: "1px solid #334155",
+                  position: "relative",
                 }}
               >
-                Share the link or code with someone.
-                <br />
-                When they join, you'll be connected automatically.
+                <span
+                  style={{
+                    position: "absolute",
+                    top: "-10px",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    background: "#1e293b",
+                    padding: "0 8px",
+                    fontSize: "11px",
+                    color: "#475569",
+                  }}
+                >
+                  or use code
+                </span>
+              </div>
+
+              {/* Invite Code */}
+              <div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <div
+                    style={{
+                      flex: 1,
+                      padding: "8px 12px",
+                      background: "#0f172a",
+                      borderRadius: "6px",
+                      fontSize: "15px",
+                      fontWeight: 600,
+                      color: "#e2e8f0",
+                      fontFamily: "monospace",
+                      letterSpacing: "1px",
+                      textAlign: "center",
+                      border: "1px solid #334155",
+                    }}
+                  >
+                    {inviteCode || "…"}
+                  </div>
+                  <button
+                    onClick={copyCode}
+                    style={{
+                      padding: "8px 14px",
+                      background: copied ? "#059669" : "transparent",
+                      color: copied ? "#fff" : "#94a3b8",
+                      border: copied ? "none" : "1px solid #334155",
+                      borderRadius: "6px",
+                      fontWeight: 500,
+                      fontSize: "12px",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {copied ? "Copied!" : "Copy Code"}
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{ fontSize: "11px", color: "#475569", lineHeight: 1.4 }}
+              >
+                When someone signs up using your link or enters your code, you'll
+                automatically be connected and can see each other in your networks.
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Quick actions */}
-        <div
-          style={{
-            marginTop: "32px",
-            display: "flex",
-            gap: "12px",
-          }}
-        >
-          <button
-            onClick={() => router.push("/contacts/new")}
-            style={{
-              padding: "10px 20px",
-              background: "#a78bfa",
-              color: "#0f172a",
-              border: "none",
-              borderRadius: "8px",
-              fontWeight: 600,
-              fontSize: "13px",
-              cursor: "pointer",
-            }}
-          >
-            + Add Contact
-          </button>
-          <button
-            onClick={() => router.push("/network")}
-            style={{
-              padding: "10px 20px",
-              background: "#1e293b",
-              color: "#e2e8f0",
-              border: "1px solid #334155",
-              borderRadius: "8px",
-              fontWeight: 500,
-              fontSize: "13px",
-              cursor: "pointer",
-            }}
-          >
-            View Network
-          </button>
         </div>
       </div>
     </div>
