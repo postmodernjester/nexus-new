@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/network", label: "Network" },
   { href: "/contacts", label: "Contacts" },
+  { href: "/resume", label: "My Profile" },
 ];
 
 function Nav() {
@@ -120,14 +121,10 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
 const CLOSENESS: Record<string, number> = {
   Family: 60,
   "Close Friend": 90,
-  Friend: 130,
-  Colleague: 160,
-  Business: 190,
+  "Work-Friend": 140,
   "Business Contact": 190,
-  "Biz Contact": 190,
   Acquaintance: 230,
-  Stranger: 280,
-  Other: 250,
+  None: 300,
 };
 
 function computeRecency(mostRecent: string | null): number {
@@ -206,7 +203,7 @@ export default function NetworkPage() {
         await Promise.all([
           supabase.from("contacts").select("*"),
           supabase.from("connections").select("*").eq("status", "accepted"),
-          supabase.from("interactions").select("contact_id, interaction_date"),
+          supabase.from("contact_notes").select("contact_id, entry_date"),
           supabase
             .from("profiles")
             .select("full_name, headline")
@@ -225,12 +222,12 @@ export default function NetworkPage() {
           interactionMap[i.contact_id] = {
             contact_id: i.contact_id,
             count: 0,
-            most_recent: i.interaction_date,
+            most_recent: i.entry_date,
           };
         }
         interactionMap[i.contact_id].count++;
-        if (i.interaction_date > interactionMap[i.contact_id].most_recent) {
-          interactionMap[i.contact_id].most_recent = i.interaction_date;
+        if (i.entry_date > interactionMap[i.contact_id].most_recent) {
+          interactionMap[i.contact_id].most_recent = i.entry_date;
         }
       }
 
