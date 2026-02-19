@@ -9,33 +9,41 @@ export async function GET() {
 
   const keyPreview = apiKey.slice(0, 10) + "..." + apiKey.slice(-4);
 
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-3-5-sonnet-latest",
-        max_tokens: 50,
-        messages: [{ role: "user", content: "Say hello in exactly 3 words." }],
-      }),
-    });
+  // Try multiple models to find one that works
+  const models = [
+    "claude-3-haiku-20240307",
+    "claude-3-sonnet-20240229",
+    "claude-3-opus-20240229",
+    "claude-3-5-haiku-20241022",
+    "claude-sonnet-4-20250514",
+    "claude-3-5-sonnet-20240620",
+  ];
 
-    const body = await response.text();
+  const results: Record<string, number> = {};
 
-    return NextResponse.json({
-      keyPreview,
-      status: response.status,
-      response: body,
-    });
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({
-      keyPreview,
-      error: msg,
-    });
+  for (const model of models) {
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 10,
+          messages: [{ role: "user", content: "Hi" }],
+        }),
+      });
+      results[model] = response.status;
+    } catch {
+      results[model] = 0;
+    }
   }
+
+  return NextResponse.json({
+    keyPreview,
+    modelResults: results,
+  });
 }
