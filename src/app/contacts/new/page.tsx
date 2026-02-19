@@ -67,10 +67,12 @@ function Nav() {
 }
 
 const REL_TYPES = [
-  "Family",
-  "Close Friend",
-  "Business Contact",
+  "None",
   "Acquaintance",
+  "Business Contact",
+  "Work-Friend",
+  "Close Friend",
+  "Family",
 ];
 
 export default function NewContactPage() {
@@ -119,7 +121,6 @@ export default function NewContactPage() {
       return;
     }
 
-    // If there's an initial note, add it
     if (initialNote.trim() && contact) {
       await supabase.from("contact_notes").insert({
         contact_id: contact.id,
@@ -130,7 +131,6 @@ export default function NewContactPage() {
       });
     }
 
-    // Go straight to the dossier page
     router.push(`/contacts/${contact.id}`);
   }
 
@@ -213,7 +213,6 @@ export default function NewContactPage() {
             padding: "24px",
           }}
         >
-          {/* Name */}
           <div style={{ marginBottom: "16px" }}>
             <label style={labelStyle}>Name</label>
             <input
@@ -230,7 +229,6 @@ export default function NewContactPage() {
             />
           </div>
 
-          {/* Role + Company */}
           <div
             style={{
               display: "grid",
@@ -261,7 +259,6 @@ export default function NewContactPage() {
             </div>
           </div>
 
-          {/* Contact info */}
           <div
             style={{
               display: "grid",
@@ -293,7 +290,6 @@ export default function NewContactPage() {
             </div>
           </div>
 
-          {/* Location + Relationship */}
           <div
             style={{
               display: "grid",
@@ -335,7 +331,6 @@ export default function NewContactPage() {
             }}
           />
 
-          {/* Initial note */}
           <div style={{ marginBottom: "16px" }}>
             <label style={labelStyle}>First Note</label>
             <textarea
@@ -363,7 +358,6 @@ export default function NewContactPage() {
             </div>
           </div>
 
-          {/* Actions */}
           <div
             style={{
               display: "flex",
