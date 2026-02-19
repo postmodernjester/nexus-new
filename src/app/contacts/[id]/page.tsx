@@ -77,26 +77,15 @@ interface Contact {
   role: string | null;
   location: string | null;
   relationship_type: string | null;
-  website: string | null;
-  avatar_url: string | null;
-  linkedin_url: string | null;
   follow_up_status: string | null;
   last_contact_date: string | null;
   next_action_date: string | null;
   next_action_note: string | null;
-  city: string | null;
-  state: string | null;
-  country: string | null;
-  twitter_url: string | null;
-  github_url: string | null;
-  bio: string | null;
   ai_summary: string | null;
   how_we_met: string | null;
   met_date: string | null;
-  communication_frequency: number | null;
-  collaboration_depth: number | null;
+  avatar_url: string | null;
   created_at: string;
-  updated_at: string | null;
 }
 
 interface LinkedProfile {
@@ -115,6 +104,9 @@ interface NoteEntry {
   content: string;
   context: string | null;
   entry_date: string;
+  action_text: string | null;
+  action_due_date: string | null;
+  action_completed: boolean;
   created_at: string;
 }
 
@@ -143,15 +135,18 @@ function initials(name: string) {
     : name.slice(0, 2).toUpperCase();
 }
 
-// Detect URLs in text and make them clickable
+// Detect URLs in text and render as clickable links
 function renderContent(text: string) {
   const urlRegex = /(https?:\/\/[^\s<]+)/g;
   const parts = text.split(urlRegex);
   return parts.map((part, i) => {
-    if (urlRegex.test(part)) {
-      // Reset regex lastIndex
-      urlRegex.lastIndex = 0;
-      const domain = new URL(part).hostname.replace("www.", "");
+    if (part.match(/^https?:\/\//)) {
+      let domain = "";
+      try {
+        domain = new URL(part).hostname.replace("www.", "");
+      } catch {
+        domain = part;
+      }
       return (
         <a
           key={i}
@@ -176,25 +171,14 @@ function renderContent(text: string) {
   });
 }
 
+// Extract URLs from text
+function extractUrls(text: string): string[] {
+  const matches = text.match(/(https?:\/\/[^\s<]+)/g);
+  return matches || [];
+}
+
 // ─── Styles ───
 const s = {
-  page: {
-    minHeight: "100vh",
-    background: "#0f172a",
-    color: "#e2e8f0",
-  } as React.CSSProperties,
-  container: {
-    maxWidth: "800px",
-    margin: "0 auto",
-    padding: "24px 20px 60px",
-  } as React.CSSProperties,
-  card: {
-    background: "#1e293b",
-    border: "1px solid #334155",
-    borderRadius: "12px",
-    padding: "20px",
-    marginBottom: "16px",
-  } as React.CSSProperties,
   label: {
     display: "block",
     fontSize: "11px",
@@ -212,7 +196,8 @@ const s = {
     color: "#e2e8f0",
     fontSize: "14px",
     outline: "none",
-  } as React.CSSProperties,
+    boxSizing: "border-box" as const,
+  },
   textarea: {
     width: "100%",
     padding: "10px 12px",
@@ -225,7 +210,8 @@ const s = {
     resize: "vertical" as const,
     fontFamily: "inherit",
     lineHeight: "1.5",
-  } as React.CSSProperties,
+    boxSizing: "border-box" as const,
+  },
   select: {
     width: "100%",
     padding: "8px 12px",
@@ -235,6 +221,13 @@ const s = {
     color: "#e2e8f0",
     fontSize: "14px",
     outline: "none",
+  },
+  card: {
+    background: "#1e293b",
+    border: "1px solid #334155",
+    borderRadius: "12px",
+    padding: "20px",
+    marginBottom: "16px",
   } as React.CSSProperties,
   btnPrimary: {
     padding: "8px 20px",
@@ -264,6 +257,13 @@ const s = {
     fontSize: "12px",
     cursor: "pointer",
   } as React.CSSProperties,
+  sectionLabel: {
+    fontSize: "11px",
+    color: "#64748b",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.5px",
+    marginBottom: "12px",
+  },
 };
 
 export default function ContactDossierPage() {
@@ -285,24 +285,32 @@ export default function ContactDossierPage() {
 
   // New note
   const [noteText, setNoteText] = useState("");
+  const [noteDate, setNoteDate] = useState(
+    new Date().toISOString().split("T")[0]
+  );
   const [noteContext, setNoteContext] = useState("");
+  const [noteAction, setNoteAction] = useState("");
+  const [noteActionDue, setNoteActionDue] = useState("");
   const [addingNote, setAddingNote] = useState(false);
-  const noteInputRef = useRef<HTMLTextAreaElement>(null);
+  const [showActionFields, setShowActionFields] = useState(false);
 
   // Edit note
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editNoteContent, setEditNoteContent] = useState("");
+  const [editNoteDate, setEditNoteDate] = useState("");
   const [editNoteContext, setEditNoteContext] = useState("");
+  const [editNoteAction, setEditNoteAction] = useState("");
+  const [editNoteActionDue, setEditNoteActionDue] = useState("");
+  const [editNoteActionCompleted, setEditNoteActionCompleted] = useState(false);
 
   // AI summary
   const [generatingSummary, setGeneratingSummary] = useState(false);
 
   useEffect(() => {
-    loadContact();
-    loadNotes();
+    loadAll();
   }, [cid]);
 
-  async function loadContact() {
+  async function loadAll() {
     setLoading(true);
     const {
       data: { user },
@@ -311,39 +319,40 @@ export default function ContactDossierPage() {
       router.push("/login");
       return;
     }
-    const { data } = await supabase
-      .from("contacts")
-      .select("*")
-      .eq("id", cid)
-      .eq("owner_id", user.id)
-      .single();
-    if (!data) {
+
+    const [contactRes, notesRes] = await Promise.all([
+      supabase
+        .from("contacts")
+        .select("*")
+        .eq("id", cid)
+        .eq("owner_id", user.id)
+        .single(),
+      supabase
+        .from("contact_notes")
+        .select("*")
+        .eq("contact_id", cid)
+        .order("entry_date", { ascending: false }),
+    ]);
+
+    if (!contactRes.data) {
       router.push("/contacts");
       return;
     }
-    setContact(data);
-    setEditFields(data);
 
-    // Load linked profile if exists
-    if (data.linked_profile_id) {
+    setContact(contactRes.data);
+    setEditFields(contactRes.data);
+    setNotes(notesRes.data || []);
+
+    if (contactRes.data.linked_profile_id) {
       const { data: profile } = await supabase
         .from("profiles")
         .select("full_name, headline, bio, location, website, avatar_url")
-        .eq("id", data.linked_profile_id)
+        .eq("id", contactRes.data.linked_profile_id)
         .single();
       if (profile) setLinkedProfile(profile);
     }
 
     setLoading(false);
-  }
-
-  async function loadNotes() {
-    const { data } = await supabase
-      .from("contact_notes")
-      .select("*")
-      .eq("contact_id", cid)
-      .order("entry_date", { ascending: false });
-    setNotes(data || []);
   }
 
   async function saveContact() {
@@ -358,8 +367,6 @@ export default function ContactDossierPage() {
         role: editFields.role || null,
         location: editFields.location || null,
         relationship_type: editFields.relationship_type || null,
-        how_we_met: editFields.how_we_met || null,
-        met_date: editFields.met_date || null,
         follow_up_status: editFields.follow_up_status || null,
         last_contact_date: editFields.last_contact_date || null,
         next_action_date: editFields.next_action_date || null,
@@ -382,6 +389,7 @@ export default function ContactDossierPage() {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
+
     const { data, error } = await supabase
       .from("contact_notes")
       .insert({
@@ -389,16 +397,29 @@ export default function ContactDossierPage() {
         owner_id: user.id,
         content: noteText.trim(),
         context: noteContext.trim() || null,
-        entry_date: new Date().toISOString().split("T")[0],
+        entry_date: noteDate,
+        action_text: noteAction.trim() || null,
+        action_due_date: noteActionDue || null,
+        action_completed: false,
       })
       .select()
       .single();
+
     if (error) {
       alert("Failed: " + error.message);
     } else if (data) {
-      setNotes([data, ...notes]);
+      setNotes(
+        [data, ...notes].sort(
+          (a, b) =>
+            new Date(b.entry_date).getTime() - new Date(a.entry_date).getTime()
+        )
+      );
       setNoteText("");
       setNoteContext("");
+      setNoteAction("");
+      setNoteActionDue("");
+      setShowActionFields(false);
+      setNoteDate(new Date().toISOString().split("T")[0]);
     }
     setAddingNote(false);
   }
@@ -409,20 +430,49 @@ export default function ContactDossierPage() {
       .update({
         content: editNoteContent,
         context: editNoteContext || null,
+        entry_date: editNoteDate,
+        action_text: editNoteAction || null,
+        action_due_date: editNoteActionDue || null,
+        action_completed: editNoteActionCompleted,
       })
       .eq("id", id);
     if (error) {
       alert("Failed: " + error.message);
     } else {
-      setNotes(
-        notes.map((n) =>
+      const updated = notes
+        .map((n) =>
           n.id === id
-            ? { ...n, content: editNoteContent, context: editNoteContext || null }
+            ? {
+                ...n,
+                content: editNoteContent,
+                context: editNoteContext || null,
+                entry_date: editNoteDate,
+                action_text: editNoteAction || null,
+                action_due_date: editNoteActionDue || null,
+                action_completed: editNoteActionCompleted,
+              }
             : n
         )
-      );
+        .sort(
+          (a, b) =>
+            new Date(b.entry_date).getTime() - new Date(a.entry_date).getTime()
+        );
+      setNotes(updated);
       setEditingNoteId(null);
     }
+  }
+
+  async function toggleAction(note: NoteEntry) {
+    const newVal = !note.action_completed;
+    await supabase
+      .from("contact_notes")
+      .update({ action_completed: newVal })
+      .eq("id", note.id);
+    setNotes(
+      notes.map((n) =>
+        n.id === note.id ? { ...n, action_completed: newVal } : n
+      )
+    );
   }
 
   async function deleteNote(id: string) {
@@ -433,6 +483,7 @@ export default function ContactDossierPage() {
 
   async function deleteContact() {
     if (!confirm("Delete " + contact?.full_name + "?")) return;
+    await supabase.from("contact_notes").delete().eq("contact_id", cid);
     await supabase.from("contacts").delete().eq("id", cid);
     router.push("/contacts");
   }
@@ -441,76 +492,70 @@ export default function ContactDossierPage() {
     setGeneratingSummary(true);
 
     // Gather all context
-    const allNotes = notes.map((n) => `[${n.entry_date}] ${n.content}`).join("\n");
+    const allNoteTexts = notes
+      .map((n) => {
+        let line = `[${n.entry_date}] ${n.content}`;
+        if (n.action_text) line += ` [Action: ${n.action_text}]`;
+        return line;
+      })
+      .join("\n");
+
     const contactInfo = [
       contact?.full_name && `Name: ${contact.full_name}`,
       contact?.role && `Role: ${contact.role}`,
       contact?.company && `Company: ${contact.company}`,
       contact?.location && `Location: ${contact.location}`,
-      contact?.relationship_type && `Relationship: ${contact.relationship_type}`,
-      contact?.how_we_met && `How we met: ${contact.how_we_met}`,
-      contact?.bio && `Bio: ${contact.bio}`,
-      linkedProfile?.headline && `Their headline: ${linkedProfile.headline}`,
+      contact?.email && `Email: ${contact.email}`,
+      contact?.relationship_type &&
+        `Relationship: ${contact.relationship_type}`,
+      linkedProfile?.headline &&
+        `Their self-described headline: ${linkedProfile.headline}`,
       linkedProfile?.bio && `Their bio: ${linkedProfile.bio}`,
+      linkedProfile?.location &&
+        `Their location: ${linkedProfile.location}`,
+      linkedProfile?.website && `Their website: ${linkedProfile.website}`,
     ]
       .filter(Boolean)
       .join("\n");
 
-    const prompt = `You are writing a brief professional dossier summary about a person for a networking CRM. Write 2-3 sentences in an academic, unemotional, professional tone. Focus on what would be useful for someone who is networking — their role, expertise, where they work, how you know them, and any notable context from the notes. Do not use flowery language. Do not speculate beyond what is stated.
-
-Contact information:
-${contactInfo}
-
-Notes and research:
-${allNotes || "(No notes yet)"}
-
-Write the summary paragraph:`;
+    // Extract URLs from all notes
+    const allUrls: string[] = [];
+    for (const n of notes) {
+      allUrls.push(...extractUrls(n.content));
+    }
+    // Deduplicate
+    const uniqueUrls = [...new Set(allUrls)];
 
     try {
       const response = await fetch("/api/ai/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({
+          contactInfo,
+          notes: allNoteTexts,
+          urls: uniqueUrls,
+        }),
       });
 
       if (!response.ok) {
-        // Fallback: generate a simple summary from available data
-        const parts = [];
-        if (contact?.full_name) parts.push(contact.full_name);
-        if (contact?.role && contact?.company)
-          parts.push(`serves as ${contact.role} at ${contact.company}`);
-        else if (contact?.role) parts.push(`works as ${contact.role}`);
-        else if (contact?.company) parts.push(`is affiliated with ${contact.company}`);
-        if (contact?.location) parts.push(`based in ${contact.location}`);
-        if (contact?.how_we_met) parts.push(`Connection originated via ${contact.how_we_met}.`);
-        if (contact?.relationship_type)
-          parts.push(`Classified as ${contact.relationship_type?.toLowerCase()}.`);
+        throw new Error("API returned " + response.status);
+      }
 
-        const summary = parts.join(". ") + ".";
+      const data = await response.json();
+      const summary = data.summary || "";
+
+      if (summary) {
         await supabase
           .from("contacts")
           .update({ ai_summary: summary })
           .eq("id", cid);
-        setContact((prev) => prev ? { ...prev, ai_summary: summary } : prev);
-      } else {
-        const data = await response.json();
-        const summary = data.summary || data.text || data.content || "";
-        if (summary) {
-          await supabase
-            .from("contacts")
-            .update({ ai_summary: summary })
-            .eq("id", cid);
-          setContact((prev) => prev ? { ...prev, ai_summary: summary } : prev);
-        }
+        setContact((prev) =>
+          prev ? { ...prev, ai_summary: summary } : prev
+        );
       }
-    } catch (e) {
-      // Fallback summary
-      const summary = `${contact?.full_name || "This contact"}${contact?.role ? ` is a ${contact.role}` : ""}${contact?.company ? ` at ${contact.company}` : ""}. ${contact?.relationship_type ? `Classified as ${contact.relationship_type.toLowerCase()}.` : ""}`;
-      await supabase
-        .from("contacts")
-        .update({ ai_summary: summary })
-        .eq("id", cid);
-      setContact((prev) => prev ? { ...prev, ai_summary: summary } : prev);
+    } catch (e: any) {
+      console.error("AI summary error:", e);
+      alert("Failed to generate summary: " + (e.message || "Unknown error"));
     }
 
     setGeneratingSummary(false);
@@ -528,7 +573,7 @@ Write the summary paragraph:`;
 
   if (loading) {
     return (
-      <div style={s.page}>
+      <div style={{ minHeight: "100vh", background: "#0f172a" }}>
         <Nav />
         <div
           style={{
@@ -547,11 +592,18 @@ Write the summary paragraph:`;
 
   if (!contact) return null;
 
+  // Pending actions across all notes
+  const pendingActions = notes.filter(
+    (n) => n.action_text && !n.action_completed
+  );
+
   return (
-    <div style={s.page}>
+    <div style={{ minHeight: "100vh", background: "#0f172a", color: "#e2e8f0" }}>
       <Nav />
 
-      <div style={s.container}>
+      <div
+        style={{ maxWidth: "800px", margin: "0 auto", padding: "24px 20px 60px" }}
+      >
         {/* Back + actions */}
         <div
           style={{
@@ -573,10 +625,7 @@ Write the summary paragraph:`;
           </Link>
           <div style={{ display: "flex", gap: "8px" }}>
             {!editing && (
-              <button
-                onClick={() => setEditing(true)}
-                style={s.btnSecondary}
-              >
+              <button onClick={() => setEditing(true)} style={s.btnSecondary}>
                 Edit
               </button>
             )}
@@ -587,8 +636,14 @@ Write the summary paragraph:`;
         </div>
 
         {/* ═══ HEADER ═══ */}
-        <div style={{ ...s.card, display: "flex", gap: "16px", alignItems: "flex-start" }}>
-          {/* Avatar */}
+        <div
+          style={{
+            ...s.card,
+            display: "flex",
+            gap: "16px",
+            alignItems: "flex-start",
+          }}
+        >
           <div
             style={{
               width: "64px",
@@ -602,16 +657,16 @@ Write the summary paragraph:`;
               fontSize: "22px",
               fontWeight: "bold",
               flexShrink: 0,
+              overflow: "hidden",
             }}
           >
-            {contact.avatar_url ? (
+            {contact.avatar_url || linkedProfile?.avatar_url ? (
               <img
-                src={contact.avatar_url}
+                src={linkedProfile?.avatar_url || contact.avatar_url || ""}
                 alt=""
                 style={{
                   width: "64px",
                   height: "64px",
-                  borderRadius: "50%",
                   objectFit: "cover",
                 }}
               />
@@ -625,16 +680,36 @@ Write the summary paragraph:`;
               {contact.full_name}
             </h1>
             {(contact.role || contact.company) && (
-              <div style={{ color: "#94a3b8", fontSize: "14px", marginTop: "2px" }}>
+              <div
+                style={{
+                  color: "#94a3b8",
+                  fontSize: "14px",
+                  marginTop: "2px",
+                }}
+              >
                 {[contact.role, contact.company].filter(Boolean).join(" · ")}
               </div>
             )}
             {contact.location && (
-              <div style={{ color: "#64748b", fontSize: "13px", marginTop: "2px" }}>
+              <div
+                style={{
+                  color: "#64748b",
+                  fontSize: "13px",
+                  marginTop: "2px",
+                }}
+              >
                 {contact.location}
               </div>
             )}
-            <div style={{ display: "flex", gap: "12px", marginTop: "8px", flexWrap: "wrap" }}>
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                marginTop: "8px",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
               {contact.relationship_type && (
                 <span
                   style={{
@@ -651,7 +726,11 @@ Write the summary paragraph:`;
               {contact.email && (
                 <a
                   href={`mailto:${contact.email}`}
-                  style={{ fontSize: "12px", color: "#60a5fa", textDecoration: "none" }}
+                  style={{
+                    fontSize: "12px",
+                    color: "#60a5fa",
+                    textDecoration: "none",
+                  }}
                 >
                   {contact.email}
                 </a>
@@ -664,7 +743,6 @@ Write the summary paragraph:`;
             </div>
           </div>
 
-          {/* Linked indicator */}
           {linkedProfile && (
             <div
               style={{
@@ -692,16 +770,7 @@ Write the summary paragraph:`;
               marginBottom: "10px",
             }}
           >
-            <span
-              style={{
-                fontSize: "11px",
-                color: "#64748b",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-              }}
-            >
-              Dossier Summary
-            </span>
+            <span style={s.sectionLabel}>Dossier Summary</span>
             <button
               onClick={generateAISummary}
               disabled={generatingSummary}
@@ -726,7 +795,6 @@ Write the summary paragraph:`;
                 fontSize: "14px",
                 lineHeight: "1.7",
                 color: "#cbd5e1",
-                fontStyle: "italic",
               }}
             >
               {contact.ai_summary}
@@ -740,13 +808,14 @@ Write the summary paragraph:`;
                 fontStyle: "italic",
               }}
             >
-              No summary yet. Add notes below, then click Generate to create an
-              AI-synthesized profile of this person.
+              Add notes below — paste LinkedIn URLs, Wikipedia pages, articles,
+              meeting notes — then click Generate. The AI will read the linked
+              pages and synthesize a professional summary.
             </p>
           )}
         </div>
 
-        {/* ═══ LINKED PROFILE (their data) ═══ */}
+        {/* ═══ LINKED PROFILE ═══ */}
         {linkedProfile && (
           <div
             style={{
@@ -770,30 +839,26 @@ Write the summary paragraph:`;
               style={{
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr",
-                gap: "12px",
+                gap: "8px 16px",
                 fontSize: "13px",
               }}
             >
               {linkedProfile.headline && (
                 <div style={{ gridColumn: "1 / -1" }}>
                   <span style={{ color: "#64748b" }}>Headline: </span>
-                  <span style={{ color: "#e2e8f0" }}>
-                    {linkedProfile.headline}
-                  </span>
+                  <span>{linkedProfile.headline}</span>
                 </div>
               )}
               {linkedProfile.bio && (
                 <div style={{ gridColumn: "1 / -1" }}>
                   <span style={{ color: "#64748b" }}>Bio: </span>
-                  <span style={{ color: "#e2e8f0" }}>{linkedProfile.bio}</span>
+                  <span>{linkedProfile.bio}</span>
                 </div>
               )}
               {linkedProfile.location && (
                 <div>
                   <span style={{ color: "#64748b" }}>Location: </span>
-                  <span style={{ color: "#e2e8f0" }}>
-                    {linkedProfile.location}
-                  </span>
+                  <span>{linkedProfile.location}</span>
                 </div>
               )}
               {linkedProfile.website && (
@@ -805,13 +870,14 @@ Write the summary paragraph:`;
                     rel="noopener noreferrer"
                     style={{ color: "#60a5fa", textDecoration: "none" }}
                   >
-                    {new URL(linkedProfile.website).hostname.replace(
-                      "www.",
-                      ""
-                    )}
-                    <span style={{ fontSize: "10px", marginLeft: "3px" }}>
-                      ↗
-                    </span>
+                    {(() => {
+                      try {
+                        return new URL(linkedProfile.website!).hostname.replace("www.", "");
+                      } catch {
+                        return linkedProfile.website;
+                      }
+                    })()}
+                    <span style={{ fontSize: "10px", marginLeft: "3px" }}>↗</span>
                   </a>
                 </div>
               )}
@@ -819,20 +885,71 @@ Write the summary paragraph:`;
           </div>
         )}
 
-        {/* ═══ YOUR DETAILS (edit mode) ═══ */}
-        {editing && (
-          <div style={s.card}>
+        {/* ═══ PENDING ACTIONS ═══ */}
+        {pendingActions.length > 0 && (
+          <div
+            style={{
+              ...s.card,
+              borderColor: "rgba(251,191,36,0.3)",
+              background: "rgba(30,41,59,0.7)",
+            }}
+          >
             <div
               style={{
                 fontSize: "11px",
-                color: "#64748b",
+                color: "#fbbf24",
                 textTransform: "uppercase",
                 letterSpacing: "0.5px",
-                marginBottom: "14px",
+                marginBottom: "10px",
               }}
             >
-              Your Info
+              Open Actions
             </div>
+            {pendingActions.map((n) => (
+              <div
+                key={n.id}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                  padding: "8px 0",
+                  borderBottom: "1px solid #1e293b",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={false}
+                  onChange={() => toggleAction(n)}
+                  style={{ marginTop: "3px", cursor: "pointer", accentColor: "#a78bfa" }}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "13px" }}>{n.action_text}</div>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: n.action_due_date &&
+                        new Date(n.action_due_date) < new Date()
+                        ? "#f87171"
+                        : "#64748b",
+                      marginTop: "2px",
+                    }}
+                  >
+                    {n.action_due_date
+                      ? `Due ${formatDate(n.action_due_date)}`
+                      : "No due date"}
+                    {" · "}
+                    from {formatDate(n.entry_date)} note
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ═══ EDIT CONTACT FIELDS ═══ */}
+        {editing && (
+          <div style={s.card}>
+            <div style={s.sectionLabel}>Edit Contact</div>
             <div
               style={{
                 display: "grid",
@@ -887,7 +1004,6 @@ Write the summary paragraph:`;
                   style={s.input}
                   value={editFields.location || ""}
                   onChange={(e) => setField("location", e.target.value)}
-                  placeholder="City, State or general area"
                 />
               </div>
               <div>
@@ -895,7 +1011,9 @@ Write the summary paragraph:`;
                 <select
                   style={s.select}
                   value={editFields.relationship_type || "Acquaintance"}
-                  onChange={(e) => setField("relationship_type", e.target.value)}
+                  onChange={(e) =>
+                    setField("relationship_type", e.target.value)
+                  }
                 >
                   {REL_TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -905,62 +1023,14 @@ Write the summary paragraph:`;
                 </select>
               </div>
               <div>
-                <label style={s.label}>Follow-up Status</label>
-                <select
-                  style={s.select}
-                  value={editFields.follow_up_status || ""}
-                  onChange={(e) => setField("follow_up_status", e.target.value)}
-                >
-                  <option value="">None</option>
-                  <option value="pending">Pending</option>
-                  <option value="scheduled">Scheduled</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="done">Done</option>
-                </select>
-              </div>
-              <div>
-                <label style={s.label}>How We Met</label>
-                <input
-                  style={s.input}
-                  value={editFields.how_we_met || ""}
-                  onChange={(e) => setField("how_we_met", e.target.value)}
-                  placeholder="Conference, mutual friend, etc."
-                />
-              </div>
-              <div>
-                <label style={s.label}>Met Date</label>
-                <input
-                  style={s.input}
-                  type="date"
-                  value={editFields.met_date || ""}
-                  onChange={(e) => setField("met_date", e.target.value)}
-                />
-              </div>
-              <div>
                 <label style={s.label}>Last Contact</label>
                 <input
                   style={s.input}
                   type="date"
                   value={editFields.last_contact_date || ""}
-                  onChange={(e) => setField("last_contact_date", e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={s.label}>Next Action Date</label>
-                <input
-                  style={s.input}
-                  type="date"
-                  value={editFields.next_action_date || ""}
-                  onChange={(e) => setField("next_action_date", e.target.value)}
-                />
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label style={s.label}>Next Action Note</label>
-                <input
-                  style={s.input}
-                  value={editFields.next_action_note || ""}
-                  onChange={(e) => setField("next_action_note", e.target.value)}
-                  placeholder="Follow up about..."
+                  onChange={(e) =>
+                    setField("last_contact_date", e.target.value)
+                  }
                 />
               </div>
             </div>
@@ -992,91 +1062,11 @@ Write the summary paragraph:`;
           </div>
         )}
 
-        {/* ═══ DETAILS (read mode) ═══ */}
-        {!editing && (
-          <div style={s.card}>
-            <div
-              style={{
-                fontSize: "11px",
-                color: "#64748b",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-                marginBottom: "10px",
-              }}
-            >
-              Your Info
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "8px 16px",
-                fontSize: "13px",
-              }}
-            >
-              {contact.how_we_met && (
-                <div>
-                  <span style={{ color: "#64748b" }}>How we met: </span>
-                  <span>{contact.how_we_met}</span>
-                </div>
-              )}
-              {contact.met_date && (
-                <div>
-                  <span style={{ color: "#64748b" }}>Met: </span>
-                  <span>{formatDate(contact.met_date)}</span>
-                </div>
-              )}
-              {contact.last_contact_date && (
-                <div>
-                  <span style={{ color: "#64748b" }}>Last contact: </span>
-                  <span>{formatDate(contact.last_contact_date)}</span>
-                </div>
-              )}
-              {contact.follow_up_status && (
-                <div>
-                  <span style={{ color: "#64748b" }}>Follow-up: </span>
-                  <span
-                    style={{
-                      color:
-                        contact.follow_up_status === "overdue"
-                          ? "#f87171"
-                          : contact.follow_up_status === "pending"
-                            ? "#fbbf24"
-                            : "#e2e8f0",
-                    }}
-                  >
-                    {contact.follow_up_status}
-                  </span>
-                </div>
-              )}
-              {contact.next_action_date && (
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <span style={{ color: "#64748b" }}>Next action: </span>
-                  <span>
-                    {formatDate(contact.next_action_date)}
-                    {contact.next_action_note && ` — ${contact.next_action_note}`}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ═══ NOTES / RESEARCH ═══ */}
+        {/* ═══ NOTES & RESEARCH ═══ */}
         <div style={s.card}>
-          <div
-            style={{
-              fontSize: "11px",
-              color: "#64748b",
-              textTransform: "uppercase",
-              letterSpacing: "0.5px",
-              marginBottom: "14px",
-            }}
-          >
-            Notes & Research
-          </div>
+          <div style={s.sectionLabel}>Notes & Research</div>
 
-          {/* Add note input */}
+          {/* Add note */}
           <div
             style={{
               marginBottom: "20px",
@@ -1087,11 +1077,10 @@ Write the summary paragraph:`;
             }}
           >
             <textarea
-              ref={noteInputRef}
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
               onKeyDown={handleNoteKeyDown}
-              placeholder="Add a note, paste a URL, research info, anything…"
+              placeholder="Add a note, paste a URL, meeting notes, research…"
               rows={3}
               style={{
                 ...s.textarea,
@@ -1102,71 +1091,162 @@ Write the summary paragraph:`;
             />
             <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
                 padding: "8px 12px",
                 borderTop: "1px solid #1e293b",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  flexWrap: "wrap",
+                }}
+              >
                 <input
-                  value={noteContext}
-                  onChange={(e) => setNoteContext(e.target.value)}
-                  placeholder="context (meeting, email, research…)"
+                  type="date"
+                  value={noteDate}
+                  onChange={(e) => setNoteDate(e.target.value)}
                   style={{
                     ...s.input,
-                    width: "220px",
+                    width: "140px",
                     fontSize: "12px",
                     padding: "4px 8px",
                     background: "transparent",
                     border: "1px solid #1e293b",
                   }}
                 />
-                <span style={{ fontSize: "10px", color: "#475569" }}>
-                  ⌘+Enter to save
-                </span>
+                <input
+                  value={noteContext}
+                  onChange={(e) => setNoteContext(e.target.value)}
+                  placeholder="context (meeting, call, research…)"
+                  style={{
+                    ...s.input,
+                    width: "200px",
+                    fontSize: "12px",
+                    padding: "4px 8px",
+                    background: "transparent",
+                    border: "1px solid #1e293b",
+                  }}
+                />
+                <button
+                  onClick={() => setShowActionFields(!showActionFields)}
+                  style={{
+                    ...s.btnSecondary,
+                    fontSize: "11px",
+                    padding: "3px 10px",
+                    color: showActionFields ? "#a78bfa" : "#64748b",
+                    borderColor: showActionFields ? "#a78bfa" : "#334155",
+                  }}
+                >
+                  + Action
+                </button>
+                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "10px", color: "#475569" }}>
+                    ⌘+Enter
+                  </span>
+                  <button
+                    onClick={addNote}
+                    disabled={addingNote || !noteText.trim()}
+                    style={{
+                      ...s.btnPrimary,
+                      fontSize: "12px",
+                      padding: "5px 14px",
+                      opacity: addingNote || !noteText.trim() ? 0.4 : 1,
+                    }}
+                  >
+                    {addingNote ? "…" : "Add"}
+                  </button>
+                </div>
               </div>
-              <button
-                onClick={addNote}
-                disabled={addingNote || !noteText.trim()}
-                style={{
-                  ...s.btnPrimary,
-                  fontSize: "12px",
-                  padding: "5px 14px",
-                  opacity: addingNote || !noteText.trim() ? 0.4 : 1,
-                }}
-              >
-                {addingNote ? "…" : "Add"}
-              </button>
+
+              {showActionFields && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "6px 0",
+                  }}
+                >
+                  <span style={{ fontSize: "11px", color: "#64748b" }}>
+                    Action:
+                  </span>
+                  <input
+                    value={noteAction}
+                    onChange={(e) => setNoteAction(e.target.value)}
+                    placeholder="Follow up, send proposal, schedule call…"
+                    style={{
+                      ...s.input,
+                      flex: 1,
+                      fontSize: "12px",
+                      padding: "4px 8px",
+                      background: "transparent",
+                      border: "1px solid #1e293b",
+                    }}
+                  />
+                  <span style={{ fontSize: "11px", color: "#64748b" }}>
+                    Due:
+                  </span>
+                  <input
+                    type="date"
+                    value={noteActionDue}
+                    onChange={(e) => setNoteActionDue(e.target.value)}
+                    style={{
+                      ...s.input,
+                      width: "140px",
+                      fontSize: "12px",
+                      padding: "4px 8px",
+                      background: "transparent",
+                      border: "1px solid #1e293b",
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
           {/* Notes list */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+          <div style={{ display: "flex", flexDirection: "column" }}>
             {notes.map((note) => (
               <div
                 key={note.id}
                 style={{
-                  padding: "12px 0",
+                  padding: "14px 0",
                   borderBottom: "1px solid #1e293b",
                 }}
               >
                 {editingNoteId === note.id ? (
-                  <div>
+                  /* Edit mode */
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                     <textarea
                       value={editNoteContent}
                       onChange={(e) => setEditNoteContent(e.target.value)}
                       rows={3}
-                      style={{ ...s.textarea, marginBottom: "8px" }}
+                      style={s.textarea}
                     />
                     <div
                       style={{
                         display: "flex",
                         alignItems: "center",
                         gap: "8px",
+                        flexWrap: "wrap",
                       }}
                     >
+                      <input
+                        type="date"
+                        value={editNoteDate}
+                        onChange={(e) => setEditNoteDate(e.target.value)}
+                        style={{
+                          ...s.input,
+                          width: "140px",
+                          fontSize: "12px",
+                          padding: "4px 8px",
+                        }}
+                      />
                       <input
                         value={editNoteContext}
                         onChange={(e) => setEditNoteContext(e.target.value)}
@@ -1178,12 +1258,74 @@ Write the summary paragraph:`;
                           padding: "4px 8px",
                         }}
                       />
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span style={{ fontSize: "11px", color: "#64748b" }}>
+                        Action:
+                      </span>
+                      <input
+                        value={editNoteAction}
+                        onChange={(e) => setEditNoteAction(e.target.value)}
+                        placeholder="action item"
+                        style={{
+                          ...s.input,
+                          flex: 1,
+                          fontSize: "12px",
+                          padding: "4px 8px",
+                        }}
+                      />
+                      <input
+                        type="date"
+                        value={editNoteActionDue}
+                        onChange={(e) => setEditNoteActionDue(e.target.value)}
+                        style={{
+                          ...s.input,
+                          width: "140px",
+                          fontSize: "12px",
+                          padding: "4px 8px",
+                        }}
+                      />
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          fontSize: "11px",
+                          color: "#64748b",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={editNoteActionCompleted}
+                          onChange={(e) =>
+                            setEditNoteActionCompleted(e.target.checked)
+                          }
+                          style={{ accentColor: "#a78bfa" }}
+                        />
+                        Done
+                      </label>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "8px",
+                        marginTop: "4px",
+                      }}
+                    >
                       <button
                         onClick={() => updateNote(note.id)}
                         style={{
                           ...s.btnPrimary,
                           fontSize: "11px",
-                          padding: "4px 12px",
+                          padding: "5px 14px",
                         }}
                       >
                         Save
@@ -1193,7 +1335,7 @@ Write the summary paragraph:`;
                         style={{
                           ...s.btnSecondary,
                           fontSize: "11px",
-                          padding: "4px 10px",
+                          padding: "5px 12px",
                         }}
                       >
                         Cancel
@@ -1201,18 +1343,80 @@ Write the summary paragraph:`;
                     </div>
                   </div>
                 ) : (
+                  /* Read mode */
                   <div>
                     <div
                       style={{
                         fontSize: "14px",
                         lineHeight: "1.6",
                         color: "#e2e8f0",
-                        marginBottom: "6px",
                         whiteSpace: "pre-wrap",
+                        marginBottom: "6px",
                       }}
                     >
                       {renderContent(note.content)}
                     </div>
+
+                    {/* Action item */}
+                    {note.action_text && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: "8px",
+                          margin: "8px 0",
+                          padding: "8px 12px",
+                          background: note.action_completed
+                            ? "rgba(16,185,129,0.08)"
+                            : "rgba(251,191,36,0.08)",
+                          borderRadius: "6px",
+                          border: `1px solid ${note.action_completed ? "rgba(16,185,129,0.2)" : "rgba(251,191,36,0.2)"}`,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={note.action_completed}
+                          onChange={() => toggleAction(note)}
+                          style={{
+                            marginTop: "2px",
+                            cursor: "pointer",
+                            accentColor: "#a78bfa",
+                          }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <span
+                            style={{
+                              fontSize: "13px",
+                              textDecoration: note.action_completed
+                                ? "line-through"
+                                : "none",
+                              color: note.action_completed
+                                ? "#64748b"
+                                : "#e2e8f0",
+                            }}
+                          >
+                            {note.action_text}
+                          </span>
+                          {note.action_due_date && (
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                marginLeft: "10px",
+                                color:
+                                  !note.action_completed &&
+                                  new Date(note.action_due_date) < new Date()
+                                    ? "#f87171"
+                                    : "#64748b",
+                              }}
+                            >
+                              due {formatDate(note.action_due_date)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Meta row */}
                     <div
                       style={{
                         display: "flex",
@@ -1247,20 +1451,24 @@ Write the summary paragraph:`;
                         style={{
                           display: "flex",
                           gap: "8px",
-                          opacity: 0.4,
+                          opacity: 0.3,
                         }}
                         onMouseEnter={(e) =>
                           (e.currentTarget.style.opacity = "1")
                         }
                         onMouseLeave={(e) =>
-                          (e.currentTarget.style.opacity = "0.4")
+                          (e.currentTarget.style.opacity = "0.3")
                         }
                       >
                         <button
                           onClick={() => {
                             setEditingNoteId(note.id);
                             setEditNoteContent(note.content);
+                            setEditNoteDate(note.entry_date);
                             setEditNoteContext(note.context || "");
+                            setEditNoteAction(note.action_text || "");
+                            setEditNoteActionDue(note.action_due_date || "");
+                            setEditNoteActionCompleted(note.action_completed);
                           }}
                           style={{
                             background: "none",
@@ -1293,14 +1501,17 @@ Write the summary paragraph:`;
             {notes.length === 0 && (
               <div
                 style={{
-                  padding: "20px 0",
+                  padding: "24px 0",
                   textAlign: "center",
                   color: "#475569",
                   fontSize: "13px",
+                  lineHeight: "1.6",
                 }}
               >
-                No notes yet. Add your first note above — paste URLs, meeting
-                notes, research, anything.
+                No notes yet. Paste LinkedIn profiles, Wikipedia pages, articles,
+                meeting notes — anything.
+                <br />
+                The AI summary reads linked pages and synthesizes a profile.
               </div>
             )}
           </div>
