@@ -1,275 +1,574 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
-import { createInvite } from '@/lib/connections';
+import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import Link from "next/link";
 
-interface Contact {
+// ─── Nav ───
+const NAV_ITEMS = [
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/network", label: "Network" },
+  { href: "/contacts", label: "Contacts" },
+];
+
+function Nav() {
+  const pathname = usePathname();
+  return (
+    <nav
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "10px 20px",
+        background: "#0f172a",
+        borderBottom: "1px solid #1e293b",
+      }}
+    >
+      <Link
+        href="/dashboard"
+        style={{
+          fontSize: "18px",
+          fontWeight: "bold",
+          color: "#fff",
+          textDecoration: "none",
+          letterSpacing: "-0.5px",
+        }}
+      >
+        NEXUS
+      </Link>
+      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+        {NAV_ITEMS.map((item) => {
+          const active = pathname === item.href;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                fontSize: "13px",
+                fontWeight: 500,
+                textDecoration: "none",
+                color: active ? "#0f172a" : "#94a3b8",
+                background: active ? "#fff" : "transparent",
+                transition: "all 0.15s",
+              }}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+// ─── Types ───
+interface ContactRow {
   id: string;
-  owner_id: string;
   full_name: string;
-  email: string | null;
   company: string | null;
   role: string | null;
-  location: string | null;
   relationship_type: string | null;
-  avatar_url: string | null;
-  how_we_met: string | null;
+  ai_summary: string | null;
   linked_profile_id: string | null;
+  updated_at: string | null;
   created_at: string;
 }
 
-const RELATIONSHIP_TYPES = ['All', 'Family', 'Close Friend', 'Business Contact', 'Acquaintance', 'Connection', 'Stranger'];
+interface PendingAction {
+  contact_id: string;
+  action_text: string;
+  action_due_date: string | null;
+}
+
+function formatDate(d: string) {
+  return new Date(d).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function initials(name: string) {
+  const p = name.trim().split(/\s+/);
+  return p.length >= 2
+    ? (p[0][0] + p[p.length - 1][0]).toUpperCase()
+    : name.slice(0, 2).toUpperCase();
+}
+
+const ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
 export default function ContactsPage() {
   const router = useRouter();
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
+  const [actions, setActions] = useState<Record<string, PendingAction>>({});
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [filterType, setFilterType] = useState('All');
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newType, setNewType] = useState('Acquaintance');
-  const [newEmail, setNewEmail] = useState('');
-  const [newCompany, setNewCompany] = useState('');
-  const [newRole, setNewRole] = useState('');
-  const [newHowWeMet, setNewHowWeMet] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  
-  // Invite state
-  const [inviteCode, setInviteCode] = useState<string | null>(null);
-  const [inviteContactName, setInviteContactName] = useState('');
-  const [inviteLoading, setInviteLoading] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sortMode, setSortMode] = useState<"alpha" | "recent">("recent");
+  const [alphaFilter, setAlphaFilter] = useState<string | null>(null);
 
-  useEffect(() => { fetchContacts(); }, []);
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  async function fetchContacts() {
-    setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push('/login'); return; }
-    const { data, error } = await supabase.from('contacts').select('*').eq('owner_id', user.id).order('full_name', { ascending: true });
-    if (!error) setContacts(data || []);
+  async function loadData() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    const [contactsRes, actionsRes] = await Promise.all([
+      supabase
+        .from("contacts")
+        .select(
+          "id, full_name, company, role, relationship_type, ai_summary, linked_profile_id, updated_at, created_at"
+        )
+        .eq("owner_id", user.id)
+        .order("full_name", { ascending: true }),
+      supabase
+        .from("contact_notes")
+        .select("contact_id, action_text, action_due_date")
+        .eq("owner_id", user.id)
+        .eq("action_completed", false)
+        .not("action_text", "is", null)
+        .order("action_due_date", { ascending: true, nullsFirst: false }),
+    ]);
+
+    setContacts(contactsRes.data || []);
+
+    // Build map of latest pending action per contact
+    const actionMap: Record<string, PendingAction> = {};
+    for (const a of actionsRes.data || []) {
+      if (!actionMap[a.contact_id]) {
+        actionMap[a.contact_id] = a as PendingAction;
+      }
+    }
+    setActions(actionMap);
     setLoading(false);
   }
 
-  async function handleAddContact() {
-    if (!newName.trim()) return;
-    setSaving(true);
-    setError('');
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data, error: insertError } = await supabase.from('contacts').insert({
-      owner_id: user.id,
-      full_name: newName.trim(),
-      relationship_type: newType,
-      email: newEmail.trim() || null,
-      company: newCompany.trim() || null,
-      role: newRole.trim() || null,
-      how_we_met: newHowWeMet.trim() || null,
-    }).select().single();
-    if (insertError) {
-      setError('Failed to add contact: ' + insertError.message);
-    } else if (data) {
-      setContacts([...contacts, data]);
-      setShowAddModal(false);
-      setNewName(''); setNewType('Acquaintance'); setNewEmail('');
-      setNewCompany(''); setNewRole(''); setNewHowWeMet('');
-    }
-    setSaving(false);
-  }
+  // Filter and sort
+  let filtered = contacts;
 
-  async function handleInvite(e: React.MouseEvent, contact: Contact) {
-    e.stopPropagation();
-    setInviteLoading(contact.id);
-    const { code, error } = await createInvite(contact.id);
-    setInviteLoading(null);
-    if (code) {
-      setInviteCode(code);
-      setInviteContactName(contact.full_name);
-      setCopied(false);
-    } else {
-      setError(error || 'Failed to generate invite');
-    }
-  }
-
-  async function copyCode() {
-    if (!inviteCode) return;
-    try {
-      await navigator.clipboard.writeText(inviteCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      const textArea = document.createElement('textarea');
-      textArea.value = inviteCode;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }
-
-  const filtered = contacts.filter((c) => {
+  if (search.trim()) {
     const q = search.toLowerCase();
-    const matchesSearch = (c.full_name + ' ' + (c.company || '') + ' ' + (c.role || '')).toLowerCase().includes(q);
-    const matchesType = filterType === 'All' || c.relationship_type === filterType;
-    return matchesSearch && matchesType;
-  });
+    filtered = filtered.filter(
+      (c) =>
+        c.full_name.toLowerCase().includes(q) ||
+        (c.company || "").toLowerCase().includes(q) ||
+        (c.role || "").toLowerCase().includes(q)
+    );
+  }
 
-  function initials(name: string) { const p = name.trim().split(/\s+/); return p.length >= 2 ? (p[0][0] + p[p.length-1][0]).toUpperCase() : name.slice(0,2).toUpperCase(); }
+  if (alphaFilter) {
+    filtered = filtered.filter((c) =>
+      c.full_name.toUpperCase().startsWith(alphaFilter!)
+    );
+  }
 
-  function typeColor(type: string | null) {
-    const c: Record<string, string> = {
-      'Family': 'bg-purple-600',
-      'Close Friend': 'bg-pink-600',
-      'Business Contact': 'bg-blue-600',
-      'Acquaintance': 'bg-teal-600',
-      'Connection': 'bg-amber-600',
-      'Stranger': 'bg-gray-600',
-    };
-    return c[type || ''] || 'bg-gray-600';
+  if (sortMode === "recent") {
+    filtered = [...filtered].sort((a, b) => {
+      const aDate = a.updated_at || a.created_at;
+      const bDate = b.updated_at || b.created_at;
+      return new Date(bDate).getTime() - new Date(aDate).getTime();
+    });
+  } else {
+    filtered = [...filtered].sort((a, b) =>
+      a.full_name.localeCompare(b.full_name)
+    );
+  }
+
+  // Which letters have contacts
+  const activeLettrs = new Set(
+    contacts.map((c) => c.full_name[0]?.toUpperCase()).filter(Boolean)
+  );
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0f172a" }}>
+        <Nav />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "60vh",
+            color: "#64748b",
+          }}
+        >
+          Loading…
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="border-b border-gray-800 bg-gray-950">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button onClick={() => router.push('/dashboard')} className="text-gray-400 hover:text-white transition">← Dashboard</button>
-            <h1 className="text-2xl font-bold">Contacts</h1>
-            <span className="text-gray-500 text-sm">{filtered.length} {filtered.length === 1 ? 'contact' : 'contacts'}</span>
-          </div>
-          <button onClick={() => setShowAddModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition">+ Add Contact</button>
+    <div style={{ minHeight: "100vh", background: "#0f172a", color: "#e2e8f0" }}>
+      <Nav />
+
+      <div
+        style={{ maxWidth: "800px", margin: "0 auto", padding: "24px 20px 60px" }}
+      >
+        {/* Header row */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "16px",
+          }}
+        >
+          <h1 style={{ fontSize: "20px", fontWeight: "bold", margin: 0 }}>
+            Contacts
+            <span
+              style={{
+                fontSize: "14px",
+                fontWeight: "normal",
+                color: "#64748b",
+                marginLeft: "8px",
+              }}
+            >
+              {contacts.length}
+            </span>
+          </h1>
+          <button
+            onClick={() => router.push("/contacts/new")}
+            style={{
+              padding: "8px 18px",
+              background: "#a78bfa",
+              color: "#0f172a",
+              border: "none",
+              borderRadius: "6px",
+              fontWeight: 600,
+              fontSize: "13px",
+              cursor: "pointer",
+            }}
+          >
+            + Add
+          </button>
         </div>
-      </div>
-      <div className="max-w-6xl mx-auto px-4 py-4">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input type="text" placeholder="Search contacts..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500" />
-          <div className="flex gap-2 flex-wrap">
-            {RELATIONSHIP_TYPES.map((type) => (
-              <button key={type} onClick={() => setFilterType(type)} className={'px-3 py-1.5 rounded-full text-sm font-medium transition ' + (filterType === type ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700')}>{type}</button>
-            ))}
+
+        {/* Search + sort */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            marginBottom: "12px",
+          }}
+        >
+          <input
+            type="text"
+            placeholder="Search name, company, role…"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setAlphaFilter(null);
+            }}
+            style={{
+              flex: 1,
+              padding: "8px 14px",
+              background: "#1e293b",
+              border: "1px solid #334155",
+              borderRadius: "8px",
+              color: "#e2e8f0",
+              fontSize: "14px",
+              outline: "none",
+            }}
+          />
+          <div
+            style={{
+              display: "flex",
+              background: "#1e293b",
+              borderRadius: "6px",
+              border: "1px solid #334155",
+              overflow: "hidden",
+            }}
+          >
+            <button
+              onClick={() => setSortMode("recent")}
+              style={{
+                padding: "6px 12px",
+                fontSize: "12px",
+                border: "none",
+                cursor: "pointer",
+                background: sortMode === "recent" ? "#334155" : "transparent",
+                color: sortMode === "recent" ? "#e2e8f0" : "#64748b",
+              }}
+            >
+              Recent
+            </button>
+            <button
+              onClick={() => setSortMode("alpha")}
+              style={{
+                padding: "6px 12px",
+                fontSize: "12px",
+                border: "none",
+                cursor: "pointer",
+                background: sortMode === "alpha" ? "#334155" : "transparent",
+                color: sortMode === "alpha" ? "#e2e8f0" : "#64748b",
+              }}
+            >
+              A–Z
+            </button>
           </div>
         </div>
-      </div>
-      <div className="max-w-6xl mx-auto px-4 pb-8">
-        {loading ? (
-          <div className="text-center text-gray-500 py-12">Loading contacts...</div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="text-gray-500 text-lg mb-2">{contacts.length === 0 ? 'No contacts yet' : 'No contacts match your search'}</div>
-            {contacts.length === 0 && <p className="text-gray-600 text-sm">Click &quot;+ Add Contact&quot; to start building your network.</p>}
-          </div>
-        ) : (
-          <div className="grid gap-3">
-            {filtered.map((contact) => (
-              <div key={contact.id} onClick={() => router.push('/contacts/' + contact.id)} className="bg-gray-900 border border-gray-800 rounded-lg p-4 flex items-center gap-4 cursor-pointer hover:border-gray-600 transition group">
-                <div className="w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center text-lg font-bold text-gray-300 shrink-0">{initials(contact.full_name)}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-white">{contact.full_name}</span>
-                    {contact.relationship_type && <span className={'text-xs px-2 py-0.5 rounded-full text-white ' + typeColor(contact.relationship_type)}>{contact.relationship_type}</span>}
-                    {contact.linked_profile_id && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
-                        ✓ on NEXUS
+
+        {/* Alpha tabs */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "2px",
+            marginBottom: "16px",
+          }}
+        >
+          <button
+            onClick={() => setAlphaFilter(null)}
+            style={{
+              padding: "2px 6px",
+              fontSize: "11px",
+              border: "none",
+              borderRadius: "3px",
+              cursor: "pointer",
+              background: alphaFilter === null ? "#a78bfa" : "transparent",
+              color: alphaFilter === null ? "#0f172a" : "#64748b",
+              fontWeight: alphaFilter === null ? 600 : 400,
+            }}
+          >
+            All
+          </button>
+          {ALPHA.map((letter) => {
+            const hasContacts = activeLettrs.has(letter);
+            const isActive = alphaFilter === letter;
+            return (
+              <button
+                key={letter}
+                onClick={() => {
+                  if (hasContacts) {
+                    setAlphaFilter(isActive ? null : letter);
+                    setSearch("");
+                  }
+                }}
+                style={{
+                  padding: "2px 5px",
+                  fontSize: "11px",
+                  border: "none",
+                  borderRadius: "3px",
+                  cursor: hasContacts ? "pointer" : "default",
+                  background: isActive ? "#a78bfa" : "transparent",
+                  color: isActive
+                    ? "#0f172a"
+                    : hasContacts
+                      ? "#94a3b8"
+                      : "#1e293b",
+                  fontWeight: isActive ? 600 : 400,
+                }}
+              >
+                {letter}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Contact list */}
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {filtered.map((c) => {
+            const action = actions[c.id];
+            const summarySnippet = c.ai_summary
+              ? c.ai_summary.length > 120
+                ? c.ai_summary.slice(0, 120) + "…"
+                : c.ai_summary
+              : null;
+            const isOverdue =
+              action?.action_due_date &&
+              new Date(action.action_due_date) < new Date();
+
+            return (
+              <div
+                key={c.id}
+                onClick={() => router.push(`/contacts/${c.id}`)}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "12px",
+                  padding: "14px 12px",
+                  borderBottom: "1px solid #1e293b",
+                  cursor: "pointer",
+                  transition: "background 0.12s",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "rgba(30,41,59,0.6)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                {/* Avatar */}
+                <div
+                  style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "50%",
+                    background: c.linked_profile_id
+                      ? "rgba(96,165,250,0.15)"
+                      : "#1e293b",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: c.linked_profile_id ? "#60a5fa" : "#64748b",
+                    fontSize: "13px",
+                    fontWeight: "bold",
+                    flexShrink: 0,
+                    marginTop: "2px",
+                  }}
+                >
+                  {initials(c.full_name)}
+                </div>
+
+                {/* Info */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "14px",
+                        fontWeight: 600,
+                        color: "#e2e8f0",
+                      }}
+                    >
+                      {c.full_name}
+                    </span>
+                    {c.relationship_type && (
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          padding: "1px 6px",
+                          borderRadius: "8px",
+                          background: "#334155",
+                          color: "#64748b",
+                        }}
+                      >
+                        {c.relationship_type}
+                      </span>
+                    )}
+                    {c.linked_profile_id && (
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          color: "#60a5fa",
+                        }}
+                      >
+                        ●
                       </span>
                     )}
                   </div>
-                  <div className="text-gray-400 text-sm truncate">{[contact.role, contact.company].filter(Boolean).join(' at ') || 'No details yet'}</div>
+
+                  {/* Role / Company */}
+                  {(c.role || c.company) && (
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "#94a3b8",
+                        marginTop: "1px",
+                      }}
+                    >
+                      {[c.role, c.company].filter(Boolean).join(" · ")}
+                    </div>
+                  )}
+
+                  {/* AI summary snippet */}
+                  {summarySnippet && (
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "#64748b",
+                        marginTop: "4px",
+                        lineHeight: "1.4",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {summarySnippet}
+                    </div>
+                  )}
+
+                  {/* Pending action */}
+                  {action && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        marginTop: "4px",
+                        fontSize: "11px",
+                        color: isOverdue ? "#f87171" : "#fbbf24",
+                      }}
+                    >
+                      <span style={{ fontSize: "9px" }}>
+                        {isOverdue ? "⚠" : "○"}
+                      </span>
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {action.action_text}
+                      </span>
+                      {action.action_due_date && (
+                        <span style={{ color: "#475569", flexShrink: 0 }}>
+                          {formatDate(action.action_due_date)}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="hidden sm:flex items-center gap-3 text-gray-500 text-sm">
-                  {contact.email && <span>✉ {contact.email}</span>}
+
+                {/* Right: updated date */}
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: "#475569",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                    marginTop: "2px",
+                  }}
+                >
+                  {formatDate(c.updated_at || c.created_at)}
                 </div>
-                {/* Only show Invite button if contact is NOT already linked to a NEXUS profile */}
-                {!contact.linked_profile_id && (
-                  <button
-                    onClick={(e) => handleInvite(e, contact)}
-                    disabled={inviteLoading === contact.id}
-                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded-lg text-sm font-medium transition border border-amber-500/20 hover:border-amber-500/40 disabled:opacity-50"
-                  >
-                    {inviteLoading === contact.id ? '...' : '🔗 Invite'}
-                  </button>
-                )}
-                <div className="text-gray-600 group-hover:text-gray-400 transition">→</div>
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+
+          {filtered.length === 0 && (
+            <div
+              style={{
+                padding: "40px 0",
+                textAlign: "center",
+                color: "#475569",
+                fontSize: "14px",
+              }}
+            >
+              {search || alphaFilter
+                ? "No contacts match your search."
+                : "No contacts yet. Add your first one!"}
+            </div>
+          )}
+        </div>
       </div>
-
-      {/* Invite Code Modal */}
-      {inviteCode && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-sm p-6 text-center">
-            <div className="text-4xl mb-3">🔗</div>
-            <h2 className="text-xl font-bold mb-1">Invite {inviteContactName}</h2>
-            <p className="text-gray-400 text-sm mb-6">Share this code with them. They&apos;ll enter it when they sign up for NEXUS.</p>
-            <div className="bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 mb-4 flex items-center justify-center gap-3">
-              <span className="text-2xl font-mono font-bold tracking-wider text-amber-400">{inviteCode}</span>
-            </div>
-            <button
-              onClick={copyCode}
-              className="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold py-2.5 rounded-lg transition mb-3"
-            >
-              {copied ? '✓ Copied!' : 'Copy Code'}
-            </button>
-            <button
-              onClick={() => { setInviteCode(null); setInviteContactName(''); }}
-              className="w-full text-gray-400 hover:text-white text-sm transition py-2"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Add Contact Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md p-6">
-            <h2 className="text-xl font-bold mb-4">Add New Contact</h2>
-            {error && <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-red-400 text-sm mb-4">{error}</div>}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Full Name *</label>
-                <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500" placeholder="Full name" />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Relationship</label>
-                <select value={newType} onChange={(e) => setNewType(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500">
-                  {RELATIONSHIP_TYPES.filter(t => t !== 'All').map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Email</label>
-                <input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500" placeholder="email@example.com" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Company</label>
-                  <input type="text" value={newCompany} onChange={(e) => setNewCompany(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500" placeholder="Company" />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Role</label>
-                  <input type="text" value={newRole} onChange={(e) => setNewRole(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500" placeholder="Title/Role" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">How we met</label>
-                <input type="text" value={newHowWeMet} onChange={(e) => setNewHowWeMet(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500" placeholder="Conference, mutual friend, etc." />
-              </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => { setShowAddModal(false); setError(''); }} className="flex-1 bg-gray-800 hover:bg-gray-700 text-white py-2.5 rounded-lg transition">Cancel</button>
-              <button onClick={handleAddContact} disabled={saving || !newName.trim()} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-medium transition disabled:opacity-50">{saving ? 'Saving...' : 'Add Contact'}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
