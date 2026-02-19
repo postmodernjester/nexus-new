@@ -543,11 +543,12 @@ export default function ContactDossierPage() {
 
       const data = await response.json();
       const summary = data.summary || "";
+      const oneliner = data.oneliner || "";
 
-      if (summary) {
+    if (summary) {
         await supabase
           .from("contacts")
-          .update({ ai_summary: summary })
+          .update({ ai_summary: summary, mini_summary: oneliner || null })
           .eq("id", cid);
         setContact((prev) =>
           prev ? { ...prev, ai_summary: summary } : prev
