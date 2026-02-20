@@ -204,9 +204,13 @@
   .zoom-normal .entry-desc { display: none !important; }
 
   .zoom-detailed .entry-desc { display: -webkit-box !important; }
+  .entry-resize-handle-top {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 6px; cursor: ns-resize; z-index: 11;
+  }
   .entry-resize-handle {
     position: absolute; bottom: 0; left: 0; right: 0;
-    height: 6px; cursor: ns-resize;
+    height: 6px; cursor: ns-resize; z-index: 11;
   }
 
   /* Hover tooltip */
@@ -831,6 +835,7 @@ function renderEntries() {
     }
 
     el.innerHTML = `
+      <div class="entry-resize-handle-top"></div>
       <div class="entry-title">${esc(entry.title)}</div>
       ${entry.subtitle ? `<div class="entry-sub">${esc(entry.subtitle)}</div>` : ''}
       ${dateStr ? `<div class="entry-dates">${dateStr}</div>` : ''}
@@ -841,8 +846,9 @@ function renderEntries() {
     el.addEventListener('mouseenter', e => showTooltip(e, entry));
     el.addEventListener('mousemove', e => moveTooltip(e));
     el.addEventListener('mouseleave', hideTooltip);
-    el.addEventListener('dblclick', () => openEditModal(entry));
+    el.addEventListener('dblclick', (e) => { e.stopPropagation(); openEditModal(entry); });
     makeDraggable(el, entry);
+    makeResizableTop(el.querySelector('.entry-resize-handle-top'), entry);
     makeResizable(el.querySelector('.entry-resize-handle'), entry);
 
     col.appendChild(el);
@@ -895,19 +901,22 @@ function hideTooltip() { tooltipEl.style.display = 'none'; }
 
 // ============ DRAG & RESIZE ============
 function makeDraggable(el, entry) {
-  let startMouseY, startTop;
+  let startMouseY, startTop, hasMoved;
   el.addEventListener('mousedown', e => {
-    if (e.target.classList.contains('entry-resize-handle')) return;
+    if (e.target.classList.contains('entry-resize-handle') || e.target.classList.contains('entry-resize-handle-top')) return;
     e.preventDefault();
     startMouseY = e.clientY;
     startTop = parseFloat(el.style.top);
+    hasMoved = false;
     const onMove = ev => {
       const dy = ev.clientY - startMouseY;
+      if (Math.abs(dy) > 3) hasMoved = true;
       el.style.top = (startTop + dy) + 'px';
     };
     const onUp = ev => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      if (!hasMoved) return; // no drag, let dblclick handle it
       const newTop = parseFloat(el.style.top);
       const { year, month } = yToYear(newTop);
       const duration = (entry.end_y && entry.end_m) ?
@@ -927,6 +936,7 @@ function makeDraggable(el, entry) {
   });
 }
 
+// Resize from bottom handle — changes end date
 function makeResizable(handle, entry) {
   let startMouseY, startH;
   handle.addEventListener('mousedown', e => {
@@ -955,6 +965,41 @@ function makeResizable(handle, entry) {
   });
 }
 
+// Resize from top handle — changes start date
+function makeResizableTop(handle, entry) {
+  let startMouseY, startTop, startH;
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = handle.parentElement;
+    startMouseY = e.clientY;
+    startTop = parseFloat(el.style.top);
+    startH = parseFloat(el.style.height);
+    const onMove = ev => {
+      const dy = ev.clientY - startMouseY;
+      const newTop = startTop + dy;
+      const newH = startH - dy;
+      if (newH >= 20) {
+        el.style.top = newTop + 'px';
+        el.style.height = newH + 'px';
+      }
+    };
+    const onUp = ev => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      const el2 = handle.parentElement;
+      const newTop = parseFloat(el2.style.top);
+      const { year, month } = yToYear(newTop);
+      entry.start_y = year;
+      entry.start_m = month;
+      saveEntry(entry);
+      render();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
 // ============ MODAL ============
 const modalOverlay = document.getElementById('modal-overlay');
 
@@ -967,6 +1012,24 @@ function openAddModal(category) {
   document.getElementById('m-subtitle').value = '';
   document.getElementById('m-location').value = '';
   document.getElementById('m-start').value = '';
+  document.getElementById('m-end').value = '';
+  document.getElementById('m-desc').value = '';
+  document.getElementById('m-delete').style.display = 'none';
+  document.getElementById('m-color-field').style.display = 'none';
+  document.getElementById('m-location-field').style.display = 'block';
+  updateModalLabels(category);
+  modalOverlay.style.display = 'flex';
+}
+
+function openAddModalAtDate(category, year, month) {
+  editingEntry = null;
+  editingPlace = false;
+  modalCategory = category;
+  document.getElementById('modal-title').textContent = 'Add ' + category.charAt(0).toUpperCase() + category.slice(1);
+  document.getElementById('m-title').value = '';
+  document.getElementById('m-subtitle').value = '';
+  document.getElementById('m-location').value = '';
+  document.getElementById('m-start').value = `${year}-${String(month).padStart(2,'0')}`;
   document.getElementById('m-end').value = '';
   document.getElementById('m-desc').value = '';
   document.getElementById('m-delete').style.display = 'none';
@@ -1166,12 +1229,25 @@ document.getElementById('m-delete').addEventListener('click', async () => {
   render();
 });
 
-// ============ COLUMN ADD BUTTONS ============
+// ============ COLUMN ADD BUTTONS & DOUBLE-CLICK ============
 document.querySelectorAll('.column .add-btn').forEach(btn => {
   btn.addEventListener('click', e => {
     e.stopPropagation();
     const cat = btn.closest('.column').dataset.cat;
     openAddModal(cat);
+  });
+});
+
+// Double-click on column body → add entry at that year position
+document.querySelectorAll('.column-body').forEach(body => {
+  body.addEventListener('dblclick', e => {
+    // Only trigger if clicking empty space (not on an existing entry)
+    if (e.target.closest('.entry')) return;
+    const cat = body.closest('.column').dataset.cat;
+    const rect = body.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const { year, month } = yToYear(clickY);
+    openAddModalAtDate(cat, year, month);
   });
 });
 
