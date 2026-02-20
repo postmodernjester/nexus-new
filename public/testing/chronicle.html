@@ -169,12 +169,41 @@
   .entry-title {
     font-weight: 600; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.3;
   }
   .entry-sub {
     font-size: 10px; color: var(--text-dim);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     margin-top: 1px;
+    line-height: 1.3;
   }
+  .entry-dates {
+    font-size: 9px; color: var(--text-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-top: 1px; opacity: 0.7;
+  }
+  .entry-desc {
+    font-size: 9px; color: var(--text-dim);
+    margin-top: 3px; line-height: 1.3;
+    overflow: hidden; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  /* Zoom-level classes applied to columns-container */
+  .zoom-micro .entry-sub,
+  .zoom-micro .entry-dates,
+  .zoom-micro .entry-desc { display: none !important; }
+  .zoom-micro .entry-title { font-size: 9px; }
+  .zoom-micro .entry { padding: 2px 4px; min-height: 14px; }
+
+  .zoom-compact .entry-dates,
+  .zoom-compact .entry-desc { display: none !important; }
+  .zoom-compact .entry-title { font-size: 10px; }
+  .zoom-compact .entry-sub { font-size: 9px; }
+  .zoom-compact .entry { padding: 3px 6px; }
+
+  .zoom-normal .entry-desc { display: none !important; }
+
+  .zoom-detailed .entry-desc { display: -webkit-box !important; }
   .entry-resize-handle {
     position: absolute; bottom: 0; left: 0; right: 0;
     height: 6px; cursor: ns-resize;
@@ -694,7 +723,22 @@ function yToYear(y) {
   return { year, month: Math.max(1, Math.min(12, month)) };
 }
 
+function updateZoomClass() {
+  const container = document.getElementById('columns-container');
+  container.classList.remove('zoom-micro', 'zoom-compact', 'zoom-normal', 'zoom-detailed');
+  if (PIXELS_PER_YEAR <= 30) {
+    container.classList.add('zoom-micro');
+  } else if (PIXELS_PER_YEAR <= 55) {
+    container.classList.add('zoom-compact');
+  } else if (PIXELS_PER_YEAR <= 120) {
+    container.classList.add('zoom-normal');
+  } else {
+    container.classList.add('zoom-detailed');
+  }
+}
+
 function render() {
+  updateZoomClass();
   renderTimeAxis();
   renderGeoBands();
   renderEntries();
@@ -778,9 +822,19 @@ function renderEntries() {
     el.style.background = COLORS[entry.category].bg;
     el.style.borderLeftColor = COLORS[entry.category].border;
 
+    // Date string for detail view
+    let dateStr = '';
+    if (entry.start_y) {
+      dateStr = `${entry.start_m || ''}/${entry.start_y}`;
+      if (entry.end_y) dateStr += ` – ${entry.end_m || ''}/${entry.end_y}`;
+      else dateStr += ' – present';
+    }
+
     el.innerHTML = `
       <div class="entry-title">${esc(entry.title)}</div>
       ${entry.subtitle ? `<div class="entry-sub">${esc(entry.subtitle)}</div>` : ''}
+      ${dateStr ? `<div class="entry-dates">${dateStr}</div>` : ''}
+      ${entry.description ? `<div class="entry-desc">${esc(entry.description)}</div>` : ''}
       <div class="entry-resize-handle"></div>
     `;
 
