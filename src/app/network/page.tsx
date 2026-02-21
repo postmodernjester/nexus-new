@@ -355,7 +355,7 @@ export default function NetworkPage() {
           thickness: thick,
           recency: rec,
           isMutual: false,
-          isLinkedUser: false,
+          isLinkedUser: !!c.linked_profile_id,
         });
       }
 
