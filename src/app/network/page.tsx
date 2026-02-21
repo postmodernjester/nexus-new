@@ -55,6 +55,7 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
   isMutual: boolean;
   isLinkedUser: boolean;
   isSecondDegree?: boolean;
+  isCrossLink?: boolean;
 }
 
 // ─── Constants ───
@@ -88,13 +89,23 @@ function computeRecency(mostRecent: string | null): number {
 
 function lineColor(
   _isMutual: boolean,
-  _isLinkedUser: boolean,
+  isLinkedUser: boolean,
   recency: number,
-  isSecondDegree?: boolean
+  isSecondDegree?: boolean,
+  isCrossLink?: boolean
 ): string {
+  // Cross-links: linked user → my non-linked contact (amber, distinct)
+  if (isCrossLink) {
+    return "rgba(251, 146, 60, 0.55)";
+  }
   // 2nd degree links: uniform grey
   if (isSecondDegree) {
     return "rgba(148, 163, 184, 0.35)";
+  }
+  // Linked user connections: red, alpha based on recency
+  if (isLinkedUser) {
+    const alpha = 0.45 + recency * 0.55;
+    return `rgba(220, 80, 80, ${alpha})`;
   }
   // 1st degree: muted slate, alpha based on recency
   const alpha = 0.45 + recency * 0.55;
@@ -255,6 +266,8 @@ export default function NetworkPage() {
         const profile = connectedProfiles[uid];
         const myCard = myContactsLinkedToConnectedUser.get(uid);
         const name = myCard?.full_name || profile?.full_name || "Connected User";
+        const nameParts = name.split(" ");
+        const lastName = nameParts.length > 1 ? nameParts.slice(-1)[0] : name;
         const theirCount = theirContacts.filter(
           (c) => c.owner_id === uid
         ).length;
@@ -265,7 +278,7 @@ export default function NetworkPage() {
 
         nodes.push({
           id: nodeId,
-          label: name,
+          label: lastName,
           fullName: name,
           type: "connected_user",
           radius: nodeSize(theirCount + 1),
@@ -309,9 +322,11 @@ export default function NetworkPage() {
         const nodeId = `contact-${c.id}`;
         const stats = noteMap[c.id];
         const relType = c.relationship_type || "Acquaintance";
+        const cParts = c.full_name.split(" ");
+        const cLastName = cParts.length > 1 ? cParts.slice(-1)[0] : c.full_name;
         nodes.push({
           id: nodeId,
-          label: c.full_name,
+          label: cLastName,
           fullName: c.full_name,
           type: "contact",
           radius: nodeSize(1),
@@ -380,15 +395,19 @@ export default function NetworkPage() {
                 ((l.target as GraphNode).id || l.target) === ownerNodeId)
           );
           if (!alreadyLinked) {
+            // Detect cross-link: linked user → my non-linked contact
+            const existingNode = nodes.find((n) => n.id === existingNodeId);
+            const isCrossLink = existingNode?.type === "contact";
             links.push({
               source: ownerNodeId,
               target: existingNodeId,
               distance: 180,
-              thickness: 1,
+              thickness: isCrossLink ? 1.5 : 1,
               recency: 0.3,
               isMutual: true,
               isLinkedUser: false,
               isSecondDegree: true,
+              isCrossLink,
             });
           }
           // Increase connection count
@@ -406,8 +425,8 @@ export default function NetworkPage() {
         addedSecondDegreeIds.add(dedupKey);
 
         const nodeId = `their-${tc.id}`;
-        // 2nd degree: show job title only, no name
-        const jobLabel = tc.role || tc.company || "";
+        // 2nd degree: show job title only, no name or company
+        const jobLabel = tc.role || "";
 
         nodes.push({
           id: nodeId,
@@ -471,6 +490,20 @@ export default function NetworkPage() {
     (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>).call(zoom);
     zoomRef.current = zoom;
 
+    // Custom wiggle force for gentle continuous drift
+    const wiggleForce = () => {
+      let wNodes: GraphNode[] = [];
+      const force = () => {
+        for (const n of wNodes) {
+          if (n.fx != null) continue; // skip dragged nodes
+          n.vx = (n.vx || 0) + (Math.random() - 0.5) * 0.35;
+          n.vy = (n.vy || 0) + (Math.random() - 0.5) * 0.35;
+        }
+      };
+      force.initialize = (n: GraphNode[]) => { wNodes = n; };
+      return force;
+    };
+
     const simulation = d3
       .forceSimulation<GraphNode>(graphData.nodes)
       .force(
@@ -485,7 +518,10 @@ export default function NetworkPage() {
       .force(
         "collision",
         d3.forceCollide<GraphNode>().radius((d) => d.radius + 4)
-      );
+      )
+      .force("wiggle", wiggleForce() as unknown as d3.Force<GraphNode, GraphLink>)
+      .alphaTarget(0.015)
+      .alphaDecay(0.005);
 
     simulationRef.current = simulation;
 
@@ -495,9 +531,10 @@ export default function NetworkPage() {
       .selectAll<SVGLineElement, GraphLink>("line")
       .data(graphData.links)
       .join("line")
-      .attr("stroke", (d) => lineColor(d.isMutual, d.isLinkedUser, d.recency, d.isSecondDegree))
+      .attr("stroke", (d) => lineColor(d.isMutual, d.isLinkedUser, d.recency, d.isSecondDegree, d.isCrossLink))
       .attr("stroke-width", (d) => d.thickness)
-      .attr("stroke-linecap", "round");
+      .attr("stroke-linecap", "round")
+      .attr("stroke-dasharray", (d) => d.isCrossLink ? "6 4" : null);
 
     // Node groups
     const node = g
@@ -712,15 +749,10 @@ export default function NetworkPage() {
           >
             {hoveredNode.type === "their_contact" ? (
               <>
-                {/* 2nd degree: no name, just job title */}
+                {/* 2nd degree: job title only */}
                 {hoveredNode.role && (
                   <div style={{ fontWeight: 600, fontSize: "13px", color: "#e2e8f0" }}>
                     {hoveredNode.role}
-                  </div>
-                )}
-                {hoveredNode.company && (
-                  <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
-                    {hoveredNode.company}
                   </div>
                 )}
                 <div style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}>
