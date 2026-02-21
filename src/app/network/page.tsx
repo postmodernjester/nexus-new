@@ -88,24 +88,22 @@ function computeRecency(mostRecent: string | null): number {
 
 function lineColor(
   _isMutual: boolean,
-  isLinkedUser: boolean,
+  _isLinkedUser: boolean,
   recency: number,
   isSecondDegree?: boolean
 ): string {
-  // 2nd degree links: uniform, subtle
+  // 2nd degree links: uniform grey
   if (isSecondDegree) {
-    return "rgba(220, 38, 38, 0.2)";
+    return "rgba(148, 163, 184, 0.35)";
   }
-  // All 1st degree connections: red, alpha based on recency
-  const alpha = isLinkedUser ? 1 : 0.3 + recency * 0.7;
-  return `rgba(220, 38, 38, ${alpha})`;
+  // 1st degree: muted slate, alpha based on recency
+  const alpha = 0.45 + recency * 0.55;
+  return `rgba(148, 163, 184, ${alpha})`;
 }
 
-function lineThickness(count: number, isLinkedUser?: boolean): number {
-  // Linked NEXUS contacts start at 2nd thickness level
-  const base = isLinkedUser ? 1.5 : 0.8;
-  if (count === 0) return base;
-  if (count <= 2) return Math.max(base, 1.5);
+function lineThickness(count: number): number {
+  if (count === 0) return 1.2;
+  if (count <= 2) return 2;
   if (count <= 5) return 2.5;
   if (count <= 10) return 3.5;
   if (count <= 20) return 4.5;
@@ -123,10 +121,10 @@ export default function NetworkPage() {
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(
     null
   );
+  const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-  const [centeredNodeId, setCenteredNodeId] = useState<string>("self");
   const [graphData, setGraphData] = useState<{
     nodes: GraphNode[];
     links: GraphLink[];
@@ -255,23 +253,19 @@ export default function NetworkPage() {
       // ② Connected users (linked via connections table) — "F. LastName" format
       for (const uid of Array.from(mutualUserIds)) {
         const profile = connectedProfiles[uid];
-        const name = profile?.full_name || "Connected User";
-        const nameParts = name.split(" ");
-        const shortLabel = nameParts.length > 1
-          ? `${nameParts[0][0]}. ${nameParts.slice(-1)[0]}`
-          : name;
+        const myCard = myContactsLinkedToConnectedUser.get(uid);
+        const name = myCard?.full_name || profile?.full_name || "Connected User";
         const theirCount = theirContacts.filter(
           (c) => c.owner_id === uid
         ).length;
         const nodeId = `user-${uid}`;
 
-        const myCard = myContactsLinkedToConnectedUser.get(uid);
         const stats = myCard ? noteMap[myCard.id] : null;
         const relType = myCard?.relationship_type || "Acquaintance";
 
         nodes.push({
           id: nodeId,
-          label: shortLabel,
+          label: name,
           fullName: name,
           type: "connected_user",
           radius: nodeSize(theirCount + 1),
@@ -287,7 +281,7 @@ export default function NetworkPage() {
         nameToNodeId[name.toLowerCase()] = nodeId;
 
         const dist = CLOSENESS[relType] || 200;
-        const thick = lineThickness(stats?.count || 0, true);
+        const thick = lineThickness(stats?.count || 0);
         const rec = computeRecency(
           stats?.most_recent || myCard?.last_contact_date || null
         );
@@ -315,14 +309,9 @@ export default function NetworkPage() {
         const nodeId = `contact-${c.id}`;
         const stats = noteMap[c.id];
         const relType = c.relationship_type || "Acquaintance";
-        const cParts = c.full_name.split(" ");
-        const cShortLabel = cParts.length > 1
-          ? `${cParts[0][0]}. ${cParts.slice(-1)[0]}`
-          : c.full_name;
-
         nodes.push({
           id: nodeId,
-          label: cShortLabel,
+          label: c.full_name,
           fullName: c.full_name,
           type: "contact",
           radius: nodeSize(1),
@@ -339,7 +328,7 @@ export default function NetworkPage() {
         }
 
         const dist = CLOSENESS[relType] || 200;
-        const thick = lineThickness(stats?.count || 0, false);
+        const thick = lineThickness(stats?.count || 0);
         const rec = computeRecency(
           stats?.most_recent || c.last_contact_date || null
         );
@@ -480,6 +469,7 @@ export default function NetworkPage() {
         g.attr("transform", event.transform);
       });
     (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>).call(zoom);
+    zoomRef.current = zoom;
 
     const simulation = d3
       .forceSimulation<GraphNode>(graphData.nodes)
@@ -522,19 +512,12 @@ export default function NetworkPage() {
       .append("circle")
       .attr("r", (d) => d.radius)
       .attr("fill", (d) => {
-        if (d.type === "self") return "#c9a050";
-        if (d.type === "connected_user") return "#dc2626";
-        if (d.type === "their_contact") return "#334155";
-        return "#e2e8f0";
+        if (d.type === "self") return "#a08040";
+        if (d.type === "their_contact") return "#4a5568";
+        return "#6b7f99"; // contact + connected_user
       })
-      .attr("stroke", (d) => {
-        if (d.type === "self") return "#d4b76a";
-        if (d.type === "connected_user") return "#fca5a5";
-        return "none";
-      })
-      .attr("stroke-width", (d) =>
-        d.type === "self" || d.type === "connected_user" ? 2 : 0
-      );
+      .attr("stroke", "none")
+      .attr("stroke-width", 0);
 
     // Labels — self: last name, 1st degree: F. LastName, 2nd degree: job title
     node
@@ -543,10 +526,9 @@ export default function NetworkPage() {
       .attr("text-anchor", "middle")
       .attr("dy", (d) => d.radius + 14)
       .attr("fill", (d) => {
-        if (d.type === "self") return "#d4b76a";
-        if (d.type === "connected_user") return "#fca5a5";
-        if (d.type === "their_contact") return "#475569";
-        return "#94a3b8";
+        if (d.type === "self") return "#c9a050";
+        if (d.type === "their_contact") return "#64748b";
+        return "#94a3b8"; // contact + connected_user
       })
       .attr("font-size", (d) => (d.type === "their_contact" ? "8px" : "11px"))
       .attr("font-weight", (d) =>
@@ -569,7 +551,6 @@ export default function NetworkPage() {
     // Double-click to re-center
     node.on("dblclick", function (event, d) {
       event.stopPropagation();
-      setCenteredNodeId(d.id);
       const x = d.x || width / 2;
       const y = d.y || height / 2;
       svg
@@ -778,60 +759,50 @@ export default function NetworkPage() {
         )}
       </div>
 
-      {/* Legend */}
+      {/* Zoom controls */}
       <div
         style={{
           position: "fixed",
           bottom: "16px",
           right: "16px",
-          background: "#1e293b",
-          border: "1px solid #334155",
-          borderRadius: "10px",
-          padding: "12px 16px",
-          fontSize: "11px",
-          color: "#94a3b8",
           display: "flex",
           flexDirection: "column",
-          gap: "6px",
+          gap: "4px",
           zIndex: 20,
         }}
       >
-        <div style={{ fontWeight: 600, color: "#e2e8f0", fontSize: "12px", marginBottom: "2px" }}>
-          Legend
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#c9a050" }} />
-          <span>You</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#dc2626" }} />
-          <span>Connected NEXUS user</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#e2e8f0" }} />
-          <span>Your contact</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#334155" }} />
-          <span>2nd degree contact</span>
-        </div>
-        <div style={{ borderTop: "1px solid #334155", paddingTop: "6px", marginTop: "2px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{ width: "20px", height: "3px", background: "rgba(220,38,38,1)", borderRadius: "2px" }} />
-            <span>NEXUS link (red)</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
-            <div style={{ width: "20px", height: "2px", background: "rgba(255,255,255,0.5)", borderRadius: "2px" }} />
-            <span>Contact link (brighter = more recent)</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
-            <div style={{ width: "20px", height: "5px", background: "rgba(255,255,255,0.3)", borderRadius: "2px" }} />
-            <span>Thicker = more interactions</span>
-          </div>
-        </div>
-        <div style={{ color: "#475569", fontSize: "10px", marginTop: "2px" }}>
-          Node size = connection count
-        </div>
+        {[
+          { label: "+", delta: 1.4 },
+          { label: "\u2013", delta: 1 / 1.4 },
+        ].map(({ label, delta }) => (
+          <button
+            key={label}
+            onClick={() => {
+              if (!svgRef.current || !zoomRef.current) return;
+              const svg = d3.select(svgRef.current);
+              (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>)
+                .transition()
+                .duration(250)
+                .call(zoomRef.current.scaleBy, delta);
+            }}
+            style={{
+              width: "36px",
+              height: "36px",
+              background: "#1e293b",
+              border: "1px solid #334155",
+              borderRadius: "8px",
+              color: "#94a3b8",
+              fontSize: "18px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              lineHeight: 1,
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   );
