@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   loadChronicleData, upsertEntry, deleteEntry, upsertPlace, deletePlace,
-  updateEntryDates,
+  updateEntryDates, updateWorkEntryFromChronicle, deleteWorkEntry,
   type ChronicleEntry, type ChroniclePlace, type ChronicleWorkEntry, type ChronicleContact,
 } from '@/lib/chronicle'
 import ChronicleModal, { type EntryFormData } from './ChronicleModal'
@@ -126,6 +126,7 @@ export default function ChronicleCanvas() {
   const dragRef = useRef<{
     type: 'move' | 'top' | 'bot'
     id: string
+    source: 'chronicle' | 'work' | 'contact'
     startY: number
     origTop: number
     origH: number
@@ -201,9 +202,9 @@ export default function ChronicleCanvas() {
       items.push({
         id: `work-${w.id}`,
         cat: 'work',
-        title: w.organization || w.title,
+        title: w.company || w.title,
         start: w.start_date,
-        end: w.end_date || null,
+        end: w.is_current ? null : (w.end_date || null),
         color: w.chronicle_color || '#4070a8',
         fuzzyStart: w.chronicle_fuzzy_start || false,
         fuzzyEnd: w.chronicle_fuzzy_end || false,
@@ -302,11 +303,15 @@ export default function ChronicleCanvas() {
     const handler = (ev: KeyboardEvent) => {
       if ((ev.target as HTMLElement).matches('input,textarea,select')) return
       if ((ev.key === 'Delete' || ev.key === 'Backspace') && selectedId) {
-        // Only delete chronicle entries, not work/contact items
         const item = timelineItems.find(i => i.id === selectedId)
         if (item?.source === 'chronicle') {
           deleteEntry(selectedId).catch(console.error)
           setEntries(prev => prev.filter(e => e.id !== selectedId))
+          setSelectedId(null)
+        } else if (item?.source === 'work') {
+          const realId = selectedId.replace('work-', '')
+          deleteWorkEntry(realId).catch(console.error)
+          setWorkEntries(prev => prev.filter(w => w.id !== realId))
           setSelectedId(null)
         }
       }
@@ -322,14 +327,14 @@ export default function ChronicleCanvas() {
 
   // ─── Drag handlers ──────────────────────────
   const startDrag = useCallback((ev: React.MouseEvent, item: TimelineItem, type: 'move' | 'top' | 'bot') => {
-    if (ev.button !== 0 || item.source !== 'chronicle') return
+    if (ev.button !== 0) return
     selectEntry(item.id)
     const s = parseYM(item.start)
     const e = item.end ? parseYM(item.end) : null
     if (!s) return
     const top = toPx(s, pxm)
     const h = e ? Math.max(Math.round(pxm), toPx(e, pxm) - top) : Math.round(pxm * 2)
-    dragRef.current = { type, id: item.id, startY: ev.clientY, origTop: top, origH: h }
+    dragRef.current = { type, id: item.id, source: item.source, startY: ev.clientY, origTop: top, origH: h }
     ev.preventDefault()
     ev.stopPropagation()
   }, [pxm, selectEntry])
@@ -374,13 +379,19 @@ export default function ChronicleCanvas() {
       const newStart = ymStr(ns)
       const newEnd = ymStr(ne)
 
-      // Update local state
-      setEntries(prev => prev.map(e =>
-        e.id === d.id ? { ...e, start_date: newStart, end_date: newEnd } : e
-      ))
-
-      // Persist to Supabase
-      updateEntryDates(d.id, newStart, newEnd).catch(console.error)
+      // Update local state + persist based on source
+      if (d.source === 'work') {
+        const realId = d.id.replace('work-', '')
+        setWorkEntries(prev => prev.map(w =>
+          w.id === realId ? { ...w, start_date: newStart + '-01', end_date: newEnd + '-01', is_current: false } : w
+        ))
+        updateWorkEntryFromChronicle(realId, { start_date: newStart + '-01', end_date: newEnd + '-01', is_current: false }).catch(console.error)
+      } else {
+        setEntries(prev => prev.map(e =>
+          e.id === d.id ? { ...e, start_date: newStart, end_date: newEnd } : e
+        ))
+        updateEntryDates(d.id, newStart, newEnd).catch(console.error)
+      }
 
       dragRef.current = null
       setDragDelta(null)
@@ -503,23 +514,47 @@ export default function ChronicleCanvas() {
   // ─── Entry modal handlers ────────────────────
   const handleEntrySave = useCallback(async (data: EntryFormData) => {
     try {
-      const result = await upsertEntry({
-        id: data.id || undefined,
-        type: data.cat,
-        title: data.title,
-        start_date: data.start,
-        end_date: data.end || null,
-        canvas_col: data.cat,
-        color: data.color,
-        fuzzy_start: data.fuzzyStart,
-        fuzzy_end: data.fuzzyEnd,
-        note: data.note,
-        show_on_resume: false,
-      })
-      setEntries(prev => {
-        if (data.id) return prev.map(e => e.id === data.id ? result : e)
-        return [...prev, result]
-      })
+      if (data.source === 'work' && data.id) {
+        // Update work_entries table
+        await updateWorkEntryFromChronicle(data.id, {
+          start_date: data.start ? data.start + '-01' : undefined,
+          end_date: data.end ? data.end + '-01' : null,
+          is_current: !data.end,
+          chronicle_color: data.color,
+          chronicle_fuzzy_start: data.fuzzyStart,
+          chronicle_fuzzy_end: data.fuzzyEnd,
+          chronicle_note: data.note,
+        })
+        setWorkEntries(prev => prev.map(w => w.id === data.id ? {
+          ...w,
+          start_date: data.start ? data.start + '-01' : w.start_date,
+          end_date: data.end ? data.end + '-01' : undefined,
+          is_current: !data.end,
+          chronicle_color: data.color,
+          chronicle_fuzzy_start: data.fuzzyStart,
+          chronicle_fuzzy_end: data.fuzzyEnd,
+          chronicle_note: data.note,
+        } : w))
+      } else {
+        // Chronicle entry
+        const result = await upsertEntry({
+          id: data.id || undefined,
+          type: data.cat,
+          title: data.title,
+          start_date: data.start,
+          end_date: data.end || null,
+          canvas_col: data.cat,
+          color: data.color,
+          fuzzy_start: data.fuzzyStart,
+          fuzzy_end: data.fuzzyEnd,
+          note: data.note,
+          show_on_resume: data.showOnResume || false,
+        })
+        setEntries(prev => {
+          if (data.id) return prev.map(e => e.id === data.id ? result : e)
+          return [...prev, result]
+        })
+      }
       setEntryModal({ open: false })
     } catch (err) {
       console.error('Failed to save entry:', err)
@@ -528,34 +563,67 @@ export default function ChronicleCanvas() {
 
   const handleEntryDelete = useCallback(async (id: string) => {
     try {
-      await deleteEntry(id)
-      setEntries(prev => prev.filter(e => e.id !== id))
+      // Check if this is a work entry
+      const modalSource = entryModal.editing?.source
+      if (modalSource === 'work') {
+        await deleteWorkEntry(id)
+        setWorkEntries(prev => prev.filter(w => w.id !== id))
+      } else {
+        await deleteEntry(id)
+        setEntries(prev => prev.filter(e => e.id !== id))
+      }
       setSelectedId(null)
       setEntryModal({ open: false })
     } catch (err) {
       console.error('Failed to delete entry:', err)
     }
-  }, [])
+  }, [entryModal.editing])
 
   const openEditModal = useCallback((item: TimelineItem) => {
-    if (item.source !== 'chronicle') return
-    const entry = entries.find(e => e.id === item.id)
-    if (!entry) return
-    setEntryModal({
-      open: true,
-      editing: {
-        id: entry.id,
-        cat: entry.canvas_col || entry.type,
-        title: entry.title,
-        start: entry.start_date,
-        end: entry.end_date || '',
-        fuzzyStart: entry.fuzzy_start,
-        fuzzyEnd: entry.fuzzy_end,
-        note: entry.note || '',
-        color: entry.color || DEFAULT_COLORS[entry.canvas_col || entry.type] || '#4070a8',
-      },
-    })
-  }, [entries])
+    if (item.source === 'chronicle') {
+      const entry = entries.find(e => e.id === item.id)
+      if (!entry) return
+      setEntryModal({
+        open: true,
+        editing: {
+          id: entry.id,
+          cat: entry.canvas_col || entry.type,
+          title: entry.title,
+          start: entry.start_date,
+          end: entry.end_date || '',
+          fuzzyStart: entry.fuzzy_start,
+          fuzzyEnd: entry.fuzzy_end,
+          note: entry.note || '',
+          color: entry.color || DEFAULT_COLORS[entry.canvas_col || entry.type] || '#4070a8',
+          showOnResume: entry.show_on_resume || false,
+          source: 'chronicle',
+        },
+      })
+    } else if (item.source === 'work') {
+      const realId = item.id.replace('work-', '')
+      const work = workEntries.find(w => w.id === realId)
+      if (!work) return
+      // Convert YYYY-MM-DD to YYYY-MM for the modal
+      const startYM = work.start_date?.slice(0, 7) || ''
+      const endYM = work.is_current ? '' : (work.end_date?.slice(0, 7) || '')
+      setEntryModal({
+        open: true,
+        editing: {
+          id: realId,
+          cat: 'work',
+          title: work.company || work.title,
+          start: startYM,
+          end: endYM,
+          fuzzyStart: work.chronicle_fuzzy_start || false,
+          fuzzyEnd: work.chronicle_fuzzy_end || false,
+          note: work.chronicle_note || '',
+          color: work.chronicle_color || '#4070a8',
+          showOnResume: true,
+          source: 'work',
+        },
+      })
+    }
+  }, [entries, workEntries])
 
   // ─── Geo modal handlers ──────────────────────
   const handleGeoSave = useCallback(async (data: GeoFormData) => {
@@ -924,31 +992,27 @@ export default function ChronicleCanvas() {
                     )}
                   </div>
 
-                  {/* Resize handles (only for chronicle entries) */}
-                  {item.source === 'chronicle' && (
-                    <>
-                      <div
-                        onMouseDown={(e) => startDrag(e, item, 'top')}
-                        style={{
-                          position: 'absolute', left: 0, right: 0, height: 8, top: -4,
-                          zIndex: 15, cursor: 'ns-resize', opacity: isSelected ? 1 : 0,
-                          transition: 'opacity .15s',
-                        }}
-                      >
-                        <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 24, height: 3, borderRadius: 2, background: 'rgba(0,0,0,.28)' }} />
-                      </div>
-                      <div
-                        onMouseDown={(e) => startDrag(e, item, 'bot')}
-                        style={{
-                          position: 'absolute', left: 0, right: 0, height: 8, bottom: -4,
-                          zIndex: 15, cursor: 'ns-resize', opacity: isSelected ? 1 : 0,
-                          transition: 'opacity .15s',
-                        }}
-                      >
-                        <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 24, height: 3, borderRadius: 2, background: 'rgba(0,0,0,.28)' }} />
-                      </div>
-                    </>
-                  )}
+                  {/* Resize handles */}
+                  <div
+                    onMouseDown={(e) => startDrag(e, item, 'top')}
+                    style={{
+                      position: 'absolute', left: 0, right: 0, height: 8, top: -4,
+                      zIndex: 15, cursor: 'ns-resize', opacity: isSelected ? 1 : 0,
+                      transition: 'opacity .15s',
+                    }}
+                  >
+                    <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 24, height: 3, borderRadius: 2, background: 'rgba(0,0,0,.28)' }} />
+                  </div>
+                  <div
+                    onMouseDown={(e) => startDrag(e, item, 'bot')}
+                    style={{
+                      position: 'absolute', left: 0, right: 0, height: 8, bottom: -4,
+                      zIndex: 15, cursor: 'ns-resize', opacity: isSelected ? 1 : 0,
+                      transition: 'opacity .15s',
+                    }}
+                  >
+                    <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 24, height: 3, borderRadius: 2, background: 'rgba(0,0,0,.28)' }} />
+                  </div>
                 </div>
               )
             })}

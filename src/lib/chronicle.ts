@@ -39,10 +39,10 @@ export interface ChronicleWorkEntry {
   id: string
   user_id: string
   title: string
-  organization: string
+  company: string
   start_date: string
   end_date?: string
-  is_active: boolean
+  is_current: boolean
   chronicle_color?: string
   chronicle_fuzzy_start?: boolean
   chronicle_fuzzy_end?: boolean
@@ -68,7 +68,7 @@ export async function loadChronicleData() {
   const [entries, places, workEntries, contacts] = await Promise.all([
     supabase.from('chronicle_entries').select('*').order('start_date'),
     supabase.from('chronicle_places').select('*').order('start_date'),
-    supabase.from('work_entries').select('id, user_id, title, organization, start_date, end_date, is_active, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').order('start_date'),
+    supabase.from('work_entries').select('id, user_id, title, company, start_date, end_date, is_current, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').order('start_date'),
     supabase.from('contacts').select('id, owner_id, full_name, company, role, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, created_at').order('full_name'),
   ])
 
@@ -153,5 +153,24 @@ export async function updateEntryDates(id: string, start_date: string, end_date:
     .from('chronicle_entries')
     .update({ start_date, end_date, updated_at: new Date().toISOString() })
     .eq('id', id)
+  if (error) throw error
+}
+
+// ─── Update work entry from chronicle (full fields) ──────────
+export async function updateWorkEntryFromChronicle(id: string, fields: {
+  start_date?: string
+  end_date?: string | null
+  is_current?: boolean
+  chronicle_color?: string
+  chronicle_fuzzy_start?: boolean
+  chronicle_fuzzy_end?: boolean
+  chronicle_note?: string
+}) {
+  const { error } = await supabase.from('work_entries').update(fields).eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteWorkEntry(id: string) {
+  const { error } = await supabase.from('work_entries').delete().eq('id', id)
   if (error) throw error
 }

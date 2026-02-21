@@ -28,11 +28,26 @@ interface EducationEntry {
   description: string
 }
 
+interface ChronicleResumeEntry {
+  id: string
+  type: string
+  title: string
+  start_date: string
+  end_date: string | null
+  note: string | null
+  canvas_col: string
+}
+
 interface Skill {
   id?: string
   name: string
   category: string
   proficiency: number
+}
+
+const CAT_LABELS: Record<string, string> = {
+  work: 'Work', project: 'Project', personal: 'Personal',
+  residence: 'Residence', tech: 'Tech', people: 'People',
 }
 
 const EMPTY_WORK: WorkEntry = {
@@ -145,6 +160,8 @@ export default function ResumePage() {
   const [editingEdu, setEditingEdu] = useState<EducationEntry>(EMPTY_EDU)
   const [editingEduId, setEditingEduId] = useState<string | null>(null)
 
+  const [chronicleEntries, setChronicleEntries] = useState<ChronicleResumeEntry[]>([])
+
   const [skills, setSkills] = useState<Skill[]>([])
   const [newSkillName, setNewSkillName] = useState('')
   const [newSkillCategory, setNewSkillCategory] = useState('')
@@ -177,6 +194,14 @@ export default function ResumePage() {
 
       const { data: sk } = await supabase.from('skills').select('*').eq('user_id', authUser.id).order('name')
       if (sk) setSkills(sk)
+
+      const { data: chron } = await supabase
+        .from('chronicle_entries')
+        .select('id, type, title, start_date, end_date, note, canvas_col')
+        .eq('user_id', authUser.id)
+        .eq('show_on_resume', true)
+        .order('start_date', { ascending: false })
+      if (chron) setChronicleEntries(chron)
 
       setLoading(false)
     }
@@ -388,43 +413,84 @@ export default function ResumePage() {
           )}
         </section>
 
-        {/* WORK EXPERIENCE */}
+        {/* EXPERIENCE (work entries + chronicle entries merged) */}
         <section style={{ marginTop: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Work Experience</h2>
+            <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Experience</h2>
             <button onClick={openAddWork} style={btnPrimary}>+ Add</button>
           </div>
 
-          {workEntries.length === 0 && (
+          {workEntries.length === 0 && chronicleEntries.length === 0 && (
             <div style={{ ...cardStyle, color: '#475569', fontSize: '14px', textAlign: 'center' }}>
-              No work experience added yet.
+              No experience added yet.
             </div>
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {workEntries.map(entry => (
-              <div key={entry.id} style={cardStyle}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.title}</div>
-                    <div style={{ color: '#94a3b8', fontSize: '14px' }}>
-                      {entry.company}{entry.engagement_type && entry.engagement_type !== 'full-time' ? ` · ${entry.engagement_type}` : ''}
+            {/* Build unified list sorted by start_date descending */}
+            {[
+              ...workEntries.map(e => ({ kind: 'work' as const, sortDate: e.start_date || '', data: e })),
+              ...chronicleEntries.map(e => ({ kind: 'chronicle' as const, sortDate: e.start_date || '', data: e })),
+            ]
+              .sort((a, b) => b.sortDate.localeCompare(a.sortDate))
+              .map(item => {
+                if (item.kind === 'work') {
+                  const entry = item.data as WorkEntry
+                  return (
+                    <div key={`w-${entry.id}`} style={cardStyle}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.title}</div>
+                          <div style={{ color: '#94a3b8', fontSize: '14px' }}>
+                            {entry.company}{entry.engagement_type && entry.engagement_type !== 'full-time' ? ` · ${entry.engagement_type}` : ''}
+                          </div>
+                          <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
+                            {formatDate(entry.start_date)} – {entry.is_current ? 'Present' : formatDate(entry.end_date)}
+                            {entry.location ? ` · ${entry.location}` : ''}
+                          </div>
+                          {entry.description && (
+                            <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.description}</p>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                          <button onClick={() => openEditWork(entry)} style={btnSecondary}>Edit</button>
+                          <button onClick={() => entry.id && deleteWork(entry.id)} style={btnDanger}>Delete</button>
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
-                      {formatDate(entry.start_date)} – {entry.is_current ? 'Present' : formatDate(entry.end_date)}
-                      {entry.location ? ` · ${entry.location}` : ''}
+                  )
+                } else {
+                  const entry = item.data as ChronicleResumeEntry
+                  const catLabel = CAT_LABELS[entry.canvas_col || entry.type] || entry.type
+                  const startYM = entry.start_date?.slice(0, 7) || ''
+                  const endYM = entry.end_date?.slice(0, 7) || ''
+                  return (
+                    <div key={`c-${entry.id}`} style={cardStyle}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.title}</div>
+                            <span style={{
+                              fontSize: '10px', padding: '2px 7px', borderRadius: '10px',
+                              background: '#334155', color: '#94a3b8', letterSpacing: '.04em',
+                            }}>{catLabel}</span>
+                          </div>
+                          <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
+                            {startYM}{endYM ? ` – ${endYM}` : startYM ? ' – Present' : ''}
+                          </div>
+                          {entry.note && (
+                            <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.note}</p>
+                          )}
+                        </div>
+                        <a href="/chronicle" style={{ ...btnSecondary, textDecoration: 'none', fontSize: '12px', padding: '6px 12px' }}>
+                          Edit in Chronicle
+                        </a>
+                      </div>
                     </div>
-                    {entry.description && (
-                      <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.description}</p>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                    <button onClick={() => openEditWork(entry)} style={btnSecondary}>Edit</button>
-                    <button onClick={() => entry.id && deleteWork(entry.id)} style={btnDanger}>Delete</button>
-                  </div>
-                </div>
-              </div>
-            ))}
+                  )
+                }
+              })
+            }
           </div>
         </section>
 
