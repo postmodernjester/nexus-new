@@ -210,10 +210,22 @@ export default function NetworkPage() {
             anonymous_beyond_first_degree: p.anonymous_beyond_first_degree || false,
           };
         }
-        // Log if any connected users didn't come back from profiles query
+        // Fallback: fetch missing profiles individually (batch .in() can be
+        // blocked by RLS even when individual .eq() works)
         for (const uid of Array.from(mutualUserIds)) {
           if (!connectedProfiles[uid]) {
-            console.warn("Network: no profile returned for connected user", uid);
+            const { data: p } = await supabase
+              .from("profiles")
+              .select("id, full_name, headline, anonymous_beyond_first_degree")
+              .eq("id", uid)
+              .single();
+            if (p) {
+              connectedProfiles[p.id] = {
+                full_name: p.full_name || "Unknown",
+                headline: p.headline || "",
+                anonymous_beyond_first_degree: p.anonymous_beyond_first_degree || false,
+              };
+            }
           }
         }
       }
@@ -273,7 +285,7 @@ export default function NetworkPage() {
       for (const uid of Array.from(mutualUserIds)) {
         const profile = connectedProfiles[uid];
         const myCard = myContactsLinkedToConnectedUser.get(uid);
-        const name = myCard?.full_name || profile?.full_name || "Connected User";
+        const name = profile?.full_name || myCard?.full_name || "Connected User";
         const nameParts = name.split(" ");
         const lastName = nameParts.length > 1 ? nameParts.slice(-1)[0] : name;
         const theirCount = theirContacts.filter(
