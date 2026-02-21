@@ -98,6 +98,18 @@ interface LinkedProfile {
   avatar_url: string | null;
 }
 
+interface LinkedWorkEntry {
+  id: string;
+  title: string;
+  company: string | null;
+  engagement_type: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  is_current: boolean;
+  description: string | null;
+  location: string | null;
+}
+
 interface NoteEntry {
   id: string;
   contact_id: string;
@@ -126,6 +138,17 @@ function formatDate(d: string) {
     month: "short",
     day: "numeric",
   });
+}
+
+function formatWorkDate(d: string) {
+  if (!d) return "";
+  const parts = d.split("-");
+  const year = parts[0] || "";
+  const month = parts[1] ? parseInt(parts[1]) : 0;
+  if (!year) return "";
+  const months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  if (!month) return year;
+  return `${months[month]} ${year}`;
 }
 
 function initials(name: string) {
@@ -275,6 +298,7 @@ export default function ContactDossierPage() {
   const [linkedProfile, setLinkedProfile] = useState<LinkedProfile | null>(
     null
   );
+  const [linkedWork, setLinkedWork] = useState<LinkedWorkEntry[]>([]);
   const [notes, setNotes] = useState<NoteEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -344,12 +368,21 @@ export default function ContactDossierPage() {
     setNotes(notesRes.data || []);
 
     if (contactRes.data.linked_profile_id) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("full_name, headline, bio, location, website, avatar_url")
-        .eq("id", contactRes.data.linked_profile_id)
-        .single();
-      if (profile) setLinkedProfile(profile);
+      const [profileRes, workRes] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("full_name, headline, bio, location, website, avatar_url")
+          .eq("id", contactRes.data.linked_profile_id)
+          .single(),
+        supabase
+          .from("work_entries")
+          .select("id, title, company, engagement_type, start_date, end_date, is_current, description, location")
+          .eq("user_id", contactRes.data.linked_profile_id)
+          .order("is_current", { ascending: false })
+          .order("start_date", { ascending: false }),
+      ]);
+      if (profileRes.data) setLinkedProfile(profileRes.data);
+      if (workRes.data) setLinkedWork(workRes.data);
     }
 
     setLoading(false);
@@ -884,6 +917,73 @@ export default function ContactDossierPage() {
                   </a>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ═══ LINKED WORK ENTRIES ═══ */}
+        {linkedWork.length > 0 && (
+          <div
+            style={{
+              ...s.card,
+              borderColor: "rgba(96,165,250,0.2)",
+              background: "rgba(30,41,59,0.7)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "11px",
+                color: "#60a5fa",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                marginBottom: "14px",
+              }}
+            >
+              Experience (from their resume)
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              {linkedWork.map((entry) => (
+                <div
+                  key={entry.id}
+                  style={{
+                    padding: "12px 14px",
+                    background: "rgba(15,23,42,0.5)",
+                    borderRadius: "8px",
+                    border: "1px solid #1e293b",
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: "14px" }}>
+                    {entry.title}
+                  </div>
+                  {(entry.company || entry.engagement_type) && (
+                    <div style={{ color: "#94a3b8", fontSize: "13px", marginTop: "2px" }}>
+                      {entry.company}
+                      {entry.engagement_type && entry.engagement_type !== "full-time"
+                        ? ` · ${entry.engagement_type}`
+                        : ""}
+                    </div>
+                  )}
+                  <div style={{ color: "#64748b", fontSize: "12px", marginTop: "2px" }}>
+                    {formatWorkDate(entry.start_date || "")}{" "}
+                    – {entry.is_current ? "Present" : formatWorkDate(entry.end_date || "")}
+                    {entry.location ? ` · ${entry.location}` : ""}
+                  </div>
+                  {entry.description && (
+                    <p
+                      style={{
+                        color: "#cbd5e1",
+                        fontSize: "13px",
+                        marginTop: "8px",
+                        lineHeight: "1.5",
+                        whiteSpace: "pre-wrap",
+                        margin: "8px 0 0",
+                      }}
+                    >
+                      {entry.description}
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
