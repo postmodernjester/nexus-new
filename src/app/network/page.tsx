@@ -198,16 +198,23 @@ export default function NetworkPage() {
         { full_name: string; headline: string; anonymous_beyond_first_degree: boolean }
       > = {};
       if (mutualUserIds.size > 0) {
-        const { data: profiles } = await supabase
+        const { data: profiles, error: profilesError } = await supabase
           .from("profiles")
           .select("id, full_name, headline, anonymous_beyond_first_degree")
           .in("id", Array.from(mutualUserIds));
+        if (profilesError) console.warn("Network: profile fetch error", profilesError);
         for (const p of profiles || []) {
           connectedProfiles[p.id] = {
             full_name: p.full_name || "Unknown",
             headline: p.headline || "",
             anonymous_beyond_first_degree: p.anonymous_beyond_first_degree || false,
           };
+        }
+        // Log if any connected users didn't come back from profiles query
+        for (const uid of Array.from(mutualUserIds)) {
+          if (!connectedProfiles[uid]) {
+            console.warn("Network: no profile returned for connected user", uid);
+          }
         }
       }
 
@@ -598,19 +605,23 @@ export default function NetworkPage() {
         setHoveredNode(null);
       });
 
-    // Drag with built-in click/dblclick detection (d3.drag swallows
-    // native click/dblclick events, so we detect them via timers in "end")
+    // Drag with click/dblclick detection via timers.
+    // Single-click = animate drift toward center (pinned, so forces can't fight it).
+    // Double-click = open connection card.
     let dragMoved = false;
     let totalDragDist = 0;
     let lastTapTime = 0;
     let lastTapNodeId = "";
     let singleTapTimer: ReturnType<typeof setTimeout> | null = null;
+    let driftAnim: number | null = null;
 
     const drag = d3
       .drag<SVGGElement, GraphNode>()
       .on("start", (event, d) => {
         dragMoved = false;
         totalDragDist = 0;
+        // Cancel any running drift animation
+        if (driftAnim) { cancelAnimationFrame(driftAnim); driftAnim = null; }
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
@@ -623,38 +634,53 @@ export default function NetworkPage() {
       })
       .on("end", (event, d) => {
         if (!event.active) simulation.alphaTarget(0);
-
         d.fx = null;
         d.fy = null;
 
-        if (dragMoved) return; // real drag, not a click
-        if (d.type === "self") return; // self doesn't need click behavior
+        if (dragMoved) return;
+        if (d.type === "self") return;
 
-        // Pointer barely moved — treat as a tap/click
         const now = Date.now();
         if (now - lastTapTime < 400 && lastTapNodeId === d.id) {
-          // Second tap within 400ms = double-click → open card
+          // Double-tap → open card
           if (singleTapTimer) { clearTimeout(singleTapTimer); singleTapTimer = null; }
           lastTapTime = 0;
           lastTapNodeId = "";
-          if (d.contactId) {
-            router.push(`/contacts/${d.contactId}`);
-          }
+          if (d.contactId) router.push(`/contacts/${d.contactId}`);
         } else {
-          // First tap — wait 300ms to distinguish from double-click
+          // First tap — wait to see if double-tap follows
           lastTapTime = now;
           lastTapNodeId = d.id;
           const ref = d;
           singleTapTimer = setTimeout(() => {
             singleTapTimer = null;
-            // Single-click confirmed: drift toward center
+            // Single-click confirmed: animate pinned drift toward center
+            const startX = ref.x || 0;
+            const startY = ref.y || 0;
             const cx = width / 2;
             const cy = height / 2;
-            const ddx = cx - (ref.x || 0);
-            const ddy = cy - (ref.y || 0);
-            ref.vx = (ref.vx || 0) + ddx * 0.4;
-            ref.vy = (ref.vy || 0) + ddy * 0.4;
-            simulation.alpha(0.5).restart();
+            const endX = startX + (cx - startX) * 0.5;
+            const endY = startY + (cy - startY) * 0.5;
+            const dur = 600;
+            const t0 = performance.now();
+            ref.fx = startX;
+            ref.fy = startY;
+            const step = (now: number) => {
+              const t = Math.min((now - t0) / dur, 1);
+              const ease = t * (2 - t); // ease-out
+              ref.fx = startX + (endX - startX) * ease;
+              ref.fy = startY + (endY - startY) * ease;
+              simulation.alpha(0.05).restart();
+              if (t < 1) {
+                driftAnim = requestAnimationFrame(step);
+              } else {
+                driftAnim = null;
+                ref.fx = null;
+                ref.fy = null;
+                simulation.alpha(0.3).restart();
+              }
+            };
+            driftAnim = requestAnimationFrame(step);
           }, 300);
         }
       });
