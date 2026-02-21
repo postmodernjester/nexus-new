@@ -674,13 +674,13 @@ export default function ContactDossierPage() {
                 }}
               />
             ) : (
-              initials(linkedProfile?.full_name || contact.full_name)
+              initials(contact.full_name)
             )}
           </div>
 
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: "22px", fontWeight: "bold", margin: 0 }}>
-              {linkedProfile?.full_name || contact.full_name}
+              {contact.full_name}
             </h1>
             {(linkedProfile?.headline || contact.role || contact.company) && (
               <div

@@ -273,7 +273,7 @@ export default function NetworkPage() {
       for (const uid of Array.from(mutualUserIds)) {
         const profile = connectedProfiles[uid];
         const myCard = myContactsLinkedToConnectedUser.get(uid);
-        const name = profile?.full_name || myCard?.full_name || "Connected User";
+        const name = myCard?.full_name || profile?.full_name || "Connected User";
         const nameParts = name.split(" ");
         const lastName = nameParts.length > 1 ? nameParts.slice(-1)[0] : name;
         const theirCount = theirContacts.filter(
@@ -605,22 +605,22 @@ export default function NetworkPage() {
         setHoveredNode(null);
       });
 
-    // Drag with click/dblclick detection via timers.
-    // Single-click = animate drift toward center (pinned, so forces can't fight it).
-    // Double-click = open connection card.
+    // Click/dblclick detection via drag events + timers.
+    // Single-click = pin node at center (like dragging it there); connections reorganize.
+    // Click same node again to unpin. Double-click = open connection card.
     let dragMoved = false;
     let totalDragDist = 0;
     let lastTapTime = 0;
     let lastTapNodeId = "";
     let singleTapTimer: ReturnType<typeof setTimeout> | null = null;
     let driftAnim: number | null = null;
+    let centeredRef: GraphNode | null = null;
 
     const drag = d3
       .drag<SVGGElement, GraphNode>()
       .on("start", (event, d) => {
         dragMoved = false;
         totalDragDist = 0;
-        // Cancel any running drift animation
         if (driftAnim) { cancelAnimationFrame(driftAnim); driftAnim = null; }
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
@@ -637,7 +637,10 @@ export default function NetworkPage() {
         d.fx = null;
         d.fy = null;
 
-        if (dragMoved) return;
+        if (dragMoved) {
+          if (centeredRef === d) centeredRef = null;
+          return;
+        }
         if (d.type === "self") return;
 
         const now = Date.now();
@@ -654,30 +657,46 @@ export default function NetworkPage() {
           const ref = d;
           singleTapTimer = setTimeout(() => {
             singleTapTimer = null;
-            // Single-click confirmed: animate pinned drift toward center
+
+            // Toggle: click same centered node → unpin it
+            if (centeredRef === ref) {
+              ref.fx = null;
+              ref.fy = null;
+              centeredRef = null;
+              simulation.alpha(0.3).restart();
+              return;
+            }
+
+            // Unpin previously centered node
+            if (centeredRef) {
+              centeredRef.fx = null;
+              centeredRef.fy = null;
+            }
+
+            // Animate to center, then keep pinned there
             const startX = ref.x || 0;
             const startY = ref.y || 0;
             const cx = width / 2;
             const cy = height / 2;
-            const endX = startX + (cx - startX) * 0.5;
-            const endY = startY + (cy - startY) * 0.5;
             const dur = 600;
             const t0 = performance.now();
             ref.fx = startX;
             ref.fy = startY;
-            const step = (now: number) => {
-              const t = Math.min((now - t0) / dur, 1);
-              const ease = t * (2 - t); // ease-out
-              ref.fx = startX + (endX - startX) * ease;
-              ref.fy = startY + (endY - startY) * ease;
-              simulation.alpha(0.05).restart();
+            centeredRef = ref;
+
+            const step = (ts: number) => {
+              const t = Math.min((ts - t0) / dur, 1);
+              const ease = t * (2 - t);
+              ref.fx = startX + (cx - startX) * ease;
+              ref.fy = startY + (cy - startY) * ease;
+              simulation.alpha(0.1).restart();
               if (t < 1) {
                 driftAnim = requestAnimationFrame(step);
               } else {
                 driftAnim = null;
-                ref.fx = null;
-                ref.fy = null;
-                simulation.alpha(0.3).restart();
+                ref.fx = cx;
+                ref.fy = cy;
+                simulation.alpha(0.5).restart();
               }
             };
             driftAnim = requestAnimationFrame(step);
