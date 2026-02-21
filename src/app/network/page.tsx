@@ -45,6 +45,7 @@ interface GraphNode extends d3.SimulationNodeDatum {
   owner_id?: string;
   user_id?: string;
   profileId?: string;
+  contactId?: string;
   isAnonymous?: boolean;
 }
 
@@ -265,7 +266,7 @@ export default function NetworkPage() {
       for (const uid of Array.from(mutualUserIds)) {
         const profile = connectedProfiles[uid];
         const myCard = myContactsLinkedToConnectedUser.get(uid);
-        const name = myCard?.full_name || profile?.full_name || "Connected User";
+        const name = profile?.full_name || myCard?.full_name || "Connected User";
         const nameParts = name.split(" ");
         const lastName = nameParts.length > 1 ? nameParts.slice(-1)[0] : name;
         const theirCount = theirContacts.filter(
@@ -285,6 +286,7 @@ export default function NetworkPage() {
           connectionCount: theirCount + 1,
           user_id: uid,
           profileId: uid,
+          contactId: myCard?.id,
           relationship_type: relType,
           company: myCard?.company ?? undefined,
           role: myCard?.role ?? undefined,
@@ -335,6 +337,7 @@ export default function NetworkPage() {
           company: c.company ?? undefined,
           role: c.role ?? undefined,
           owner_id: c.owner_id,
+          contactId: c.id,
         });
 
         nameToNodeId[c.full_name.toLowerCase()] = nodeId;
@@ -504,6 +507,13 @@ export default function NetworkPage() {
       return force;
     };
 
+    // Pin self node at center so the logged-in user is always at center
+    const selfNode = graphData.nodes.find(n => n.id === "self");
+    if (selfNode) {
+      selfNode.fx = width / 2;
+      selfNode.fy = height / 2;
+    }
+
     const simulation = d3
       .forceSimulation<GraphNode>(graphData.nodes)
       .force(
@@ -514,7 +524,8 @@ export default function NetworkPage() {
           .distance((d) => d.distance)
       )
       .force("charge", d3.forceManyBody().strength(-120))
-      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("x", d3.forceX(width / 2).strength(0.02))
+      .force("y", d3.forceY(height / 2).strength(0.02))
       .force(
         "collision",
         d3.forceCollide<GraphNode>().radius((d) => d.radius + 4)
@@ -585,39 +596,54 @@ export default function NetworkPage() {
         setHoveredNode(null);
       });
 
-    // Double-click to re-center
+    // Double-click to open connection card
     node.on("dblclick", function (event, d) {
       event.stopPropagation();
-      const x = d.x || width / 2;
-      const y = d.y || height / 2;
-      svg
-        .transition()
-        .duration(500)
-        .call(
-          zoom.transform,
-          d3.zoomIdentity
-            .translate(width / 2, height / 2)
-            .scale(1.5)
-            .translate(-x, -y)
-        );
+      event.preventDefault();
+      if (d.contactId) {
+        router.push(`/contacts/${d.contactId}`);
+      }
+    });
+
+    // Single-click: drift node toward center
+    let dragged = false;
+    node.on("click", function (_event, d) {
+      if (dragged) return;
+      if (d.type === "self") return;
+      const cx = width / 2;
+      const cy = height / 2;
+      const dx = cx - (d.x || 0);
+      const dy = cy - (d.y || 0);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 1) return;
+      d.vx = (d.vx || 0) + dx * 0.3;
+      d.vy = (d.vy || 0) + dy * 0.3;
+      simulation.alpha(0.3).restart();
     });
 
     // Drag
     const drag = d3
       .drag<SVGGElement, GraphNode>()
       .on("start", (event, d) => {
+        dragged = false;
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
       })
       .on("drag", (event, d) => {
+        dragged = true;
         d.fx = event.x;
         d.fy = event.y;
       })
       .on("end", (event, d) => {
         if (!event.active) simulation.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
+        if (d.type === "self") {
+          d.fx = width / 2;
+          d.fy = height / 2;
+        } else {
+          d.fx = null;
+          d.fy = null;
+        }
       });
 
     node.call(drag);
@@ -648,7 +674,7 @@ export default function NetworkPage() {
     return () => {
       simulation.stop();
     };
-  }, [loading, graphData, filterText]);
+  }, [loading, graphData, filterText, router]);
 
   return (
     <div
@@ -692,7 +718,7 @@ export default function NetworkPage() {
           {graphData.nodes.length} nodes · {graphData.links.length} connections
         </span>
         <span style={{ color: "#334155", fontSize: "11px", marginLeft: "auto" }}>
-          Double-click a node to re-center
+          Double-click to open · Click to drift
         </span>
       </div>
 
