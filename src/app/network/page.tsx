@@ -96,20 +96,20 @@ function lineColor(
 ): string {
   // Cross-links: linked user → my non-linked contact (amber, distinct)
   if (isCrossLink) {
-    return "rgba(251, 146, 60, 0.55)";
+    return "rgba(251, 146, 60, 0.6)";
   }
-  // 2nd degree links: uniform grey
+  // 2nd degree links: lighter grey so they don't vanish against dark bg
   if (isSecondDegree) {
-    return "rgba(148, 163, 184, 0.35)";
+    return "rgba(160, 180, 200, 0.5)";
   }
   // Linked user connections: red, alpha based on recency
   if (isLinkedUser) {
-    const alpha = 0.45 + recency * 0.55;
+    const alpha = 0.55 + recency * 0.45;
     return `rgba(220, 80, 80, ${alpha})`;
   }
-  // 1st degree: muted slate, alpha based on recency
-  const alpha = 0.45 + recency * 0.55;
-  return `rgba(148, 163, 184, ${alpha})`;
+  // 1st degree: brighter slate, alpha based on recency
+  const alpha = 0.55 + recency * 0.45;
+  return `rgba(160, 180, 200, ${alpha})`;
 }
 
 function lineThickness(count: number): number {
