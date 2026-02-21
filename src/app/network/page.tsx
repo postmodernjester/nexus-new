@@ -509,11 +509,11 @@ export default function NetworkPage() {
       return force;
     };
 
-    // Pin self node at center so the logged-in user is always at center
+    // Place self node near center initially (but not pinned — it drifts like everything else)
     const selfNode = graphData.nodes.find(n => n.id === "self");
     if (selfNode) {
-      selfNode.fx = width / 2;
-      selfNode.fy = height / 2;
+      selfNode.x = width / 2;
+      selfNode.y = height / 2;
     }
 
     const simulation = d3
@@ -526,8 +526,8 @@ export default function NetworkPage() {
           .distance((d) => d.distance)
       )
       .force("charge", d3.forceManyBody().strength(-120))
-      .force("x", d3.forceX(width / 2).strength(0.02))
-      .force("y", d3.forceY(height / 2).strength(0.02))
+      .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => d.id === "self" ? 0.12 : 0.02))
+      .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => d.id === "self" ? 0.12 : 0.02))
       .force(
         "collision",
         d3.forceCollide<GraphNode>().radius((d) => d.radius + 4)
@@ -598,48 +598,64 @@ export default function NetworkPage() {
         setHoveredNode(null);
       });
 
-    // Double-click to open connection card
-    node.on("dblclick", function (event, d) {
-      event.stopPropagation();
-      event.preventDefault();
-      if (d.contactId) {
-        router.push(`/contacts/${d.contactId}`);
-      }
-    });
+    // Drag with built-in click/dblclick detection (d3.drag swallows
+    // native click/dblclick events, so we detect them via timers in "end")
+    let dragMoved = false;
+    let totalDragDist = 0;
+    let lastTapTime = 0;
+    let lastTapNodeId = "";
+    let singleTapTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // Drag — single-click (no movement) drifts node toward center
-    let dragged = false;
     const drag = d3
       .drag<SVGGElement, GraphNode>()
       .on("start", (event, d) => {
-        dragged = false;
+        dragMoved = false;
+        totalDragDist = 0;
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
       })
       .on("drag", (event, d) => {
-        dragged = true;
+        totalDragDist += Math.abs(event.dx) + Math.abs(event.dy);
+        if (totalDragDist > 3) dragMoved = true;
         d.fx = event.x;
         d.fy = event.y;
       })
       .on("end", (event, d) => {
         if (!event.active) simulation.alphaTarget(0);
-        if (d.type === "self") {
-          d.fx = width / 2;
-          d.fy = height / 2;
+
+        d.fx = null;
+        d.fy = null;
+
+        if (dragMoved) return; // real drag, not a click
+        if (d.type === "self") return; // self doesn't need click behavior
+
+        // Pointer barely moved — treat as a tap/click
+        const now = Date.now();
+        if (now - lastTapTime < 400 && lastTapNodeId === d.id) {
+          // Second tap within 400ms = double-click → open card
+          if (singleTapTimer) { clearTimeout(singleTapTimer); singleTapTimer = null; }
+          lastTapTime = 0;
+          lastTapNodeId = "";
+          if (d.contactId) {
+            router.push(`/contacts/${d.contactId}`);
+          }
         } else {
-          d.fx = null;
-          d.fy = null;
-          // Single-click (no drag movement): drift toward center
-          if (!dragged) {
+          // First tap — wait 300ms to distinguish from double-click
+          lastTapTime = now;
+          lastTapNodeId = d.id;
+          const ref = d;
+          singleTapTimer = setTimeout(() => {
+            singleTapTimer = null;
+            // Single-click confirmed: drift toward center
             const cx = width / 2;
             const cy = height / 2;
-            const dx = cx - (d.x || 0);
-            const dy = cy - (d.y || 0);
-            d.vx = (d.vx || 0) + dx * 0.3;
-            d.vy = (d.vy || 0) + dy * 0.3;
-            simulation.alpha(0.3).restart();
-          }
+            const ddx = cx - (ref.x || 0);
+            const ddy = cy - (ref.y || 0);
+            ref.vx = (ref.vx || 0) + ddx * 0.4;
+            ref.vy = (ref.vy || 0) + ddy * 0.4;
+            simulation.alpha(0.5).restart();
+          }, 300);
         }
       });
 
