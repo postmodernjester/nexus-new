@@ -36,6 +36,7 @@ interface ChronicleResumeEntry {
   end_date: string | null
   note: string | null
   canvas_col: string
+  color: string | null
 }
 
 interface Skill {
@@ -197,7 +198,7 @@ export default function ResumePage() {
 
       const { data: chron } = await supabase
         .from('chronicle_entries')
-        .select('id, type, title, start_date, end_date, note, canvas_col')
+        .select('id, type, title, start_date, end_date, note, canvas_col, color')
         .eq('user_id', authUser.id)
         .eq('show_on_resume', true)
         .order('start_date', { ascending: false })
@@ -413,24 +414,25 @@ export default function ResumePage() {
           )}
         </section>
 
-        {/* EXPERIENCE (work entries + chronicle entries merged) */}
+        {/* EXPERIENCE (work entries + non-project chronicle entries) */}
         <section style={{ marginTop: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Experience</h2>
             <button onClick={openAddWork} style={btnPrimary}>+ Add</button>
           </div>
 
-          {workEntries.length === 0 && chronicleEntries.length === 0 && (
+          {workEntries.length === 0 && chronicleEntries.filter(e => e.canvas_col !== 'project' && e.type !== 'project').length === 0 && (
             <div style={{ ...cardStyle, color: '#475569', fontSize: '14px', textAlign: 'center' }}>
               No experience added yet.
             </div>
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {/* Build unified list sorted by start_date descending */}
             {[
               ...workEntries.map(e => ({ kind: 'work' as const, sortDate: e.start_date || '', data: e })),
-              ...chronicleEntries.map(e => ({ kind: 'chronicle' as const, sortDate: e.start_date || '', data: e })),
+              ...chronicleEntries
+                .filter(e => e.canvas_col !== 'project' && e.type !== 'project')
+                .map(e => ({ kind: 'chronicle' as const, sortDate: e.start_date || '', data: e })),
             ]
               .sort((a, b) => b.sortDate.localeCompare(a.sortDate))
               .map(item => {
@@ -493,6 +495,87 @@ export default function ResumePage() {
             }
           </div>
         </section>
+
+        {/* PROJECTS (chronicle entries with canvas_col === 'project') */}
+        {(() => {
+          const projectEntries = chronicleEntries.filter(e => e.canvas_col === 'project' || e.type === 'project')
+          return (
+            <section style={{ marginTop: '24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Projects</h2>
+                <a href="/chronicle" style={{ ...btnSecondary, textDecoration: 'none', fontSize: '12px', padding: '6px 12px' }}>
+                  Add in Chronicle
+                </a>
+              </div>
+
+              {projectEntries.length === 0 ? (
+                <div style={{ ...cardStyle, color: '#475569', fontSize: '14px', textAlign: 'center' }}>
+                  No projects yet. Add projects in the Chronicle and mark them &ldquo;Show on resume&rdquo;.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '16px' }}>
+                  {projectEntries.map(project => {
+                    const startYM = project.start_date?.slice(0, 7) || ''
+                    const endYM = project.end_date?.slice(0, 7) || ''
+                    const accentColor = project.color || '#508038'
+                    return (
+                      <div key={`p-${project.id}`} style={{
+                        background: '#1e293b',
+                        border: '1px solid #334155',
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        transition: 'border-color 0.2s',
+                      }}>
+                        {/* Image placeholder — future: upload a cover image */}
+                        <div style={{
+                          height: '120px',
+                          background: `linear-gradient(135deg, ${accentColor}22, ${accentColor}44)`,
+                          borderBottom: `2px solid ${accentColor}66`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          position: 'relative',
+                        }}>
+                          <div style={{
+                            width: 48, height: 48, borderRadius: '50%',
+                            background: `${accentColor}33`,
+                            border: `2px solid ${accentColor}88`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '20px', color: accentColor, fontWeight: 700,
+                          }}>
+                            {project.title.charAt(0).toUpperCase()}
+                          </div>
+                        </div>
+                        <div style={{ padding: '16px 20px 20px' }}>
+                          <div style={{ fontWeight: 700, fontSize: '17px', marginBottom: '4px' }}>{project.title}</div>
+                          <div style={{ color: '#64748b', fontSize: '12px', letterSpacing: '.04em' }}>
+                            {startYM}{endYM ? ` – ${endYM}` : startYM ? ' – Present' : ''}
+                          </div>
+                          {project.note && (
+                            <p style={{
+                              color: '#94a3b8', fontSize: '14px', marginTop: '10px',
+                              lineHeight: '1.6', whiteSpace: 'pre-wrap',
+                            }}>
+                              {project.note}
+                            </p>
+                          )}
+                          <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+                            <a href="/chronicle" style={{
+                              ...btnSecondary,
+                              textDecoration: 'none', fontSize: '11px', padding: '5px 10px',
+                            }}>
+                              Edit in Chronicle
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </section>
+          )
+        })()}
 
         {/* EDUCATION */}
         <section style={{ marginTop: '24px' }}>

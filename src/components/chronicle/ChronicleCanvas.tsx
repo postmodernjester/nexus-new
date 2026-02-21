@@ -10,16 +10,21 @@ import ChronicleModal, { type EntryFormData } from './ChronicleModal'
 import ChronicleGeoModal, { type GeoFormData } from './ChronicleGeoModal'
 
 // ═══════════════════════════════════════════════
-// CONFIG — matches HTML prototype exactly
+// CONFIG
 // ═══════════════════════════════════════════════
-const START_YEAR = 1975
-const END_YEAR = 2032
-const BIRTH_YEAR = 1963
+const CURRENT_YEAR = new Date().getFullYear()
+const START_YEAR = CURRENT_YEAR - 100
+const END_YEAR = CURRENT_YEAR + 100
 const BASE_PXM = 28
 const ZOOM_MIN = 0.08
 const ZOOM_MAX = 3.0
 const COL_W = 148
 const AXIS_W = 72
+
+// localStorage keys for persisting view state
+const LS_ZOOM = 'chronicle_zoom'
+const LS_CENTER_YEAR = 'chronicle_center_year'
+const LS_CENTER_MONTH = 'chronicle_center_month'
 
 const COLS = [
   { id: 'work', label: 'Work', color: '#4070a8' },
@@ -114,8 +119,17 @@ export default function ChronicleCanvas() {
   const [contacts, setContacts] = useState<ChronicleContact[]>([])
   const [loading, setLoading] = useState(true)
 
-  // View
-  const [scale, setScale] = useState(1.0)
+  // View — restore saved zoom or default to full range
+  const [scale, setScale] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(LS_ZOOM)
+      if (saved) {
+        const parsed = parseFloat(saved)
+        if (!isNaN(parsed) && parsed >= ZOOM_MIN && parsed <= ZOOM_MAX) return parsed
+      }
+    }
+    return ZOOM_MIN // default: max zoomed out to show full range
+  })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDelHint, setShowDelHint] = useState(false)
 
@@ -169,10 +183,25 @@ export default function ChronicleCanvas() {
       .finally(() => setLoading(false))
   }, [])
 
-  // ─── Scroll to ~1981 on first load ──────────
+  // ─── Scroll to saved center or current year on first load ──
   useEffect(() => {
     if (!loading && scrollRef.current) {
-      scrollRef.current.scrollTop = toPx({ y: 1981, m: 1 }, pxm) - 60
+      let centerY = CURRENT_YEAR
+      let centerM = 1
+      if (typeof window !== 'undefined') {
+        const savedY = localStorage.getItem(LS_CENTER_YEAR)
+        const savedM = localStorage.getItem(LS_CENTER_MONTH)
+        if (savedY) {
+          const py = parseInt(savedY)
+          if (!isNaN(py) && py >= START_YEAR && py <= END_YEAR) centerY = py
+        }
+        if (savedM) {
+          const pm = parseInt(savedM)
+          if (!isNaN(pm) && pm >= 1 && pm <= 12) centerM = pm
+        }
+      }
+      const targetPx = toPx({ y: centerY, m: centerM }, pxm)
+      scrollRef.current.scrollTop = targetPx - scrollRef.current.clientHeight / 2
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading])
@@ -247,14 +276,13 @@ export default function ChronicleCanvas() {
 
   // ─── Axis ticks ──────────────────────────────
   const axisTicks = useMemo(() => {
-    const ticks: { y: number; top: number; age: number; isDecade: boolean; isFive: boolean }[] = []
+    const ticks: { y: number; top: number; isDecade: boolean; isFive: boolean }[] = []
     const showEvery = pxm < 4 ? 10 : pxm < 8 ? 5 : 1
     for (let y = START_YEAR; y <= END_YEAR; y++) {
       if ((y - START_YEAR) % showEvery !== 0) continue
       ticks.push({
         y,
         top: toPx({ y, m: 1 }, pxm),
-        age: y - BIRTH_YEAR,
         isDecade: y % 10 === 0,
         isFive: y % 5 === 0,
       })
@@ -414,6 +442,8 @@ export default function ChronicleCanvas() {
     const centerYM = pxToYM(centerPx, pxm)
     const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newScale))
     setScale(clamped)
+    // Persist zoom level
+    localStorage.setItem(LS_ZOOM, String(clamped))
     // After state update, re-center
     requestAnimationFrame(() => {
       const newPxm = BASE_PXM * clamped
@@ -447,6 +477,27 @@ export default function ChronicleCanvas() {
       document.removeEventListener('mouseup', handleMouseUp)
     }
   }, [zoomFromTrack])
+
+  // ─── Persist scroll center on scroll (debounced) ─
+  useEffect(() => {
+    const sw = scrollRef.current
+    if (!sw) return
+    let timer: ReturnType<typeof setTimeout>
+    const handleScroll = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        const centerPx = sw.scrollTop + sw.clientHeight / 2
+        const centerYM = pxToYM(centerPx, pxm)
+        localStorage.setItem(LS_CENTER_YEAR, String(centerYM.y))
+        localStorage.setItem(LS_CENTER_MONTH, String(centerYM.m))
+      }, 300)
+    }
+    sw.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      clearTimeout(timer)
+      sw.removeEventListener('scroll', handleScroll)
+    }
+  }, [pxm])
 
   // ─── Click on empty space deselects ──────────
   const handleBackgroundClick = useCallback((ev: React.MouseEvent) => {
@@ -783,7 +834,6 @@ export default function ChronicleCanvas() {
             {axisTicks.map(t => (
               <div key={t.y} style={{ position: 'absolute', right: 0, top: t.top, display: 'flex', alignItems: 'center', transform: 'translateY(-50%)', paddingRight: 7, gap: 3, pointerEvents: 'none' }}>
                 <span style={{ fontSize: t.isDecade ? 13 : t.isFive ? 11 : 9.5, color: '#1a1812', letterSpacing: '-.02em', opacity: t.isDecade ? 1 : t.isFive ? 0.8 : 0.6 }}>{t.y}</span>
-                {t.age > 0 && <span style={{ fontSize: 7, color: '#d8d0c0' }}>{t.age}</span>}
                 <div style={{ position: 'absolute', right: -2, width: t.isFive ? 8 : 5, height: t.isFive ? 1 : 1.5, background: t.isFive ? '#9a8e78' : '#1a1812' }} />
               </div>
             ))}

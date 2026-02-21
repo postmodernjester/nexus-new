@@ -87,7 +87,8 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
   const handleCatChange = (newCat: string) => {
     setCat(newCat)
     const pal = PAL[newCat] || PAL.work
-    if (!pal.includes(color)) setColor(pal[0])
+    // Only reset color for new entries (no existing color to preserve)
+    if (!editingEntry && !pal.includes(color)) setColor(pal[0])
   }
 
   const handleSave = () => {
@@ -114,7 +115,8 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
 
   if (!open) return null
 
-  const swatches = PAL[cat] || PAL.work
+  const basePal = PAL[cat] || PAL.work
+  const swatches = color && !basePal.includes(color) ? [...basePal, color] : basePal
 
   return (
     <div
@@ -132,7 +134,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
           <select
             value={cat}
             onChange={(e) => handleCatChange(e.target.value)}
-            disabled={!editingEntry}
+            disabled={editingEntry?.source === 'work' || editingEntry?.source === 'contact'}
             style={S.input}
           >
             {COLS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
