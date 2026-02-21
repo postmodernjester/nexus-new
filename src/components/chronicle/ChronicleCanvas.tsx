@@ -83,6 +83,7 @@ interface TimelineItem {
   fuzzyEnd: boolean
   note: string
   source: 'chronicle' | 'work' | 'contact'
+  showOnResume: boolean
 }
 
 interface PlaceItem {
@@ -162,7 +163,7 @@ export default function ChronicleCanvas() {
         start: e.start_date, end: e.end_date,
         color: e.color || DEFAULT_COLORS[e.canvas_col || e.type] || '#4070a8',
         fuzzyStart: e.fuzzy_start, fuzzyEnd: e.fuzzy_end,
-        note: e.note || '', source: 'chronicle',
+        note: e.note || '', source: 'chronicle', showOnResume: e.show_on_resume,
       })
     })
     workEntries.forEach(w => {
@@ -171,7 +172,7 @@ export default function ChronicleCanvas() {
         start: w.start_date, end: w.end_date || null,
         color: w.chronicle_color || '#4070a8',
         fuzzyStart: w.chronicle_fuzzy_start || false, fuzzyEnd: w.chronicle_fuzzy_end || false,
-        note: w.chronicle_note || '', source: 'work',
+        note: w.chronicle_note || '', source: 'work', showOnResume: true,
       })
     })
     contacts.forEach(c => {
@@ -181,7 +182,7 @@ export default function ChronicleCanvas() {
         color: c.chronicle_color || '#7050a8',
         fuzzyStart: c.chronicle_fuzzy_start || false, fuzzyEnd: c.chronicle_fuzzy_end || false,
         note: c.chronicle_note || (c.company ? `${c.role || ''} ${c.company}`.trim() : ''),
-        source: 'contact',
+        source: 'contact', showOnResume: false,
       })
     })
     return items
@@ -369,7 +370,7 @@ export default function ChronicleCanvas() {
         id: data.id || undefined, type: data.cat, title: data.title,
         start_date: data.start, end_date: data.end || null, canvas_col: data.cat,
         color: data.color, fuzzy_start: data.fuzzyStart, fuzzy_end: data.fuzzyEnd,
-        note: data.note, show_on_resume: false,
+        note: data.note, show_on_resume: data.showOnResume,
       })
       setEntries(prev => { if (data.id) return prev.map(e => e.id === data.id ? result : e); return [...prev, result] })
       setEntryModal({ open: false })
@@ -393,6 +394,7 @@ export default function ChronicleCanvas() {
         start: entry.start_date, end: entry.end_date || '',
         fuzzyStart: entry.fuzzy_start, fuzzyEnd: entry.fuzzy_end,
         note: entry.note || '', color: entry.color || DEFAULT_COLORS[entry.canvas_col || entry.type] || '#4070a8',
+        showOnResume: entry.show_on_resume,
       },
     })
   }, [entries])

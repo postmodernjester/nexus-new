@@ -30,6 +30,7 @@ export interface EntryFormData {
   fuzzyEnd: boolean
   note: string
   color: string
+  showOnResume: boolean
 }
 
 interface Props {
@@ -51,6 +52,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
   const [fuzzyEnd, setFuzzyEnd] = useState(false)
   const [note, setNote] = useState('')
   const [color, setColor] = useState('#4070a8')
+  const [showOnResume, setShowOnResume] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -64,6 +66,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
         setFuzzyEnd(editingEntry.fuzzyEnd)
         setNote(editingEntry.note)
         setColor(editingEntry.color)
+        setShowOnResume(editingEntry.showOnResume)
       } else {
         setCat(defaultCat || 'work')
         setTitle('')
@@ -72,6 +75,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
         setFuzzyStart(false)
         setFuzzyEnd(false)
         setNote('')
+        setShowOnResume(false)
         const pal = PAL[defaultCat || 'work'] || PAL.work
         setColor(pal[0])
       }
@@ -97,6 +101,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
       fuzzyEnd,
       note: note.trim(),
       color,
+      showOnResume,
     })
   }
 
@@ -194,6 +199,13 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
               />
             ))}
           </div>
+        </div>
+
+        <div style={S.frow}>
+          <label style={S.fuzzCheck}>
+            <input type="checkbox" checked={showOnResume} onChange={(e) => setShowOnResume(e.target.checked)} style={S.checkbox} />
+            Show on resume
+          </label>
         </div>
 
         <div style={S.actions}>

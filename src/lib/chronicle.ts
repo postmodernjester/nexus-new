@@ -34,7 +34,6 @@ export interface ChroniclePlace {
   updated_at?: string
 }
 
-// Work entries from existing table, with chronicle columns
 export interface ChronicleWorkEntry {
   id: string
   user_id: string
@@ -49,7 +48,6 @@ export interface ChronicleWorkEntry {
   chronicle_note?: string
 }
 
-// Contacts from existing table, with chronicle columns
 export interface ChronicleContact {
   id: string
   owner_id: string
@@ -61,6 +59,13 @@ export interface ChronicleContact {
   chronicle_fuzzy_end?: boolean
   chronicle_note?: string
   created_at: string
+}
+
+// ─── Get current user ────────────────────────────────────────
+async function getCurrentUserId(): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not logged in')
+  return user.id
 }
 
 // ─── Load all chronicle data ─────────────────────────────────
@@ -82,7 +87,8 @@ export async function loadChronicleData() {
 
 // ─── Chronicle Entries CRUD ──────────────────────────────────
 export async function upsertEntry(entry: Partial<ChronicleEntry> & { title: string; type: string; start_date: string; canvas_col: string }) {
-  const payload = { ...entry, updated_at: new Date().toISOString() }
+  const user_id = await getCurrentUserId()
+  const payload = { ...entry, user_id, updated_at: new Date().toISOString() }
   if (entry.id) {
     const { data, error } = await supabase
       .from('chronicle_entries')
@@ -110,7 +116,8 @@ export async function deleteEntry(id: string) {
 
 // ─── Chronicle Places CRUD ───────────────────────────────────
 export async function upsertPlace(place: Partial<ChroniclePlace> & { title: string; start_date: string }) {
-  const payload = { ...place, updated_at: new Date().toISOString() }
+  const user_id = await getCurrentUserId()
+  const payload = { ...place, user_id, updated_at: new Date().toISOString() }
   if (place.id) {
     const { data, error } = await supabase
       .from('chronicle_places')
