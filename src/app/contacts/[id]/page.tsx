@@ -682,7 +682,7 @@ export default function ContactDossierPage() {
             <h1 style={{ fontSize: "22px", fontWeight: "bold", margin: 0 }}>
               {linkedProfile?.full_name || contact.full_name}
             </h1>
-            {(contact.role || contact.company) && (
+            {(linkedProfile?.headline || contact.role || contact.company) && (
               <div
                 style={{
                   color: "#94a3b8",
@@ -690,7 +690,7 @@ export default function ContactDossierPage() {
                   marginTop: "2px",
                 }}
               >
-                {[contact.role, contact.company].filter(Boolean).join(" · ")}
+                {linkedProfile?.headline || [contact.role, contact.company].filter(Boolean).join(" · ")}
               </div>
             )}
             {contact.location && (

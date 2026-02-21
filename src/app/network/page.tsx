@@ -289,7 +289,7 @@ export default function NetworkPage() {
           contactId: myCard?.id,
           relationship_type: relType,
           company: myCard?.company ?? undefined,
-          role: myCard?.role ?? undefined,
+          role: profile?.headline || (myCard?.role ?? undefined),
         });
 
         profileToNodeId[uid] = nodeId;
@@ -491,6 +491,8 @@ export default function NetworkPage() {
         g.attr("transform", event.transform);
       });
     (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>).call(zoom);
+    // Disable zoom's built-in double-click-to-zoom so our dblclick handler works
+    svg.on("dblclick.zoom", null);
     zoomRef.current = zoom;
 
     // Custom wiggle force for gentle continuous drift
@@ -605,23 +607,8 @@ export default function NetworkPage() {
       }
     });
 
-    // Single-click: drift node toward center
+    // Drag — single-click (no movement) drifts node toward center
     let dragged = false;
-    node.on("click", function (_event, d) {
-      if (dragged) return;
-      if (d.type === "self") return;
-      const cx = width / 2;
-      const cy = height / 2;
-      const dx = cx - (d.x || 0);
-      const dy = cy - (d.y || 0);
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 1) return;
-      d.vx = (d.vx || 0) + dx * 0.3;
-      d.vy = (d.vy || 0) + dy * 0.3;
-      simulation.alpha(0.3).restart();
-    });
-
-    // Drag
     const drag = d3
       .drag<SVGGElement, GraphNode>()
       .on("start", (event, d) => {
@@ -643,6 +630,16 @@ export default function NetworkPage() {
         } else {
           d.fx = null;
           d.fy = null;
+          // Single-click (no drag movement): drift toward center
+          if (!dragged) {
+            const cx = width / 2;
+            const cy = height / 2;
+            const dx = cx - (d.x || 0);
+            const dy = cy - (d.y || 0);
+            d.vx = (d.vx || 0) + dx * 0.3;
+            d.vy = (d.vy || 0) + dy * 0.3;
+            simulation.alpha(0.3).restart();
+          }
         }
       });
 
@@ -802,15 +799,11 @@ export default function NetworkPage() {
                     {hoveredNode.company}
                   </div>
                 )}
-                {hoveredNode.relationship_type && (
-                  <div style={{ color: "#64748b", fontSize: "11px", marginTop: "4px" }}>
-                    {hoveredNode.relationship_type}
+                {hoveredNode.type === "connected_user" && (
+                  <div style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}>
+                    NEXUS user
                   </div>
                 )}
-                <div style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}>
-                  {hoveredNode.connectionCount} connection{hoveredNode.connectionCount !== 1 ? "s" : ""}
-                  {hoveredNode.type === "connected_user" && " · NEXUS user"}
-                </div>
               </>
             )}
           </div>
