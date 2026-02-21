@@ -5,17 +5,21 @@ import { useEffect, useRef, useState } from 'react'
 const COLS = [
   { id: 'work', label: 'Work / Employer' },
   { id: 'project', label: 'Project' },
+  { id: 'education', label: 'Education' },
   { id: 'personal', label: 'Personal / Family' },
   { id: 'residence', label: 'Residence' },
-  { id: 'people', label: 'Person' },
+  { id: 'gatherings', label: 'Gathering / Event' },
   { id: 'tech', label: 'Tech context' },
+  { id: 'people', label: 'Person' },
 ]
 
 const PAL: Record<string, string[]> = {
   work: ['#2d5080', '#4070a8', '#5890c8', '#386098', '#6080b0'],
   project: ['#306018', '#508038', '#70a050', '#407028', '#609040'],
+  education: ['#1a6050', '#2a8a6a', '#40a880', '#207858', '#50b890'],
   personal: ['#802838', '#a85060', '#c87080', '#903848', '#b06070'],
   residence: ['#604820', '#806840', '#a08858', '#705030', '#907848'],
+  gatherings: ['#a04828', '#c06848', '#d88868', '#b05838', '#c87858'],
   tech: ['#604018', '#986020', '#b88040', '#785030', '#a07030'],
   people: ['#482870', '#7050a8', '#9070c8', '#583888', '#806ab8'],
 }
@@ -31,7 +35,7 @@ export interface EntryFormData {
   note: string
   color: string
   showOnResume: boolean
-  source?: 'chronicle' | 'work' | 'contact'
+  source?: 'chronicle' | 'work' | 'contact' | 'education'
 }
 
 interface Props {
@@ -39,12 +43,13 @@ interface Props {
   editingEntry?: EntryFormData | null
   defaultCat?: string
   defaultYM?: string
+  defaultEndYM?: string
   onSave: (data: EntryFormData) => void
   onDelete?: (id: string) => void
   onClose: () => void
 }
 
-export default function ChronicleModal({ open, editingEntry, defaultCat, defaultYM, onSave, onDelete, onClose }: Props) {
+export default function ChronicleModal({ open, editingEntry, defaultCat, defaultYM, defaultEndYM, onSave, onDelete, onClose }: Props) {
   const [cat, setCat] = useState(defaultCat || 'work')
   const [title, setTitle] = useState('')
   const [start, setStart] = useState('')
@@ -72,7 +77,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
         setCat(defaultCat || 'work')
         setTitle('')
         setStart(defaultYM || '')
-        setEnd('')
+        setEnd(defaultEndYM || '')
         setFuzzyStart(false)
         setFuzzyEnd(false)
         setNote('')
@@ -82,7 +87,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
       }
       setTimeout(() => titleRef.current?.focus(), 80)
     }
-  }, [open, editingEntry, defaultCat, defaultYM])
+  }, [open, editingEntry, defaultCat, defaultYM, defaultEndYM])
 
   const handleCatChange = (newCat: string) => {
     setCat(newCat)
@@ -134,7 +139,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
           <select
             value={cat}
             onChange={(e) => handleCatChange(e.target.value)}
-            disabled={editingEntry?.source === 'work' || editingEntry?.source === 'contact'}
+            disabled={editingEntry?.source === 'work' || editingEntry?.source === 'contact' || editingEntry?.source === 'education'}
             style={S.input}
           >
             {COLS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}

@@ -85,6 +85,7 @@ interface Contact {
   how_we_met: string | null;
   met_date: string | null;
   avatar_url: string | null;
+  show_on_chronicle: boolean;
   created_at: string;
 }
 
@@ -370,6 +371,8 @@ export default function ContactDossierPage() {
         last_contact_date: editFields.last_contact_date || null,
         next_action_date: editFields.next_action_date || null,
         next_action_note: editFields.next_action_note || null,
+        show_on_chronicle: editFields.show_on_chronicle || false,
+        met_date: editFields.met_date || null,
       })
       .eq("id", cid);
     if (error) {
@@ -568,7 +571,7 @@ export default function ContactDossierPage() {
     }
   }
 
-  const setField = (k: string, v: string) =>
+  const setField = (k: string, v: string | boolean) =>
     setEditFields({ ...editFields, [k]: v });
 
   if (loading) {
@@ -1033,6 +1036,32 @@ export default function ContactDossierPage() {
                   }
                 />
               </div>
+              <div style={{ gridColumn: "1 / -1", borderTop: "1px solid #334155", paddingTop: "12px", marginTop: "4px" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={editFields.show_on_chronicle || false}
+                    onChange={(e) => setField("show_on_chronicle", e.target.checked)}
+                    style={{ width: "14px", height: "14px", accentColor: "#a78bfa" }}
+                  />
+                  <span style={{ fontSize: "13px", color: "#e2e8f0" }}>Show on Chronicle</span>
+                </label>
+              </div>
+              {editFields.show_on_chronicle && (
+                <div>
+                  <label style={s.label}>Chronicle Start Date</label>
+                  <input
+                    style={s.input}
+                    type="date"
+                    value={editFields.met_date || ""}
+                    onChange={(e) => setField("met_date", e.target.value)}
+                    placeholder="When they entered the story"
+                  />
+                  <div style={{ fontSize: "10px", color: "#64748b", marginTop: "4px" }}>
+                    When this person entered your story (defaults to card creation date)
+                  </div>
+                </div>
+              )}
             </div>
             <div
               style={{

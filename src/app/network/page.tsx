@@ -54,6 +54,7 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
   recency: number;
   isMutual: boolean;
   isLinkedUser: boolean;
+  isSecondDegree?: boolean;
 }
 
 // ─── Constants ───
@@ -86,24 +87,25 @@ function computeRecency(mostRecent: string | null): number {
 }
 
 function lineColor(
-  isMutual: boolean,
+  _isMutual: boolean,
   isLinkedUser: boolean,
-  recency: number
+  recency: number,
+  isSecondDegree?: boolean
 ): string {
-  if (isLinkedUser) {
-    return "rgba(220, 38, 38, 1)";
+  // 2nd degree links: uniform, subtle
+  if (isSecondDegree) {
+    return "rgba(220, 38, 38, 0.2)";
   }
-  if (isMutual) {
-    const alpha = 0.3 + recency * 0.7;
-    return `rgba(220, 38, 38, ${alpha})`;
-  }
-  const alpha = 0.15 + recency * 0.7;
-  return `rgba(255, 255, 255, ${alpha})`;
+  // All 1st degree connections: red, alpha based on recency
+  const alpha = isLinkedUser ? 1 : 0.3 + recency * 0.7;
+  return `rgba(220, 38, 38, ${alpha})`;
 }
 
-function lineThickness(count: number): number {
-  if (count === 0) return 0.8;
-  if (count <= 2) return 1.5;
+function lineThickness(count: number, isLinkedUser?: boolean): number {
+  // Linked NEXUS contacts start at 2nd thickness level
+  const base = isLinkedUser ? 1.5 : 0.8;
+  if (count === 0) return base;
+  if (count <= 2) return Math.max(base, 1.5);
   if (count <= 5) return 2.5;
   if (count <= 10) return 3.5;
   if (count <= 20) return 4.5;
@@ -233,12 +235,13 @@ export default function NetworkPage() {
       const nodes: GraphNode[] = [];
       const links: GraphLink[] = [];
 
-      // ① Self
+      // ① Self — show last name, golden warm color
       const myName = profileRes.data?.full_name || "You";
+      const myLastName = myName.split(" ").slice(-1)[0] || myName;
       const selfConnCount = myContacts.length + mutualUserIds.size;
       nodes.push({
         id: "self",
-        label: myName,
+        label: myLastName,
         fullName: myName,
         type: "self",
         radius: nodeSize(selfConnCount),
@@ -249,10 +252,14 @@ export default function NetworkPage() {
       profileToNodeId[user.id] = "self";
       nameToNodeId[myName.toLowerCase()] = "self";
 
-      // ② Connected users (linked via connections table)
+      // ② Connected users (linked via connections table) — "F. LastName" format
       for (const uid of Array.from(mutualUserIds)) {
         const profile = connectedProfiles[uid];
         const name = profile?.full_name || "Connected User";
+        const nameParts = name.split(" ");
+        const shortLabel = nameParts.length > 1
+          ? `${nameParts[0][0]}. ${nameParts.slice(-1)[0]}`
+          : name;
         const theirCount = theirContacts.filter(
           (c) => c.owner_id === uid
         ).length;
@@ -264,7 +271,7 @@ export default function NetworkPage() {
 
         nodes.push({
           id: nodeId,
-          label: name,
+          label: shortLabel,
           fullName: name,
           type: "connected_user",
           radius: nodeSize(theirCount + 1),
@@ -280,7 +287,7 @@ export default function NetworkPage() {
         nameToNodeId[name.toLowerCase()] = nodeId;
 
         const dist = CLOSENESS[relType] || 200;
-        const thick = lineThickness(stats?.count || 0);
+        const thick = lineThickness(stats?.count || 0, true);
         const rec = computeRecency(
           stats?.most_recent || myCard?.last_contact_date || null
         );
@@ -296,7 +303,7 @@ export default function NetworkPage() {
         });
       }
 
-      // ③ My contacts (that are NOT linked to a connected user — those are already shown above)
+      // ③ My contacts (that are NOT linked to a connected user) — "F. LastName" format
       for (const c of myContacts) {
         if (
           c.linked_profile_id &&
@@ -308,10 +315,14 @@ export default function NetworkPage() {
         const nodeId = `contact-${c.id}`;
         const stats = noteMap[c.id];
         const relType = c.relationship_type || "Acquaintance";
+        const cParts = c.full_name.split(" ");
+        const cShortLabel = cParts.length > 1
+          ? `${cParts[0][0]}. ${cParts.slice(-1)[0]}`
+          : c.full_name;
 
         nodes.push({
           id: nodeId,
-          label: c.full_name,
+          label: cShortLabel,
           fullName: c.full_name,
           type: "contact",
           radius: nodeSize(1),
@@ -328,7 +339,7 @@ export default function NetworkPage() {
         }
 
         const dist = CLOSENESS[relType] || 200;
-        const thick = lineThickness(stats?.count || 0);
+        const thick = lineThickness(stats?.count || 0, false);
         const rec = computeRecency(
           stats?.most_recent || c.last_contact_date || null
         );
@@ -388,6 +399,7 @@ export default function NetworkPage() {
               recency: 0.3,
               isMutual: true,
               isLinkedUser: false,
+              isSecondDegree: true,
             });
           }
           // Increase connection count
@@ -405,17 +417,12 @@ export default function NetworkPage() {
         addedSecondDegreeIds.add(dedupKey);
 
         const nodeId = `their-${tc.id}`;
-        const initials =
-          tc.full_name
-            .split(" ")
-            .map((w) => w[0])
-            .join("")
-            .toUpperCase()
-            .slice(0, 2) || "?";
+        // 2nd degree: show job title only, no name
+        const jobLabel = tc.role || tc.company || "";
 
         nodes.push({
           id: nodeId,
-          label: initials,
+          label: jobLabel,
           fullName: tc.full_name,
           type: "their_contact",
           radius: 6,
@@ -438,6 +445,7 @@ export default function NetworkPage() {
           recency: 0.3,
           isMutual: false,
           isLinkedUser: false,
+          isSecondDegree: true,
         });
       }
 
@@ -497,7 +505,7 @@ export default function NetworkPage() {
       .selectAll<SVGLineElement, GraphLink>("line")
       .data(graphData.links)
       .join("line")
-      .attr("stroke", (d) => lineColor(d.isMutual, d.isLinkedUser, d.recency))
+      .attr("stroke", (d) => lineColor(d.isMutual, d.isLinkedUser, d.recency, d.isSecondDegree))
       .attr("stroke-width", (d) => d.thickness)
       .attr("stroke-linecap", "round");
 
@@ -514,13 +522,13 @@ export default function NetworkPage() {
       .append("circle")
       .attr("r", (d) => d.radius)
       .attr("fill", (d) => {
-        if (d.type === "self") return "#a78bfa";
+        if (d.type === "self") return "#c9a050";
         if (d.type === "connected_user") return "#dc2626";
         if (d.type === "their_contact") return "#334155";
         return "#e2e8f0";
       })
       .attr("stroke", (d) => {
-        if (d.type === "self") return "#c4b5fd";
+        if (d.type === "self") return "#d4b76a";
         if (d.type === "connected_user") return "#fca5a5";
         return "none";
       })
@@ -528,38 +536,22 @@ export default function NetworkPage() {
         d.type === "self" || d.type === "connected_user" ? 2 : 0
       );
 
-    // Labels
+    // Labels — self: last name, 1st degree: F. LastName, 2nd degree: job title
     node
       .append("text")
-      .text((d) => {
-        if (d.type === "their_contact") return d.label; // initials
-        return d.fullName.split(" ")[0]; // first name
-      })
+      .text((d) => d.label)
       .attr("text-anchor", "middle")
       .attr("dy", (d) => d.radius + 14)
       .attr("fill", (d) => {
-        if (d.type === "self") return "#c4b5fd";
+        if (d.type === "self") return "#d4b76a";
         if (d.type === "connected_user") return "#fca5a5";
         if (d.type === "their_contact") return "#475569";
         return "#94a3b8";
       })
-      .attr("font-size", (d) => (d.type === "their_contact" ? "9px" : "11px"))
+      .attr("font-size", (d) => (d.type === "their_contact" ? "8px" : "11px"))
       .attr("font-weight", (d) =>
         d.type === "self" ? "bold" : "normal"
       );
-
-    // Second-degree: show role/company below initials
-    node
-      .filter((d) => d.type === "their_contact")
-      .append("text")
-      .text((d) => {
-        if (d.role && d.company) return `${d.role}, ${d.company}`;
-        return d.role || d.company || "";
-      })
-      .attr("text-anchor", "middle")
-      .attr("dy", (d) => d.radius + 24)
-      .attr("fill", "#334155")
-      .attr("font-size", "8px");
 
     // Hover events
     node
@@ -737,30 +729,51 @@ export default function NetworkPage() {
               boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
             }}
           >
-            <div style={{ fontWeight: 600, fontSize: "14px", color: "#e2e8f0" }}>
-              {hoveredNode.fullName}
-            </div>
-            {hoveredNode.role && (
-              <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
-                {hoveredNode.role}
-                {hoveredNode.company ? ` at ${hoveredNode.company}` : ""}
-              </div>
+            {hoveredNode.type === "their_contact" ? (
+              <>
+                {/* 2nd degree: no name, just job title */}
+                {hoveredNode.role && (
+                  <div style={{ fontWeight: 600, fontSize: "13px", color: "#e2e8f0" }}>
+                    {hoveredNode.role}
+                  </div>
+                )}
+                {hoveredNode.company && (
+                  <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
+                    {hoveredNode.company}
+                  </div>
+                )}
+                <div style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}>
+                  2nd degree
+                </div>
+              </>
+            ) : (
+              <>
+                {/* 1st degree + self: full name, title, company */}
+                <div style={{ fontWeight: 600, fontSize: "14px", color: "#e2e8f0" }}>
+                  {hoveredNode.fullName}
+                </div>
+                {hoveredNode.role && (
+                  <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
+                    {hoveredNode.role}
+                    {hoveredNode.company ? ` at ${hoveredNode.company}` : ""}
+                  </div>
+                )}
+                {!hoveredNode.role && hoveredNode.company && (
+                  <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
+                    {hoveredNode.company}
+                  </div>
+                )}
+                {hoveredNode.relationship_type && (
+                  <div style={{ color: "#64748b", fontSize: "11px", marginTop: "4px" }}>
+                    {hoveredNode.relationship_type}
+                  </div>
+                )}
+                <div style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}>
+                  {hoveredNode.connectionCount} connection{hoveredNode.connectionCount !== 1 ? "s" : ""}
+                  {hoveredNode.type === "connected_user" && " · NEXUS user"}
+                </div>
+              </>
             )}
-            {!hoveredNode.role && hoveredNode.company && (
-              <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
-                {hoveredNode.company}
-              </div>
-            )}
-            {hoveredNode.relationship_type && (
-              <div style={{ color: "#64748b", fontSize: "11px", marginTop: "4px" }}>
-                {hoveredNode.relationship_type}
-              </div>
-            )}
-            <div style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}>
-              {hoveredNode.connectionCount} connection{hoveredNode.connectionCount !== 1 ? "s" : ""}
-              {hoveredNode.type === "connected_user" && " · NEXUS user"}
-              {hoveredNode.type === "their_contact" && " · 2nd degree"}
-            </div>
           </div>
         )}
       </div>
@@ -787,7 +800,7 @@ export default function NetworkPage() {
           Legend
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#a78bfa" }} />
+          <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#c9a050" }} />
           <span>You</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>

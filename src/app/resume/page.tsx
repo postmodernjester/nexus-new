@@ -485,7 +485,7 @@ export default function ResumePage() {
                           )}
                         </div>
                         <a href="/chronicle" style={{ ...btnSecondary, textDecoration: 'none', fontSize: '12px', padding: '6px 12px' }}>
-                          Edit in Chronicle
+                          Edit
                         </a>
                       </div>
                     </div>
@@ -503,14 +503,12 @@ export default function ResumePage() {
             <section style={{ marginTop: '24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                 <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Projects</h2>
-                <a href="/chronicle" style={{ ...btnSecondary, textDecoration: 'none', fontSize: '12px', padding: '6px 12px' }}>
-                  Add in Chronicle
-                </a>
+                <button onClick={openAddWork} style={btnPrimary}>+ Add</button>
               </div>
 
               {projectEntries.length === 0 ? (
                 <div style={{ ...cardStyle, color: '#475569', fontSize: '14px', textAlign: 'center' }}>
-                  No projects yet. Add projects in the Chronicle and mark them &ldquo;Show on resume&rdquo;.
+                  No projects yet. Add a project to get started.
                 </div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '16px' }}>
@@ -564,7 +562,7 @@ export default function ResumePage() {
                               ...btnSecondary,
                               textDecoration: 'none', fontSize: '11px', padding: '5px 10px',
                             }}>
-                              Edit in Chronicle
+                              Edit
                             </a>
                           </div>
                         </div>
@@ -616,45 +614,7 @@ export default function ResumePage() {
           </div>
         </section>
 
-        {/* SKILLS */}
-        <section style={{ marginTop: '24px' }}>
-          <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 12px' }}>Skills</h2>
-
-          <div style={{ ...cardStyle, marginBottom: '12px' }}>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: '140px' }}>
-                <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Skill</label>
-                <input value={newSkillName} onChange={e => setNewSkillName(e.target.value)} placeholder="e.g. TypeScript" style={inputStyle} />
-              </div>
-              <div style={{ flex: 1, minWidth: '140px' }}>
-                <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Category</label>
-                <input value={newSkillCategory} onChange={e => setNewSkillCategory(e.target.value)} placeholder="e.g. Programming" style={inputStyle} />
-              </div>
-              <div style={{ width: '80px' }}>
-                <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Level (1-5)</label>
-                <input type="number" min={1} max={5} value={newSkillProficiency} onChange={e => setNewSkillProficiency(Number(e.target.value))} style={inputStyle} />
-              </div>
-              <button onClick={addSkill} style={btnPrimary}>Add</button>
-            </div>
-          </div>
-
-          {skills.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {skills.map(sk => (
-                <div key={sk.id} style={{
-                  display: 'flex', alignItems: 'center', gap: '8px',
-                  background: '#1e293b', border: '1px solid #334155', borderRadius: '20px',
-                  padding: '6px 14px', fontSize: '13px',
-                }}>
-                  <span style={{ fontWeight: 500 }}>{sk.name}</span>
-                  {sk.category && <span style={{ color: '#64748b', fontSize: '11px' }}>({sk.category})</span>}
-                  <span style={{ color: '#a78bfa', fontSize: '11px' }}>{'●'.repeat(sk.proficiency)}{'○'.repeat(5 - sk.proficiency)}</span>
-                  <button onClick={() => sk.id && deleteSkill(sk.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '14px', padding: '0 2px' }}>×</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+        {/* SKILLS — hidden for now */}
       </main>
 
       {/* WORK MODAL */}

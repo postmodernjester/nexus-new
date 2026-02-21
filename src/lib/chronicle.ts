@@ -60,16 +60,35 @@ export interface ChronicleContact {
   chronicle_fuzzy_start?: boolean
   chronicle_fuzzy_end?: boolean
   chronicle_note?: string
+  show_on_chronicle?: boolean
+  met_date?: string
   created_at: string
+}
+
+// Education from existing table, with chronicle columns
+export interface ChronicleEducationEntry {
+  id: string
+  user_id: string
+  institution: string
+  degree?: string
+  field_of_study?: string
+  start_date: string
+  end_date?: string
+  is_current: boolean
+  chronicle_color?: string
+  chronicle_fuzzy_start?: boolean
+  chronicle_fuzzy_end?: boolean
+  chronicle_note?: string
 }
 
 // ─── Load all chronicle data ─────────────────────────────────
 export async function loadChronicleData() {
-  const [entries, places, workEntries, contacts] = await Promise.all([
+  const [entries, places, workEntries, contacts, education] = await Promise.all([
     supabase.from('chronicle_entries').select('*').order('start_date'),
     supabase.from('chronicle_places').select('*').order('start_date'),
     supabase.from('work_entries').select('id, user_id, title, company, start_date, end_date, is_current, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').order('start_date'),
-    supabase.from('contacts').select('id, owner_id, full_name, company, role, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, created_at').order('full_name'),
+    supabase.from('contacts').select('id, owner_id, full_name, company, role, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, show_on_chronicle, met_date, created_at').eq('show_on_chronicle', true).order('full_name'),
+    supabase.from('education').select('id, user_id, institution, degree, field_of_study, start_date, end_date, is_current, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').order('start_date'),
   ])
 
   return {
@@ -77,6 +96,7 @@ export async function loadChronicleData() {
     places: (places.data ?? []) as ChroniclePlace[],
     workEntries: (workEntries.data ?? []) as ChronicleWorkEntry[],
     contacts: (contacts.data ?? []) as ChronicleContact[],
+    education: (education.data ?? []) as ChronicleEducationEntry[],
   }
 }
 
@@ -172,5 +192,19 @@ export async function updateWorkEntryFromChronicle(id: string, fields: {
 
 export async function deleteWorkEntry(id: string) {
   const { error } = await supabase.from('work_entries').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ─── Update education from chronicle ────────────────────────
+export async function updateEducationFromChronicle(id: string, fields: {
+  start_date?: string
+  end_date?: string | null
+  is_current?: boolean
+  chronicle_color?: string
+  chronicle_fuzzy_start?: boolean
+  chronicle_fuzzy_end?: boolean
+  chronicle_note?: string
+}) {
+  const { error } = await supabase.from('education').update(fields).eq('id', id)
   if (error) throw error
 }
