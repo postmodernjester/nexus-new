@@ -168,11 +168,11 @@ export default function ChronicleCanvas() {
     })
     workEntries.forEach(w => {
       items.push({
-        id: `work-${w.id}`, cat: 'work', title: w.organization || w.title,
-        start: w.start_date, end: w.end_date || null,
+        id: `work-${w.id}`, cat: 'work', title: w.company || w.title,
+        start: w.start_date, end: w.is_current ? null : (w.end_date || null),
         color: w.chronicle_color || '#4070a8',
         fuzzyStart: w.chronicle_fuzzy_start || false, fuzzyEnd: w.chronicle_fuzzy_end || false,
-        note: w.chronicle_note || '', source: 'work', showOnResume: true,
+        note: w.chronicle_note || w.title, source: 'work', showOnResume: true,
       })
     })
     contacts.forEach(c => {
@@ -420,9 +420,9 @@ export default function ChronicleCanvas() {
   const showTooltip = useCallback((ev: React.MouseEvent, item: TimelineItem | PlaceItem) => {
     if (dragRef.current) return
     const parts = ['title' in item ? item.title : '']
-    if ('start' in item) parts.push(item.start + (item.end ? ' – ' + item.end : ''))
+    if ('start' in item) parts.push(item.start + (item.end ? ' \u2013 ' + item.end : ''))
     if (item.note) parts.push(item.note)
-    setTooltip({ text: parts.join(' · '), x: ev.clientX + 14, y: ev.clientY - 8 })
+    setTooltip({ text: parts.join(' \u00b7 '), x: ev.clientX + 14, y: ev.clientY - 8 })
   }, [])
 
   const moveTooltip = useCallback((ev: React.MouseEvent) => {
@@ -443,7 +443,7 @@ export default function ChronicleCanvas() {
   if (loading) {
     return (
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0ead8', color: '#9a8e78', fontFamily: "'DM Mono', monospace", fontSize: 12 }}>
-        Loading chronicle…
+        Loading chronicle...
       </div>
     )
   }
@@ -467,7 +467,7 @@ export default function ChronicleCanvas() {
           <span style={{ fontSize: 9, color: '#9a8e78', minWidth: 34 }}>{zoomLabel}</span>
         </div>
         <div style={{ padding: '0 14px', fontSize: '7.5px', color: '#d8d0c0', letterSpacing: '.06em', lineHeight: 1.5 }}>
-          click year axis → add geography &nbsp;·&nbsp; dbl-click column → new entry &nbsp;·&nbsp; drag body → move &nbsp;·&nbsp; drag edge → resize &nbsp;·&nbsp; del → delete
+          click year axis &rarr; add geography &nbsp;&middot;&nbsp; dbl-click column &rarr; new entry &nbsp;&middot;&nbsp; drag body &rarr; move &nbsp;&middot;&nbsp; drag edge &rarr; resize &nbsp;&middot;&nbsp; del &rarr; delete
         </div>
       </div>
 
@@ -554,7 +554,7 @@ export default function ChronicleCanvas() {
                 <div key={item.id} data-entry="true" style={{ position: 'absolute', top, left, width: w, height: h, borderRadius: 3, overflow: 'visible', zIndex: 10, cursor: 'default' }}>
                   <div onMouseDown={(e) => startDrag(e, item, 'move')} onClick={(e) => { e.stopPropagation(); selectEntry(item.id) }} onDoubleClick={(e) => { e.stopPropagation(); openEditModal(item) }} onMouseEnter={(e) => showTooltip(e, item)} onMouseMove={moveTooltip} onMouseLeave={hideTooltip} style={{ position: 'absolute', inset: 0, borderRadius: 3, padding: '4px 7px', overflow: 'hidden', background: hex2rgba(item.color, 0.17), border: `1px solid ${hex2rgba(item.color, 0.48)}`, ...(isSelected ? { outline: '2px solid #1a1812', outlineOffset: 1 } : {}) }}>
                     <div style={{ fontSize: Math.max(6, Math.min(8.5, pxm * 0.35)), fontWeight: 500, letterSpacing: '.03em', lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: item.color }}>{item.title}</div>
-                    {showDate && <div style={{ fontSize: '6.5px', opacity: 0.55, letterSpacing: '.05em', marginTop: 2 }}>{item.start}{item.end ? ' – ' + item.end : ''}</div>}
+                    {showDate && <div style={{ fontSize: '6.5px', opacity: 0.55, letterSpacing: '.05em', marginTop: 2 }}>{item.start}{item.end ? ' \u2013 ' + item.end : ''}</div>}
                     {item.fuzzyStart && <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 12, borderRadius: '3px 3px 0 0', pointerEvents: 'none', zIndex: 5, background: `linear-gradient(to bottom, ${hex2rgba(item.color, 0.22)}, transparent)` }} />}
                     {item.fuzzyEnd && <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 12, borderRadius: '0 0 3px 3px', pointerEvents: 'none', zIndex: 5, background: `linear-gradient(to top, ${hex2rgba(item.color, 0.22)}, transparent)` }} />}
                   </div>

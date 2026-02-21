@@ -35,6 +35,16 @@ interface Skill {
   proficiency: number
 }
 
+interface ChronicleResumeEntry {
+  id: string
+  type: string
+  title: string
+  start_date: string
+  end_date: string | null
+  canvas_col: string
+  note: string
+}
+
 const EMPTY_WORK: WorkEntry = {
   title: '', company: '', location: '', start_date: '', end_date: '',
   is_current: false, description: '', engagement_type: 'full-time'
@@ -52,6 +62,11 @@ const MONTHS = [
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: 80 }, (_, i) => CURRENT_YEAR - i)
+
+const COL_LABELS: Record<string, string> = {
+  work: 'Work', project: 'Project', personal: 'Personal',
+  residence: 'Residence', tech: 'Tech', people: 'People',
+}
 
 function parseDate(dateStr: string): { month: string; year: string } {
   if (!dateStr) return { month: '', year: '' }
@@ -71,6 +86,16 @@ function formatDate(dateStr: string): string {
   if (!year) return ''
   if (!month || month === '0') return year
   return `${MONTHS[parseInt(month)]} ${year}`
+}
+
+function formatYM(dateStr: string): string {
+  if (!dateStr) return ''
+  const parts = dateStr.split('-')
+  const year = parts[0]
+  const month = parts[1] ? parseInt(parts[1]) : 0
+  if (!year) return ''
+  if (!month) return year
+  return `${MONTHS[month]} ${year}`
 }
 
 function DatePicker({ label, value, onChange, disabled }: {
@@ -150,13 +175,14 @@ export default function ResumePage() {
   const [newSkillCategory, setNewSkillCategory] = useState('')
   const [newSkillProficiency, setNewSkillProficiency] = useState(3)
 
+  const [chronicleEntries, setChronicleEntries] = useState<ChronicleResumeEntry[]>([])
+
   useEffect(() => {
     const init = async () => {
       const { data: { user: authUser } } = await supabase.auth.getUser()
       if (!authUser) { router.push('/login'); return }
       setUser(authUser)
 
-      // Read profile from profiles table (not user_metadata)
       const { data: profile } = await supabase
         .from('profiles')
         .select('full_name, headline, location')
@@ -178,6 +204,14 @@ export default function ResumePage() {
       const { data: sk } = await supabase.from('skills').select('*').eq('user_id', authUser.id).order('name')
       if (sk) setSkills(sk)
 
+      const { data: chronicle } = await supabase
+        .from('chronicle_entries')
+        .select('id, type, title, start_date, end_date, canvas_col, note')
+        .eq('user_id', authUser.id)
+        .eq('show_on_resume', true)
+        .order('start_date', { ascending: false })
+      if (chronicle) setChronicleEntries(chronicle)
+
       setLoading(false)
     }
     init()
@@ -185,7 +219,6 @@ export default function ResumePage() {
 
   const saveProfile = async () => {
     if (!user) return
-    // Save to profiles table (not user_metadata)
     await supabase
       .from('profiles')
       .update({
@@ -255,84 +288,43 @@ export default function ResumePage() {
     setSkills(prev => prev.filter(s => s.id !== id))
   }
 
-  // ─── Styles ───
   const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '10px 14px',
-    background: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '8px',
-    color: '#e2e8f0',
-    fontSize: '14px',
-    outline: 'none',
+    width: '100%', padding: '10px 14px', background: '#1e293b',
+    border: '1px solid #334155', borderRadius: '8px', color: '#e2e8f0',
+    fontSize: '14px', outline: 'none',
   }
 
   const textareaStyle: React.CSSProperties = {
-    ...inputStyle,
-    minHeight: '80px',
-    resize: 'vertical' as const,
-    fontFamily: 'inherit',
+    ...inputStyle, minHeight: '80px', resize: 'vertical' as const, fontFamily: 'inherit',
   }
 
   const btnPrimary: React.CSSProperties = {
-    padding: '8px 18px',
-    background: '#a78bfa',
-    color: '#0f172a',
-    border: 'none',
-    borderRadius: '6px',
-    fontWeight: 600,
-    fontSize: '13px',
-    cursor: 'pointer',
+    padding: '8px 18px', background: '#a78bfa', color: '#0f172a',
+    border: 'none', borderRadius: '6px', fontWeight: 600, fontSize: '13px', cursor: 'pointer',
   }
 
   const btnSecondary: React.CSSProperties = {
-    padding: '8px 18px',
-    background: 'transparent',
-    color: '#94a3b8',
-    border: '1px solid #334155',
-    borderRadius: '6px',
-    fontWeight: 500,
-    fontSize: '13px',
-    cursor: 'pointer',
+    padding: '8px 18px', background: 'transparent', color: '#94a3b8',
+    border: '1px solid #334155', borderRadius: '6px', fontWeight: 500, fontSize: '13px', cursor: 'pointer',
   }
 
   const btnDanger: React.CSSProperties = {
-    padding: '6px 14px',
-    background: 'transparent',
-    color: '#ef4444',
-    border: '1px solid #7f1d1d',
-    borderRadius: '6px',
-    fontWeight: 500,
-    fontSize: '12px',
-    cursor: 'pointer',
+    padding: '6px 14px', background: 'transparent', color: '#ef4444',
+    border: '1px solid #7f1d1d', borderRadius: '6px', fontWeight: 500, fontSize: '12px', cursor: 'pointer',
   }
 
   const cardStyle: React.CSSProperties = {
-    background: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '12px',
-    padding: '24px',
+    background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '24px',
   }
 
   const modalOverlay: React.CSSProperties = {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,0.7)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 50,
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
   }
 
   const modalBox: React.CSSProperties = {
-    background: '#0f172a',
-    border: '1px solid #334155',
-    borderRadius: '16px',
-    padding: '32px',
-    width: '100%',
-    maxWidth: '560px',
-    maxHeight: '80vh',
-    overflowY: 'auto',
+    background: '#0f172a', border: '1px solid #334155', borderRadius: '16px',
+    padding: '32px', width: '100%', maxWidth: '560px', maxHeight: '80vh', overflowY: 'auto',
   }
 
   if (loading) {
@@ -340,7 +332,7 @@ export default function ResumePage() {
       <div style={{ minHeight: '100vh', background: '#0f172a' }}>
         <Nav />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#64748b' }}>
-          Loading…
+          Loading...
         </div>
       </div>
     )
@@ -427,6 +419,41 @@ export default function ResumePage() {
             ))}
           </div>
         </section>
+
+        {/* CHRONICLE ENTRIES (show_on_resume = true) */}
+        {chronicleEntries.length > 0 && (
+          <section style={{ marginTop: '24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>From Chronicle</h2>
+              <a href="/chronicle" style={{ color: '#a78bfa', fontSize: '13px', textDecoration: 'none' }}>Edit in Chronicle</a>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {chronicleEntries.map(entry => (
+                <div key={entry.id} style={cardStyle}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.title}</div>
+                      <span style={{
+                        fontSize: '10px', color: '#64748b', background: '#0f172a',
+                        padding: '2px 8px', borderRadius: '10px', textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                      }}>
+                        {COL_LABELS[entry.canvas_col || entry.type] || entry.type}
+                      </span>
+                    </div>
+                    <div style={{ color: '#64748b', fontSize: '13px', marginTop: '4px' }}>
+                      {formatYM(entry.start_date)}{entry.end_date ? ` – ${formatYM(entry.end_date)}` : ''}
+                    </div>
+                    {entry.note && (
+                      <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.note}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* EDUCATION */}
         <section style={{ marginTop: '24px' }}>

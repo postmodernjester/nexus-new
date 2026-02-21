@@ -38,10 +38,12 @@ export interface ChronicleWorkEntry {
   id: string
   user_id: string
   title: string
-  organization: string
+  company: string
   start_date: string
   end_date?: string
-  is_active: boolean
+  is_current: boolean
+  description?: string
+  engagement_type?: string
   chronicle_color?: string
   chronicle_fuzzy_start?: boolean
   chronicle_fuzzy_end?: boolean
@@ -73,7 +75,7 @@ export async function loadChronicleData() {
   const [entries, places, workEntries, contacts] = await Promise.all([
     supabase.from('chronicle_entries').select('*').order('start_date'),
     supabase.from('chronicle_places').select('*').order('start_date'),
-    supabase.from('work_entries').select('id, user_id, title, organization, start_date, end_date, is_active, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').order('start_date'),
+    supabase.from('work_entries').select('id, user_id, title, company, start_date, end_date, is_current, description, engagement_type, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').order('start_date'),
     supabase.from('contacts').select('id, owner_id, full_name, company, role, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, created_at').order('full_name'),
   ])
 
