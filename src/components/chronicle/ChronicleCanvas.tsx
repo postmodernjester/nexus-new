@@ -209,14 +209,18 @@ export default function ChronicleCanvas() {
 
   // Drag
   const dragRef = useRef<{
-    type: 'move' | 'top' | 'bot'
+    type: 'move' | 'top' | 'bot' | 'fuzzy_top' | 'fuzzy_bot'
     id: string
     source: 'chronicle' | 'work' | 'contact' | 'education'
     startY: number
     origTop: number
     origH: number
+    origFuzzyH?: number
   } | null>(null)
   const [dragDelta, setDragDelta] = useState<{ id: string; dy: number } | null>(null)
+
+  // Fuzzy months per entry (local state, defaults to 6)
+  const [fuzzyMonths, setFuzzyMonths] = useState<Record<string, { startMonths: number; endMonths: number }>>({})
 
   // Modals
   const [entryModal, setEntryModal] = useState<{
@@ -513,6 +517,17 @@ export default function ChronicleCanvas() {
     ev.stopPropagation()
   }, [pxm, viewStart, selectEntry])
 
+  // ─── Start fuzzy drag ─────────────────────────
+  const startFuzzyDrag = useCallback((ev: React.MouseEvent, item: TimelineItem, type: 'fuzzy_top' | 'fuzzy_bot') => {
+    if (ev.button !== 0) return
+    selectEntry(item.id)
+    const fm = fuzzyMonths[item.id] || { startMonths: 6, endMonths: 6 }
+    const fuzzyH = (type === 'fuzzy_top' ? fm.startMonths : fm.endMonths) * pxm
+    dragRef.current = { type, id: item.id, source: item.source, startY: ev.clientY, origTop: 0, origH: 0, origFuzzyH: fuzzyH }
+    ev.preventDefault()
+    ev.stopPropagation()
+  }, [pxm, selectEntry, fuzzyMonths])
+
   useEffect(() => {
     const handleMouseMove = (ev: MouseEvent) => {
       if (!dragRef.current) return
@@ -520,6 +535,14 @@ export default function ChronicleCanvas() {
       setDragDelta({ id: dragRef.current.id, dy })
 
       const d = dragRef.current
+      if (d.type === 'fuzzy_top' || d.type === 'fuzzy_bot') {
+        const origH = d.origFuzzyH || 6 * pxm
+        const newH = d.type === 'fuzzy_top' ? origH - dy : origH + dy
+        const months = Math.max(1, Math.round(newH / pxm))
+        setTooltip({ text: `~${months} mo uncertainty`, x: ev.clientX + 14, y: ev.clientY - 8 })
+        return
+      }
+
       let showTop: number
       if (d.type === 'move') showTop = Math.max(0, d.origTop + dy)
       else if (d.type === 'top') showTop = Math.max(0, d.origTop + dy)
@@ -531,6 +554,27 @@ export default function ChronicleCanvas() {
       if (!dragRef.current) return
       const d = dragRef.current
       const dy = dragDelta?.dy ?? 0
+
+      // Handle fuzzy drag end
+      if (d.type === 'fuzzy_top' || d.type === 'fuzzy_bot') {
+        const origH = d.origFuzzyH || 6 * pxm
+        const newH = d.type === 'fuzzy_top' ? origH - dy : origH + dy
+        const months = Math.max(1, Math.round(newH / pxm))
+        setFuzzyMonths(prev => {
+          const cur = prev[d.id] || { startMonths: 6, endMonths: 6 }
+          return {
+            ...prev,
+            [d.id]: d.type === 'fuzzy_top'
+              ? { ...cur, startMonths: months }
+              : { ...cur, endMonths: months },
+          }
+        })
+        dragRef.current = null
+        setDragDelta(null)
+        setTooltip(null)
+        return
+      }
+
       const snap = (v: number) => Math.round(v / pxm) * pxm
 
       let newTop: number, newH: number
@@ -580,7 +624,7 @@ export default function ChronicleCanvas() {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [pxm, viewStart, dragDelta])
+  }, [pxm, viewStart, dragDelta, fuzzyMonths])
 
   // ─── Zoom ────────────────────────────────────
   const applySlider = useCallback((newPos: number) => {
@@ -618,6 +662,31 @@ export default function ChronicleCanvas() {
       document.removeEventListener('mouseup', handleMouseUp)
     }
   }, [zoomFromTrack])
+
+  // ─── Wheel zoom (Ctrl/Cmd + scroll) centered on mouse ──
+  useEffect(() => {
+    const sw = scrollRef.current
+    if (!sw) return
+    const handleWheel = (ev: WheelEvent) => {
+      if (!ev.ctrlKey && !ev.metaKey) return
+      ev.preventDefault()
+      const rect = sw.getBoundingClientRect()
+      const mouseY = ev.clientY - rect.top + sw.scrollTop
+      const mouseYM = pxToYM(mouseY, pxm, viewStart)
+      const mouseOffset = ev.clientY - rect.top
+      const delta = ev.deltaY > 0 ? -0.03 : 0.03
+      const newPos = Math.max(0, Math.min(1, sliderPos + delta))
+      setSliderPos(newPos)
+      localStorage.setItem(LS_SLIDER, String(newPos))
+      requestAnimationFrame(() => {
+        const newYears = sliderToYears(newPos)
+        const newPxm = Math.max(0.5, sw.clientHeight / (newYears * 12))
+        sw.scrollTop = toPx(mouseYM, newPxm, viewStart) - mouseOffset
+      })
+    }
+    sw.addEventListener('wheel', handleWheel, { passive: false })
+    return () => sw.removeEventListener('wheel', handleWheel)
+  }, [pxm, viewStart, sliderPos])
 
   // ─── Persist scroll center (debounced) ────────
   useEffect(() => {
@@ -772,6 +841,7 @@ export default function ChronicleCanvas() {
       setEntryModal({ open: false })
     } catch (err) {
       console.error('Failed to save entry:', err)
+      alert('Failed to save entry. Check that all required database columns exist.')
     }
   }, [])
 
@@ -879,6 +949,7 @@ export default function ChronicleCanvas() {
       setGeoModal({ open: false })
     } catch (err) {
       console.error('Failed to save place:', err)
+      alert('Failed to save geography entry. Check that the chronicle_places table exists.')
     }
   }, [])
 
@@ -916,10 +987,29 @@ export default function ChronicleCanvas() {
     if (!dragDelta || dragDelta.id !== item.id || !dragRef.current) return null
     const d = dragRef.current
     const dy = dragDelta.dy
+    // Fuzzy drags don't move the block itself
+    if (d.type === 'fuzzy_top' || d.type === 'fuzzy_bot') return null
     if (d.type === 'move') return { top: Math.max(0, d.origTop + dy), h: d.origH }
     if (d.type === 'top') return { top: Math.max(0, d.origTop + dy), h: Math.max(pxm, d.origH - dy) }
     return { top: d.origTop, h: Math.max(pxm, d.origH + dy) }
   }, [dragDelta, pxm])
+
+  // Get live fuzzy height during drag
+  const getFuzzyH = useCallback((itemId: string, side: 'start' | 'end'): number => {
+    const fm = fuzzyMonths[itemId] || { startMonths: 6, endMonths: 6 }
+    const baseMonths = side === 'start' ? fm.startMonths : fm.endMonths
+    let h = baseMonths * pxm
+    // Apply drag delta if actively dragging this fuzzy edge
+    if (dragDelta && dragDelta.id === itemId && dragRef.current) {
+      const d = dragRef.current
+      if (side === 'start' && d.type === 'fuzzy_top') {
+        h = Math.max(pxm, (d.origFuzzyH || h) - dragDelta.dy)
+      } else if (side === 'end' && d.type === 'fuzzy_bot') {
+        h = Math.max(pxm, (d.origFuzzyH || h) + dragDelta.dy)
+      }
+    }
+    return h
+  }, [fuzzyMonths, pxm, dragDelta])
 
   // ─── RENDER ──────────────────────────────────
   if (loading) {
@@ -1055,14 +1145,14 @@ export default function ChronicleCanvas() {
                 <div key={`geo-bg-${p.id}`}>
                   <div style={{
                     position: 'absolute', left: 0, right: 0, top, height: h,
-                    background: hex2rgba(p.color, 0.12),
+                    background: hex2rgba(p.color, 0.22),
                     pointerEvents: 'none',
                   }}>
                     {p.fuzzyStart && (
-                      <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 20, background: `linear-gradient(to bottom, transparent, ${hex2rgba(p.color, 0.12)})`, pointerEvents: 'none' }} />
+                      <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 24, background: `linear-gradient(to bottom, transparent, ${hex2rgba(p.color, 0.22)})`, pointerEvents: 'none' }} />
                     )}
                     {p.fuzzyEnd && (
-                      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 20, background: `linear-gradient(to top, transparent, ${hex2rgba(p.color, 0.12)})`, pointerEvents: 'none' }} />
+                      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 24, background: `linear-gradient(to top, transparent, ${hex2rgba(p.color, 0.22)})`, pointerEvents: 'none' }} />
                     )}
                   </div>
                 </div>
@@ -1167,16 +1257,17 @@ export default function ChronicleCanvas() {
                     })}
                     style={{
                       position: 'absolute', left: 0, right: 0, top, height: h,
-                      background: hex2rgba(p.color, 0.15),
-                      borderTop: !p.fuzzyStart ? `1.5px solid ${hex2rgba(p.color, 0.3)}` : undefined,
+                      background: hex2rgba(p.color, 0.25),
+                      borderTop: !p.fuzzyStart ? `1.5px solid ${hex2rgba(p.color, 0.45)}` : undefined,
+                      borderBottom: !p.fuzzyEnd ? `1.5px solid ${hex2rgba(p.color, 0.45)}` : undefined,
                       pointerEvents: 'auto', zIndex: 1, cursor: 'pointer',
                     }}
                   >
                     {p.fuzzyStart && (
-                      <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 20, background: `linear-gradient(to bottom, transparent, ${hex2rgba(p.color, 0.15)})`, pointerEvents: 'none' }} />
+                      <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 24, background: `linear-gradient(to bottom, transparent, ${hex2rgba(p.color, 0.25)})`, pointerEvents: 'none' }} />
                     )}
                     {p.fuzzyEnd && (
-                      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 20, background: `linear-gradient(to top, transparent, ${hex2rgba(p.color, 0.15)})`, pointerEvents: 'none' }} />
+                      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 24, background: `linear-gradient(to top, transparent, ${hex2rgba(p.color, 0.25)})`, pointerEvents: 'none' }} />
                     )}
                   </div>
                 </div>
@@ -1251,13 +1342,61 @@ export default function ChronicleCanvas() {
               const showDate = h > Math.round(pxm * 1.2)
               const isSelected = selectedId === item.id
 
+              // Fuzzy fade zone dimensions
+              const fuzzyStartH = item.fuzzyStart ? getFuzzyH(item.id, 'start') : 0
+              const fuzzyEndH = item.fuzzyEnd ? getFuzzyH(item.id, 'end') : 0
+
               return (
                 <div
                   key={item.id}
                   data-entry="true"
-                  style={{ position: 'absolute', top, left, width: w, height: h, borderRadius: 3, overflow: 'visible', zIndex: 10, cursor: 'default' }}
+                  style={{
+                    position: 'absolute',
+                    top: top - fuzzyStartH,
+                    left,
+                    width: w,
+                    height: h + fuzzyStartH + fuzzyEndH,
+                    overflow: 'visible',
+                    zIndex: 10,
+                    cursor: 'default',
+                  }}
                 >
-                  {/* Body */}
+                  {/* ── Fuzzy start zone (above block) ── */}
+                  {item.fuzzyStart && fuzzyStartH > 0 && (
+                    <div
+                      style={{
+                        position: 'absolute', left: 0, right: 0,
+                        top: 0, height: fuzzyStartH,
+                        borderRadius: '3px 3px 0 0',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div style={{
+                        position: 'absolute', inset: 0,
+                        background: `linear-gradient(to bottom, transparent, ${hex2rgba(item.color, 0.17)})`,
+                        borderLeft: `1px dashed ${hex2rgba(item.color, 0.35)}`,
+                        borderRight: `1px dashed ${hex2rgba(item.color, 0.35)}`,
+                        borderTop: `1px dashed ${hex2rgba(item.color, 0.35)}`,
+                      }} />
+                      {/* Drag handle at outer edge */}
+                      <div
+                        onMouseDown={(e) => startFuzzyDrag(e, item, 'fuzzy_top')}
+                        style={{
+                          position: 'absolute', left: 0, right: 0, height: 10, top: -5,
+                          zIndex: 16, cursor: 'ns-resize',
+                        }}
+                      >
+                        <div style={{
+                          position: 'absolute', left: '50%', top: '50%',
+                          transform: 'translate(-50%,-50%)',
+                          width: 18, height: 2, borderRadius: 2,
+                          background: hex2rgba(item.color, 0.5),
+                        }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Main body ── */}
                   <div
                     onMouseDown={(e) => startDrag(e, item, 'move')}
                     onClick={(e) => { e.stopPropagation(); selectEntry(item.id) }}
@@ -1266,7 +1405,13 @@ export default function ChronicleCanvas() {
                     onMouseMove={moveTooltip}
                     onMouseLeave={hideTooltip}
                     style={{
-                      position: 'absolute', inset: 0, borderRadius: 3, padding: '4px 7px', overflow: 'hidden',
+                      position: 'absolute', left: 0, right: 0,
+                      top: fuzzyStartH, height: h,
+                      borderRadius: item.fuzzyStart && item.fuzzyEnd ? 0
+                        : item.fuzzyStart ? '0 0 3px 3px'
+                        : item.fuzzyEnd ? '3px 3px 0 0'
+                        : 3,
+                      padding: '4px 7px', overflow: 'hidden',
                       background: hex2rgba(item.color, 0.17),
                       border: `1px solid ${hex2rgba(item.color, 0.48)}`,
                       ...(isSelected ? { outline: '2px solid #1a1812', outlineOffset: 1 } : {}),
@@ -1285,28 +1430,49 @@ export default function ChronicleCanvas() {
                         {item.start}{item.end ? ' – ' + item.end : ''}
                       </div>
                     )}
-
-                    {item.fuzzyStart && (
-                      <div style={{
-                        position: 'absolute', left: 0, right: 0, top: 0, height: 12,
-                        borderRadius: '3px 3px 0 0', pointerEvents: 'none', zIndex: 5,
-                        background: `linear-gradient(to bottom, ${hex2rgba(item.color, 0.22)}, transparent)`,
-                      }} />
-                    )}
-                    {item.fuzzyEnd && (
-                      <div style={{
-                        position: 'absolute', left: 0, right: 0, bottom: 0, height: 12,
-                        borderRadius: '0 0 3px 3px', pointerEvents: 'none', zIndex: 5,
-                        background: `linear-gradient(to top, ${hex2rgba(item.color, 0.22)}, transparent)`,
-                      }} />
-                    )}
                   </div>
 
-                  {/* Resize handles */}
+                  {/* ── Fuzzy end zone (below block) ── */}
+                  {item.fuzzyEnd && fuzzyEndH > 0 && (
+                    <div
+                      style={{
+                        position: 'absolute', left: 0, right: 0,
+                        top: fuzzyStartH + h, height: fuzzyEndH,
+                        borderRadius: '0 0 3px 3px',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div style={{
+                        position: 'absolute', inset: 0,
+                        background: `linear-gradient(to top, transparent, ${hex2rgba(item.color, 0.17)})`,
+                        borderLeft: `1px dashed ${hex2rgba(item.color, 0.35)}`,
+                        borderRight: `1px dashed ${hex2rgba(item.color, 0.35)}`,
+                        borderBottom: `1px dashed ${hex2rgba(item.color, 0.35)}`,
+                      }} />
+                      {/* Drag handle at outer edge */}
+                      <div
+                        onMouseDown={(e) => startFuzzyDrag(e, item, 'fuzzy_bot')}
+                        style={{
+                          position: 'absolute', left: 0, right: 0, height: 10, bottom: -5,
+                          zIndex: 16, cursor: 'ns-resize',
+                        }}
+                      >
+                        <div style={{
+                          position: 'absolute', left: '50%', top: '50%',
+                          transform: 'translate(-50%,-50%)',
+                          width: 18, height: 2, borderRadius: 2,
+                          background: hex2rgba(item.color, 0.5),
+                        }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Resize handles (on the block's true edges) */}
                   <div
                     onMouseDown={(e) => startDrag(e, item, 'top')}
                     style={{
-                      position: 'absolute', left: 0, right: 0, height: 8, top: -4,
+                      position: 'absolute', left: 0, right: 0, height: 8,
+                      top: fuzzyStartH - 4,
                       zIndex: 15, cursor: 'ns-resize', opacity: isSelected ? 1 : 0,
                       transition: 'opacity .15s',
                     }}
@@ -1316,7 +1482,8 @@ export default function ChronicleCanvas() {
                   <div
                     onMouseDown={(e) => startDrag(e, item, 'bot')}
                     style={{
-                      position: 'absolute', left: 0, right: 0, height: 8, bottom: -4,
+                      position: 'absolute', left: 0, right: 0, height: 8,
+                      top: fuzzyStartH + h - 4,
                       zIndex: 15, cursor: 'ns-resize', opacity: isSelected ? 1 : 0,
                       transition: 'opacity .15s',
                     }}

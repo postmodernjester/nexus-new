@@ -90,12 +90,14 @@ export interface ChronicleEducationEntry {
 
 // ─── Load all chronicle data ─────────────────────────────────
 export async function loadChronicleData() {
+  const userId = await getUserId()
+
   const [entries, places, workEntries, contacts, education] = await Promise.all([
-    supabase.from('chronicle_entries').select('*').order('start_date'),
-    supabase.from('chronicle_places').select('*').order('start_date'),
-    supabase.from('work_entries').select('id, user_id, title, company, start_date, end_date, is_current, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').order('start_date'),
-    supabase.from('contacts').select('id, owner_id, full_name, company, role, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, show_on_chronicle, met_date, created_at').eq('show_on_chronicle', true).order('full_name'),
-    supabase.from('education').select('id, user_id, institution, degree, field_of_study, start_date, end_date, is_current, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').order('start_date'),
+    supabase.from('chronicle_entries').select('*').eq('user_id', userId).order('start_date'),
+    supabase.from('chronicle_places').select('*').eq('user_id', userId).order('start_date'),
+    supabase.from('work_entries').select('id, user_id, title, company, start_date, end_date, is_current, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').eq('user_id', userId).order('start_date'),
+    supabase.from('contacts').select('id, owner_id, full_name, company, role, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, show_on_chronicle, met_date, created_at').eq('owner_id', userId).eq('show_on_chronicle', true).order('full_name'),
+    supabase.from('education').select('id, user_id, institution, degree, field_of_study, start_date, end_date, is_current, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').eq('user_id', userId).order('start_date'),
   ])
 
   return {

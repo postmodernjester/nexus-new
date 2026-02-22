@@ -528,11 +528,13 @@ export default function NetworkPage() {
       return force;
     };
 
-    // Place self node near center initially (but not pinned — it drifts like everything else)
+    // Pin self node at center — you are always the center of your own network
     const selfNode = graphData.nodes.find(n => n.id === "self");
     if (selfNode) {
       selfNode.x = width / 2;
       selfNode.y = height / 2;
+      selfNode.fx = width / 2;
+      selfNode.fy = height / 2;
     }
 
     const simulation = d3
