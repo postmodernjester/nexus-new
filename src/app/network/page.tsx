@@ -537,14 +537,54 @@ export default function NetworkPage() {
       selfNode.fy = height / 2;
     }
 
+    // Build adjacency map for clustering — nodes sharing neighbors attract
+    const adjacency: Record<string, Set<string>> = {};
+    for (const link of graphData.links) {
+      const sId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id;
+      const tId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id;
+      if (!adjacency[sId]) adjacency[sId] = new Set();
+      if (!adjacency[tId]) adjacency[tId] = new Set();
+      adjacency[sId].add(tId);
+      adjacency[tId].add(sId);
+    }
+
+    // Create cluster links between non-linked nodes that share neighbors
+    const clusterLinks: GraphLink[] = [];
+    const nodeIds = graphData.nodes.map(n => n.id);
+    for (let i = 0; i < nodeIds.length; i++) {
+      for (let j = i + 1; j < nodeIds.length; j++) {
+        const a = nodeIds[i], b = nodeIds[j];
+        if (a === 'self' || b === 'self') continue;
+        const aNeighbors = adjacency[a] || new Set();
+        const bNeighbors = adjacency[b] || new Set();
+        if (aNeighbors.has(b)) continue; // already directly linked
+        let shared = 0;
+        for (const n of aNeighbors) { if (bNeighbors.has(n)) shared++; }
+        if (shared >= 1) {
+          clusterLinks.push({
+            source: a,
+            target: b,
+            distance: Math.max(80, 200 - shared * 40),
+            thickness: 0,
+            recency: 0,
+            isMutual: false,
+            isLinkedUser: false,
+          });
+        }
+      }
+    }
+
+    const allLinks = [...graphData.links, ...clusterLinks];
+
     const simulation = d3
       .forceSimulation<GraphNode>(graphData.nodes)
       .force(
         "link",
         d3
-          .forceLink<GraphNode, GraphLink>(graphData.links)
+          .forceLink<GraphNode, GraphLink>(allLinks)
           .id((d) => d.id)
           .distance((d) => d.distance)
+          .strength((d) => d.thickness === 0 ? 0.03 : 0.15)
       )
       .force("charge", d3.forceManyBody().strength(-120))
       .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => d.id === "self" ? 0.12 : 0.02))

@@ -14,20 +14,21 @@ const COLS = [
 ]
 
 const PAL: Record<string, string[]> = {
-  work: ['#2d5080', '#4070a8', '#5890c8', '#386098', '#6080b0'],
-  project: ['#306018', '#508038', '#70a050', '#407028', '#609040'],
-  education: ['#1a6050', '#2a8a6a', '#40a880', '#207858', '#50b890'],
-  personal: ['#802838', '#a85060', '#c87080', '#903848', '#b06070'],
-  residence: ['#604820', '#806840', '#a08858', '#705030', '#907848'],
-  gatherings: ['#a04828', '#c06848', '#d88868', '#b05838', '#c87858'],
-  tech: ['#604018', '#986020', '#b88040', '#785030', '#a07030'],
-  people: ['#482870', '#7050a8', '#9070c8', '#583888', '#806ab8'],
+  work: ['#1a3660', '#2d5080', '#4070a8', '#5890c8', '#78b0e0', '#3060c0', '#5080d8', '#284878'],
+  project: ['#1a4010', '#306018', '#508038', '#70a050', '#90c070', '#388020', '#60b040', '#406828'],
+  education: ['#104838', '#1a6050', '#2a8a6a', '#40a880', '#60c8a0', '#188868', '#38b090', '#206050'],
+  personal: ['#601828', '#802838', '#a85060', '#c87080', '#e090a0', '#b04058', '#d06878', '#903040'],
+  residence: ['#403010', '#604820', '#806840', '#a08858', '#c0a878', '#907038', '#b89050', '#584020'],
+  gatherings: ['#802010', '#a04828', '#c06848', '#d88868', '#f0a888', '#b85838', '#e07858', '#984030'],
+  tech: ['#402808', '#604018', '#986020', '#b88040', '#d8a060', '#a87028', '#c89048', '#785020'],
+  people: ['#301850', '#482870', '#7050a8', '#9070c8', '#b090e0', '#6040c0', '#8060d8', '#583880'],
 }
 
 export interface EntryFormData {
   id?: string
   cat: string
   title: string
+  company?: string
   start: string
   end: string
   fuzzyStart: boolean
@@ -52,6 +53,7 @@ interface Props {
 export default function ChronicleModal({ open, editingEntry, defaultCat, defaultYM, defaultEndYM, onSave, onDelete, onClose }: Props) {
   const [cat, setCat] = useState(defaultCat || 'work')
   const [title, setTitle] = useState('')
+  const [company, setCompany] = useState('')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const [fuzzyStart, setFuzzyStart] = useState(false)
@@ -66,6 +68,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
       if (editingEntry) {
         setCat(editingEntry.cat)
         setTitle(editingEntry.title)
+        setCompany(editingEntry.company || '')
         setStart(editingEntry.start)
         setEnd(editingEntry.end)
         setFuzzyStart(editingEntry.fuzzyStart)
@@ -76,6 +79,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
       } else {
         setCat(defaultCat || 'work')
         setTitle('')
+        setCompany('')
         setStart(defaultYM || '')
         setEnd(defaultEndYM || '')
         setFuzzyStart(false)
@@ -97,11 +101,16 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
   }
 
   const handleSave = () => {
-    if (!title.trim() || !start.trim()) return
+    if (cat === 'work' || cat === 'education') {
+      if (!title.trim() || !start.trim()) return
+    } else {
+      if (!title.trim() || !start.trim()) return
+    }
     onSave({
       id: editingEntry?.id,
       cat,
       title: title.trim(),
+      company: (cat === 'work') ? company.trim() : undefined,
       start: start.trim(),
       end: end.trim() || '',
       fuzzyStart,
@@ -147,15 +156,27 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
         </div>
 
         <div style={S.frow}>
-          <label style={S.label}>Title / Name</label>
+          <label style={S.label}>{cat === 'work' ? 'Job Title' : cat === 'education' ? 'Institution' : 'Title / Name'}</label>
           <input
             ref={titleRef}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Lucasfilm, 136 Santa Cruz St…"
+            placeholder={cat === 'work' ? 'e.g. Software Engineer' : cat === 'education' ? 'e.g. MIT' : 'e.g. 136 Santa Cruz St…'}
             style={S.input}
           />
         </div>
+
+        {cat === 'work' && (
+          <div style={S.frow}>
+            <label style={S.label}>Company</label>
+            <input
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              placeholder="e.g. Lucasfilm"
+              style={S.input}
+            />
+          </div>
+        )}
 
         <div style={S.fcols}>
           <div style={S.frow}>

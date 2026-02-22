@@ -162,6 +162,8 @@ export default function ResumePage() {
   const [editingEduId, setEditingEduId] = useState<string | null>(null)
 
   const [chronicleEntries, setChronicleEntries] = useState<ChronicleResumeEntry[]>([])
+  const [showChronicleModal, setShowChronicleModal] = useState(false)
+  const [editingChronicle, setEditingChronicle] = useState<ChronicleResumeEntry | null>(null)
 
   const [skills, setSkills] = useState<Skill[]>([])
   const [newSkillName, setNewSkillName] = useState('')
@@ -279,6 +281,37 @@ export default function ResumePage() {
   const deleteSkill = async (id: string) => {
     await supabase.from('skills').delete().eq('id', id)
     setSkills(prev => prev.filter(s => s.id !== id))
+  }
+
+  const openEditChronicle = (entry: ChronicleResumeEntry) => {
+    setEditingChronicle(entry)
+    setShowChronicleModal(true)
+  }
+
+  const saveChronicle = async () => {
+    if (!user || !editingChronicle) return
+    const { error } = await supabase
+      .from('chronicle_entries')
+      .update({
+        title: editingChronicle.title,
+        start_date: editingChronicle.start_date,
+        end_date: editingChronicle.end_date || null,
+        note: editingChronicle.note,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', editingChronicle.id)
+    if (!error) {
+      setChronicleEntries(prev => prev.map(e => e.id === editingChronicle.id ? editingChronicle : e))
+    }
+    setShowChronicleModal(false)
+    setEditingChronicle(null)
+  }
+
+  const deleteChronicle = async (id: string) => {
+    await supabase.from('chronicle_entries').delete().eq('id', id)
+    setChronicleEntries(prev => prev.filter(e => e.id !== id))
+    setShowChronicleModal(false)
+    setEditingChronicle(null)
   }
 
   // ─── Styles ───
@@ -484,9 +517,9 @@ export default function ResumePage() {
                             <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.note}</p>
                           )}
                         </div>
-                        <a href="/chronicle" style={{ ...btnSecondary, textDecoration: 'none', fontSize: '12px', padding: '6px 12px' }}>
+                        <button onClick={() => openEditChronicle(entry)} style={{ ...btnSecondary, fontSize: '12px', padding: '6px 12px' }}>
                           Edit
-                        </a>
+                        </button>
                       </div>
                     </div>
                   )
@@ -558,12 +591,12 @@ export default function ResumePage() {
                             </p>
                           )}
                           <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
-                            <a href="/chronicle" style={{
+                            <button onClick={() => openEditChronicle(project)} style={{
                               ...btnSecondary,
-                              textDecoration: 'none', fontSize: '11px', padding: '5px 10px',
+                              fontSize: '11px', padding: '5px 10px',
                             }}>
                               Edit
-                            </a>
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -663,6 +696,42 @@ export default function ResumePage() {
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
                 <button onClick={() => setShowWorkModal(false)} style={btnSecondary}>Cancel</button>
                 <button onClick={saveWork} style={btnPrimary}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CHRONICLE ENTRY MODAL */}
+      {showChronicleModal && editingChronicle && (
+        <div style={modalOverlay} onClick={() => { setShowChronicleModal(false); setEditingChronicle(null) }}>
+          <div style={modalBox} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '20px' }}>Edit Entry</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Title *</label>
+                <input value={editingChronicle.title} onChange={e => setEditingChronicle({ ...editingChronicle, title: e.target.value })} style={inputStyle} />
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Start (YYYY-MM)</label>
+                  <input value={editingChronicle.start_date || ''} onChange={e => setEditingChronicle({ ...editingChronicle, start_date: e.target.value })} placeholder="2020-01" style={inputStyle} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>End (YYYY-MM or blank)</label>
+                  <input value={editingChronicle.end_date || ''} onChange={e => setEditingChronicle({ ...editingChronicle, end_date: e.target.value || null })} placeholder="2022-06" style={inputStyle} />
+                </div>
+              </div>
+              <div>
+                <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Note</label>
+                <textarea value={editingChronicle.note || ''} onChange={e => setEditingChronicle({ ...editingChronicle, note: e.target.value })} style={textareaStyle} />
+              </div>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between', marginTop: '8px' }}>
+                <button onClick={() => deleteChronicle(editingChronicle.id)} style={btnDanger}>Delete</button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => { setShowChronicleModal(false); setEditingChronicle(null) }} style={btnSecondary}>Cancel</button>
+                  <button onClick={saveChronicle} style={btnPrimary}>Save</button>
+                </div>
               </div>
             </div>
           </div>

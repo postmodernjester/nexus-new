@@ -189,6 +189,8 @@ export async function updateEntryDates(id: string, start_date: string, end_date:
 
 // ─── Update work entry from chronicle (full fields) ──────────
 export async function updateWorkEntryFromChronicle(id: string, fields: {
+  title?: string
+  company?: string
   start_date?: string
   end_date?: string | null
   is_current?: boolean

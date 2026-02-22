@@ -2,17 +2,34 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect } from 'react';
 
 const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Dashboard' },
+  { href: '/resume',    label: 'Profile' },
+  { href: '/contacts',  label: 'Contacts' },
   { href: '/network',   label: 'Network' },
   { href: '/chronicle', label: 'Chronicle' },
-  { href: '/contacts',  label: 'Contacts' },
-  { href: '/resume',    label: 'My Profile' },
+  { href: '/dashboard', label: 'Dashboard' },
 ];
+
+const LS_LAST_TAB = 'nexus_last_tab';
+
+export function getLastVisitedTab(): string {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem(LS_LAST_TAB) || '/dashboard';
+  }
+  return '/dashboard';
+}
 
 export default function Nav() {
   const pathname = usePathname();
+
+  // Persist the current tab whenever it changes
+  useEffect(() => {
+    if (NAV_ITEMS.some(item => item.href === pathname)) {
+      localStorage.setItem(LS_LAST_TAB, pathname);
+    }
+  }, [pathname]);
 
   return (
     <nav
@@ -29,7 +46,7 @@ export default function Nav() {
       }}
     >
       <Link
-        href="/dashboard"
+        href={getLastVisitedTab()}
         style={{
           fontSize: '18px',
           fontWeight: 'bold',

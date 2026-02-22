@@ -346,7 +346,7 @@ export default function ChronicleCanvas() {
       items.push({
         id: `work-${w.id}`,
         cat: 'work',
-        title: w.company || w.title,
+        title: w.title ? (w.company ? `${w.title} · ${w.company}` : w.title) : (w.company || 'Untitled'),
         start: w.start_date,
         end: w.is_current ? null : (w.end_date || null),
         color: w.chronicle_color || '#4070a8',
@@ -722,7 +722,7 @@ export default function ChronicleCanvas() {
     if (!gridEl) return
     const rect = gridEl.getBoundingClientRect()
     const relX = ev.clientX - rect.left
-    const relY = ev.clientY - rect.top + (scrollRef.current?.scrollTop || 0)
+    const relY = ev.clientY - rect.top
     const colIdx = getColAtX(relX, collapsedCols)
     if (colIdx < 0 || colIdx >= COLS.length) return
     const col = COLS[colIdx]
@@ -739,12 +739,12 @@ export default function ChronicleCanvas() {
     })
   }, [pxm, viewStart, collapsedCols])
 
-  // ─── Axis click → geo modal ──────────────────
-  const handleAxisClick = useCallback((ev: React.MouseEvent) => {
+  // ─── Axis double-click → geo modal ──────────────────
+  const handleAxisDblClick = useCallback((ev: React.MouseEvent) => {
     const axisEl = document.getElementById('chr-axis')
     if (!axisEl) return
     const rect = axisEl.getBoundingClientRect()
-    const relY = ev.clientY - rect.top + (scrollRef.current?.scrollTop || 0)
+    const relY = ev.clientY - rect.top
     const ym = pxToYM(relY, pxm, viewStart)
 
     const hit = placeItems.find(p => {
@@ -781,6 +781,8 @@ export default function ChronicleCanvas() {
     try {
       if (data.source === 'work' && data.id) {
         await updateWorkEntryFromChronicle(data.id, {
+          title: data.title || undefined,
+          company: data.company || undefined,
           start_date: data.start ? data.start + '-01' : undefined,
           end_date: data.end ? data.end + '-01' : null,
           is_current: !data.end,
@@ -791,6 +793,8 @@ export default function ChronicleCanvas() {
         })
         setWorkEntries(prev => prev.map(w => w.id === data.id ? {
           ...w,
+          title: data.title || w.title,
+          company: data.company || w.company,
           start_date: data.start ? data.start + '-01' : w.start_date,
           end_date: data.end ? data.end + '-01' : undefined,
           is_current: !data.end,
@@ -819,6 +823,29 @@ export default function ChronicleCanvas() {
           chronicle_fuzzy_end: data.fuzzyEnd,
           chronicle_note: data.note,
         } : edu))
+      } else if (data.cat === 'work' && !data.id && data.company) {
+        // New work entry from chronicle — save to work_entries table
+        const { supabase: sb } = await import('@/lib/supabase')
+        const userId = (await sb.auth.getUser()).data.user?.id
+        if (!userId) throw new Error('Not authenticated')
+        const { data: newWork, error } = await sb
+          .from('work_entries')
+          .insert({
+            user_id: userId,
+            title: data.title,
+            company: data.company,
+            start_date: data.start + '-01',
+            end_date: data.end ? data.end + '-01' : null,
+            is_current: !data.end,
+            chronicle_color: data.color,
+            chronicle_fuzzy_start: data.fuzzyStart,
+            chronicle_fuzzy_end: data.fuzzyEnd,
+            chronicle_note: data.note,
+          })
+          .select()
+          .single()
+        if (error) throw error
+        setWorkEntries(prev => [...prev, newWork as ChronicleWorkEntry])
       } else {
         const result = await upsertEntry({
           id: data.id || undefined,
@@ -893,7 +920,8 @@ export default function ChronicleCanvas() {
         editing: {
           id: realId,
           cat: 'work',
-          title: work.company || work.title,
+          title: work.title || '',
+          company: work.company || '',
           start: startYM,
           end: endYM,
           fuzzyStart: work.chronicle_fuzzy_start || false,
@@ -1060,7 +1088,7 @@ export default function ChronicleCanvas() {
         </div>
 
         <div style={{ padding: '0 14px', fontSize: '7.5px', color: '#d8d0c0', letterSpacing: '.06em', lineHeight: 1.5 }}>
-          click year axis → add geography &nbsp;·&nbsp; dbl-click column → new entry &nbsp;·&nbsp; drag body → move &nbsp;·&nbsp; drag edge → resize &nbsp;·&nbsp; del → delete
+          dbl-click axis → add geography &nbsp;·&nbsp; dbl-click column → new entry &nbsp;·&nbsp; drag body → move &nbsp;·&nbsp; drag edge → resize &nbsp;·&nbsp; del → delete
         </div>
       </div>
 
@@ -1163,7 +1191,7 @@ export default function ChronicleCanvas() {
           {/* ── AXIS ─────────────────────────── */}
           <div
             id="chr-axis"
-            onClick={handleAxisClick}
+            onDoubleClick={handleAxisDblClick}
             style={{
               width: AXIS_W, flexShrink: 0, borderRight: '2px solid #1a1812',
               position: 'sticky', left: 0, zIndex: 30, background: 'rgba(246,241,230,0.88)',
