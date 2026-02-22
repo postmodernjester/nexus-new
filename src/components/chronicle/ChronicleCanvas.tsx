@@ -462,46 +462,50 @@ export default function ChronicleCanvas() {
   }, [collapsedCols])
 
   // ─── Selection with click-through for overlapping items ───
-  const lastClickRef = useRef<{ col: string; y: number; time: number; cycle: number }>({ col: '', y: 0, time: 0, cycle: 0 })
+  const clickCycleRef = useRef<{ itemId: string; time: number; overlapping: string[]; idx: number }>({ itemId: '', time: 0, overlapping: [], idx: 0 })
 
-  const selectEntry = useCallback((id: string | null, clickEvent?: React.MouseEvent) => {
-    if (id && clickEvent) {
-      const gridEl = document.getElementById('chr-grid')
-      if (gridEl) {
-        const rect = gridEl.getBoundingClientRect()
-        const relX = clickEvent.clientX - rect.left
-        const relY = clickEvent.clientY - rect.top
-        const colIdx = getColAtX(relX, collapsedCols)
-        const col = colIdx >= 0 && colIdx < COLS.length ? COLS[colIdx].id : ''
-        const now = Date.now()
-        const prev = lastClickRef.current
+  const selectEntry = useCallback((id: string | null) => {
+    if (!id) {
+      setSelectedId(null)
+      return
+    }
 
-        // If clicking in same general area within 2 seconds, cycle through stack
-        if (col === prev.col && Math.abs(relY - prev.y) < 20 && now - prev.time < 2000) {
-          // Find all items at this position in this column
-          const itemsAtPos = timelineItems.filter(item => {
-            if (item.cat !== col) return false
-            if (collapsedCols.has(item.cat)) return false
-            const s = parseYM(item.start)
-            const en = item.end ? parseYM(item.end) : null
-            if (!s) return false
-            const top = toPx(s, pxm, viewStart)
-            const h = en ? Math.max(Math.round(pxm), toPx(en, pxm, viewStart) - top) : Math.round(pxm * 2)
-            return relY >= top && relY <= top + h
-          })
+    const clickedItem = timelineItems.find(i => i.id === id)
+    if (clickedItem) {
+      const now = Date.now()
+      const prev = clickCycleRef.current
 
-          if (itemsAtPos.length > 1) {
-            const nextCycle = (prev.cycle + 1) % itemsAtPos.length
-            lastClickRef.current = { col, y: relY, time: now, cycle: nextCycle }
-            const nextItem = itemsAtPos[nextCycle]
-            setSelectedId(nextItem.id)
-            setShowDelHint(true)
-            setTimeout(() => setShowDelHint(false), 2000)
-            return
-          }
-        }
+      // If clicking same item (or item in the same overlap group) within 2s, cycle
+      if (now - prev.time < 2000 && prev.overlapping.includes(id)) {
+        const nextIdx = (prev.idx + 1) % prev.overlapping.length
+        const nextId = prev.overlapping[nextIdx]
+        clickCycleRef.current = { ...prev, time: now, idx: nextIdx, itemId: nextId }
+        setSelectedId(nextId)
+        setShowDelHint(true)
+        setTimeout(() => setShowDelHint(false), 2000)
+        return
+      }
 
-        lastClickRef.current = { col, y: relY, time: now, cycle: 0 }
+      // Find all items in the same column that overlap with this one
+      const s1 = parseYM(clickedItem.start)
+      if (s1) {
+        const top1 = toPx(s1, pxm, viewStart)
+        const e1 = clickedItem.end ? parseYM(clickedItem.end) : null
+        const h1 = e1 ? Math.max(Math.round(pxm), toPx(e1, pxm, viewStart) - top1) : Math.round(pxm * 2)
+
+        const overlapping = timelineItems.filter(item => {
+          if (item.cat !== clickedItem.cat) return false
+          if (collapsedCols.has(item.cat)) return false
+          const s2 = parseYM(item.start)
+          if (!s2) return false
+          const top2 = toPx(s2, pxm, viewStart)
+          const e2 = item.end ? parseYM(item.end) : null
+          const h2 = e2 ? Math.max(Math.round(pxm), toPx(e2, pxm, viewStart) - top2) : Math.round(pxm * 2)
+          // Check if rectangles overlap vertically
+          return top1 < top2 + h2 && top1 + h1 > top2
+        }).map(i => i.id)
+
+        clickCycleRef.current = { itemId: id, time: now, overlapping, idx: 0 }
       }
     }
 
@@ -510,7 +514,7 @@ export default function ChronicleCanvas() {
       setShowDelHint(true)
       setTimeout(() => setShowDelHint(false), 2000)
     }
-  }, [collapsedCols, timelineItems, pxm, viewStart])
+  }, [timelineItems, pxm, viewStart, collapsedCols])
 
   // ─── Toggle column collapse ──────────────────
   const toggleCollapse = useCallback((colId: string) => {
@@ -1488,7 +1492,7 @@ export default function ChronicleCanvas() {
                   {/* ── Main body ── */}
                   <div
                     onMouseDown={(e) => startDrag(e, item, 'move')}
-                    onClick={(e) => { e.stopPropagation(); selectEntry(item.id, e) }}
+                    onClick={(e) => { e.stopPropagation(); selectEntry(item.id) }}
                     onDoubleClick={(e) => { e.stopPropagation(); openEditModal(item) }}
                     onMouseEnter={(e) => showTooltip(e, item)}
                     onMouseMove={moveTooltip}

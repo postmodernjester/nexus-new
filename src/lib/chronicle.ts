@@ -140,23 +140,49 @@ export async function deleteEntry(id: string) {
 
 // ─── Chronicle Places CRUD ───────────────────────────────────
 export async function upsertPlace(place: Partial<ChroniclePlace> & { title: string; start_date: string }) {
-  const payload = { ...place, updated_at: new Date().toISOString() }
+  // Build a clean payload with only defined fields
+  const clean: Record<string, unknown> = {}
+  if (place.title !== undefined) clean.title = place.title
+  if (place.start_date !== undefined) clean.start_date = place.start_date
+  if (place.end_date !== undefined) clean.end_date = place.end_date
+  if (place.color !== undefined) clean.color = place.color
+  if (place.fuzzy_start !== undefined) clean.fuzzy_start = place.fuzzy_start
+  if (place.fuzzy_end !== undefined) clean.fuzzy_end = place.fuzzy_end
+  if (place.note !== undefined) clean.note = place.note
+
   if (place.id) {
-    const { data, error } = await supabase
+    // Try with updated_at, fall back without
+    let { data, error } = await supabase
       .from('chronicle_places')
-      .update(payload)
+      .update({ ...clean, updated_at: new Date().toISOString() })
       .eq('id', place.id)
       .select()
       .single()
+    if (error) {
+      ;({ data, error } = await supabase
+        .from('chronicle_places')
+        .update(clean)
+        .eq('id', place.id)
+        .select()
+        .single())
+    }
     if (error) throw error
     return data as ChroniclePlace
   } else {
     const userId = await getUserId()
-    const { data, error } = await supabase
+    // Try with updated_at, fall back without
+    let { data, error } = await supabase
       .from('chronicle_places')
-      .insert({ ...payload, user_id: userId })
+      .insert({ ...clean, user_id: userId, updated_at: new Date().toISOString() })
       .select()
       .single()
+    if (error) {
+      ;({ data, error } = await supabase
+        .from('chronicle_places')
+        .insert({ ...clean, user_id: userId })
+        .select()
+        .single())
+    }
     if (error) throw error
     return data as ChroniclePlace
   }

@@ -262,7 +262,11 @@ export default function ResumePage() {
       .from('profiles')
       .update({ key_links: keyLinks })
       .eq('id', user.id)
-    if (error) console.warn('Failed to save key links:', error.message)
+    if (error) {
+      console.warn('Failed to save key links:', error.message)
+      alert('Could not save links. The "key_links" column may need to be added to the profiles table as JSONB.')
+      return
+    }
     setEditingLinks(false)
   }
 
@@ -615,7 +619,7 @@ export default function ResumePage() {
             <button onClick={openAddWork} style={btnPrimary}>+ Add</button>
           </div>
 
-          {workEntries.length === 0 && chronicleEntries.filter(e => e.canvas_col !== 'project' && e.type !== 'project').length === 0 && (
+          {workEntries.length === 0 && chronicleEntries.filter(e => e.canvas_col !== 'project' && e.type !== 'project' && e.canvas_col !== 'education' && e.type !== 'education').length === 0 && (
             <div style={{ ...cardStyle, color: '#475569', fontSize: '14px', textAlign: 'center' }}>
               No experience added yet.
             </div>
@@ -625,7 +629,7 @@ export default function ResumePage() {
             {[
               ...workEntries.map(e => ({ kind: 'work' as const, sortDate: e.start_date || '', data: e })),
               ...chronicleEntries
-                .filter(e => e.canvas_col !== 'project' && e.type !== 'project')
+                .filter(e => e.canvas_col !== 'project' && e.type !== 'project' && e.canvas_col !== 'education' && e.type !== 'education')
                 .map(e => ({ kind: 'chronicle' as const, sortDate: e.start_date || '', data: e })),
             ]
               .sort((a, b) => b.sortDate.localeCompare(a.sortDate))
@@ -783,47 +787,90 @@ export default function ResumePage() {
         })()}
 
         {/* EDUCATION */}
-        <section style={{ marginTop: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Education</h2>
-            <button onClick={openAddEdu} style={btnPrimary}>+ Add</button>
-          </div>
-
-          {eduEntries.length === 0 && (
-            <div style={{ ...cardStyle, color: '#475569', fontSize: '14px', textAlign: 'center' }}>
-              No education added yet.
-            </div>
-          )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {eduEntries.map(entry => (
-              <div key={entry.id} style={cardStyle}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.institution}</div>
-                    <div style={{ color: '#94a3b8', fontSize: '14px' }}>
-                      {entry.degree}{entry.field_of_study ? ` in ${entry.field_of_study}` : ''}
-                    </div>
-                    <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
-                      {formatDate(entry.start_date)} – {entry.is_current ? 'Present' : formatDate(entry.end_date)}
-                    </div>
-                    {entry.description && (
-                      <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.description}</p>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                    <button onClick={() => openEditEdu(entry)} style={iconBtn} title="Edit">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                    <button onClick={() => entry.id && deleteEdu(entry.id)} style={iconBtnDanger} title="Delete">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                    </button>
-                  </div>
-                </div>
+        {(() => {
+          const eduChronicle = chronicleEntries.filter(e => e.canvas_col === 'education' || e.type === 'education')
+          return (
+            <section style={{ marginTop: '24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Education</h2>
+                <button onClick={openAddEdu} style={btnPrimary}>+ Add</button>
               </div>
-            ))}
-          </div>
-        </section>
+
+              {eduEntries.length === 0 && eduChronicle.length === 0 && (
+                <div style={{ ...cardStyle, color: '#475569', fontSize: '14px', textAlign: 'center' }}>
+                  No education added yet.
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {[
+                  ...eduEntries.map(e => ({ kind: 'edu' as const, sortDate: e.start_date || '', data: e })),
+                  ...eduChronicle.map(e => ({ kind: 'chronicle' as const, sortDate: e.start_date || '', data: e })),
+                ]
+                  .sort((a, b) => b.sortDate.localeCompare(a.sortDate))
+                  .map(item => {
+                    if (item.kind === 'edu') {
+                      const entry = item.data as EducationEntry
+                      return (
+                        <div key={entry.id} style={cardStyle}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.institution}</div>
+                              <div style={{ color: '#94a3b8', fontSize: '14px' }}>
+                                {entry.degree}{entry.field_of_study ? ` in ${entry.field_of_study}` : ''}
+                              </div>
+                              <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
+                                {formatDate(entry.start_date)} – {entry.is_current ? 'Present' : formatDate(entry.end_date)}
+                              </div>
+                              {entry.description && (
+                                <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.description}</p>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                              <button onClick={() => openEditEdu(entry)} style={iconBtn} title="Edit">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                              </button>
+                              <button onClick={() => entry.id && deleteEdu(entry.id)} style={iconBtnDanger} title="Delete">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    } else {
+                      const entry = item.data as ChronicleResumeEntry
+                      const startYM = entry.start_date?.slice(0, 7) || ''
+                      const endYM = entry.end_date?.slice(0, 7) || ''
+                      return (
+                        <div key={`c-${entry.id}`} style={cardStyle}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.title}</div>
+                              <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
+                                {startYM}{endYM ? ` – ${endYM}` : startYM ? ' – Present' : ''}
+                              </div>
+                              {entry.note && (
+                                <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.note}</p>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                              <button onClick={() => openEditChronicle(entry)} style={iconBtn} title="Edit">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                              </button>
+                              <button onClick={() => deleteChronicle(entry.id)} style={iconBtnDanger} title="Delete">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    }
+                  })
+                }
+              </div>
+            </section>
+          )
+        })()}
 
         {/* SKILLS — hidden for now */}
       </main>
@@ -923,9 +970,14 @@ export default function ResumePage() {
                     onChange={async (e) => {
                       const file = e.target.files?.[0]
                       if (!file) return
-                      if (file.size > 2 * 1024 * 1024) { alert('Image must be under 2 MB'); e.target.value = ''; return }
+                      if (file.size > 1 * 1024 * 1024) { alert('Image must be under 1 MB'); e.target.value = ''; return }
                       if (!file.type.startsWith('image/')) { alert('Only image files allowed'); e.target.value = ''; return }
                       const path = `projects/${user!.id}/${Date.now()}-${file.name}`
+                      // Ensure bucket exists
+                      const { data: buckets } = await supabase.storage.listBuckets()
+                      if (!buckets?.find(b => b.name === 'chronicle-images')) {
+                        await supabase.storage.createBucket('chronicle-images', { public: true, fileSizeLimit: 1024 * 1024 })
+                      }
                       const { error: upErr } = await supabase.storage.from('chronicle-images').upload(path, file)
                       if (upErr) { alert('Upload failed: ' + upErr.message); return }
                       const { data: urlData } = supabase.storage.from('chronicle-images').getPublicUrl(path)
@@ -933,7 +985,7 @@ export default function ResumePage() {
                     }}
                     style={{ fontSize: '12px', color: '#94a3b8' }}
                   />
-                  <div style={{ fontSize: '10px', color: '#475569', marginTop: '4px' }}>PNG, JPG, WebP, GIF — max 2 MB</div>
+                  <div style={{ fontSize: '10px', color: '#475569', marginTop: '4px' }}>PNG, JPG, WebP, GIF — max 1 MB</div>
                 </div>
               )}
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', borderTop: '1px solid #334155', paddingTop: '12px' }}>
