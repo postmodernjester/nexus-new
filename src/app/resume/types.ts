@@ -27,6 +27,7 @@ export interface EducationEntry {
   end_date: string
   is_current: boolean
   description: string
+  show_on_resume?: boolean
 }
 
 export interface ChronicleResumeEntry {
@@ -96,7 +97,7 @@ export const EMPTY_WORK: WorkEntry = {
 
 export const EMPTY_EDU: EducationEntry = {
   institution: '', degree: '', field_of_study: '', start_date: '', end_date: '',
-  is_current: false, description: ''
+  is_current: false, description: '', show_on_resume: true,
 }
 
 export const MONTHS = [

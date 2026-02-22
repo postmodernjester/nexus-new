@@ -218,7 +218,12 @@ export default function ResumePage() {
       return { data, error: null }
     }
 
-    const mapWork = (data: any) => ({ ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] })
+    const mapWork = (data: any) => ({
+      ...data,
+      location_type: data.remote_type || '',
+      ai_skills_extracted: data.ai_skills_extracted || [],
+      show_on_resume: editingWork.show_on_resume !== false,
+    })
 
     if (isMigration) {
       const { data, error } = await doInsert()
@@ -268,14 +273,36 @@ export default function ResumePage() {
 
   const saveEdu = async () => {
     if (!user) return
-    const payload = { ...editingEdu, user_id: user.id }
-    delete (payload as any).id
+    // Phase 1: only base columns (guaranteed to exist)
+    const basePayload: Record<string, unknown> = {
+      user_id: user.id,
+      institution: editingEdu.institution,
+      degree: editingEdu.degree || null,
+      field_of_study: editingEdu.field_of_study || null,
+      start_date: editingEdu.start_date || null,
+      end_date: editingEdu.is_current ? null : (editingEdu.end_date || null),
+      is_current: editingEdu.is_current,
+      description: editingEdu.description || null,
+    }
+    // Phase 2: optional columns from later migrations
+    const extraCols: Record<string, unknown> = {}
+    if (editingEdu.show_on_resume !== undefined) extraCols.show_on_resume = editingEdu.show_on_resume
+
     if (editingEduId) {
-      const { data } = await supabase.from('education').update(payload).eq('id', editingEduId).select().single()
-      if (data) setEduEntries(prev => prev.map(e => e.id === editingEduId ? data : e))
+      const { user_id, ...updateFields } = basePayload
+      const { data, error } = await supabase.from('education').update(updateFields).eq('id', editingEduId).select().single()
+      if (error) { console.error('Education update failed:', error); alert('Failed to save: ' + error.message); return }
+      if (data && Object.keys(extraCols).length > 0) {
+        await supabase.from('education').update(extraCols).eq('id', data.id).then(() => {}, () => {})
+      }
+      if (data) setEduEntries(prev => prev.map(e => e.id === editingEduId ? { ...data, show_on_resume: editingEdu.show_on_resume } : e))
     } else {
-      const { data } = await supabase.from('education').insert(payload).select().single()
-      if (data) setEduEntries(prev => [data, ...prev])
+      const { data, error } = await supabase.from('education').insert(basePayload).select().single()
+      if (error) { console.error('Education insert failed:', error); alert('Failed to save: ' + error.message); return }
+      if (data && Object.keys(extraCols).length > 0) {
+        await supabase.from('education').update(extraCols).eq('id', data.id).then(() => {}, () => {})
+      }
+      if (data) setEduEntries(prev => [{ ...data, show_on_resume: editingEdu.show_on_resume }, ...prev])
     }
     setShowEduModal(false)
   }
@@ -505,7 +532,7 @@ export default function ResumePage() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {[
-              ...workEntries.map(e => ({ kind: 'work' as const, sortDate: e.start_date || '', data: e })),
+              ...workEntries.filter(e => (e as any).show_on_resume !== false).map(e => ({ kind: 'work' as const, sortDate: e.start_date || '', data: e })),
               ...chronicleEntries
                 .filter(e => e.canvas_col !== 'project' && e.type !== 'project' && e.canvas_col !== 'education' && e.type !== 'education')
                 .map(e => ({ kind: 'chronicle' as const, sortDate: e.start_date || '', data: e })),
@@ -703,7 +730,7 @@ export default function ResumePage() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {[
-                  ...eduEntries.map(e => ({ kind: 'edu' as const, sortDate: e.start_date || '', data: e })),
+                  ...eduEntries.filter(e => (e as any).show_on_resume !== false).map(e => ({ kind: 'edu' as const, sortDate: e.start_date || '', data: e })),
                   ...eduChronicle.map(e => ({ kind: 'chronicle' as const, sortDate: e.start_date || '', data: e })),
                 ]
                   .sort((a, b) => b.sortDate.localeCompare(a.sortDate))

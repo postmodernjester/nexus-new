@@ -88,6 +88,7 @@ export interface ChronicleEducationEntry {
   start_date: string
   end_date?: string
   is_current: boolean
+  show_on_resume?: boolean
   chronicle_color?: string
   chronicle_fuzzy_start?: boolean
   chronicle_fuzzy_end?: boolean
@@ -264,19 +265,21 @@ export async function updateEducationFromChronicle(id: string, fields: {
   start_date?: string
   end_date?: string | null
   is_current?: boolean
+  show_on_resume?: boolean
   chronicle_color?: string
   chronicle_fuzzy_start?: boolean
   chronicle_fuzzy_end?: boolean
   chronicle_note?: string
 }) {
   // Phase 1: base columns
-  const { chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, ...base } = fields
+  const { show_on_resume, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, ...base } = fields
   if (Object.keys(base).length > 0) {
     const { error } = await supabase.from('education').update(base).eq('id', id)
     if (error) throw error
   }
-  // Phase 2: chronicle columns (silently skip if missing)
+  // Phase 2: optional columns (silently skip if missing)
   const extras: Record<string, unknown> = {}
+  if (show_on_resume !== undefined) extras.show_on_resume = show_on_resume
   if (chronicle_color !== undefined) extras.chronicle_color = chronicle_color
   if (chronicle_fuzzy_start !== undefined) extras.chronicle_fuzzy_start = chronicle_fuzzy_start
   if (chronicle_fuzzy_end !== undefined) extras.chronicle_fuzzy_end = chronicle_fuzzy_end

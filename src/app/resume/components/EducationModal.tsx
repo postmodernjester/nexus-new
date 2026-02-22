@@ -47,6 +47,19 @@ export default function EducationModal({ show, editingEdu, editingEduId, setEdit
             <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Description</label>
             <textarea value={editingEdu.description} onChange={e => setEditingEdu({ ...editingEdu, description: e.target.value })} style={textareaStyle} />
           </div>
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            color: '#94a3b8', fontSize: '13px', cursor: 'pointer',
+            borderTop: '1px solid #334155', paddingTop: '12px',
+          }}>
+            <input
+              type="checkbox"
+              checked={editingEdu.show_on_resume !== false}
+              onChange={e => setEditingEdu({ ...editingEdu, show_on_resume: e.target.checked })}
+              style={{ width: 16, height: 16, accentColor: '#a78bfa', cursor: 'pointer' }}
+            />
+            Show on resume
+          </label>
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
             <button onClick={onClose} style={btnSecondary}>Cancel</button>
             <button onClick={onSave} style={btnPrimary}>Save</button>
