@@ -24,9 +24,9 @@ export function useNetworkData() {
         return;
       }
 
-      const [contactsRes, connectionsRes, notesRes, profileRes] =
+      const [myContactsRes, connectionsRes, notesRes, profileRes] =
         await Promise.all([
-          supabase.from("contacts").select("*"),
+          supabase.from("contacts").select("*").eq("owner_id", user.id),
           supabase.from("connections").select("*").eq("status", "accepted"),
           supabase.from("contact_notes").select("contact_id, entry_date, content"),
           supabase
@@ -36,8 +36,7 @@ export function useNetworkData() {
             .single(),
         ]);
 
-      const allContacts: Contact[] = contactsRes.data || [];
-      const myContacts = allContacts.filter((c) => c.owner_id === user.id);
+      const myContacts: Contact[] = myContactsRes.data || [];
       const connections: Connection[] = connectionsRes.data || [];
       const allNotes = notesRes.data || [];
 
@@ -119,7 +118,7 @@ export function useNetworkData() {
         }
       }
 
-      const linkedProfileIds = allContacts
+      const linkedProfileIds = myContacts
         .filter((c) => c.linked_profile_id && !mutualUserIds.has(c.linked_profile_id))
         .map((c) => c.linked_profile_id!)
         .filter((id, i, arr) => arr.indexOf(id) === i);
@@ -157,9 +156,18 @@ export function useNetworkData() {
         }
       }
 
-      const theirContacts = allContacts.filter(
-        (c) => mutualUserIds.has(c.owner_id) && c.owner_id !== user.id
-      );
+      // Fetch connected users' contacts via SECURITY DEFINER RPC
+      // (bypasses RLS so we don't depend on the contacts SELECT policy)
+      let theirContacts: Contact[] = [];
+      if (mutualUserIds.size > 0) {
+        const { data: rpcContacts } = await supabase.rpc(
+          "get_connected_users_contacts",
+          { p_user_id: user.id }
+        );
+        theirContacts = (rpcContacts || []).filter(
+          (c: Contact) => mutualUserIds.has(c.owner_id)
+        );
+      }
 
       // === DEDUP ===
       const myContactsLinkedToConnectedUser = new Map<string, Contact>();
