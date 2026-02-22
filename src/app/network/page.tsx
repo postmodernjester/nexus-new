@@ -17,6 +17,11 @@ interface Contact {
   linked_profile_id: string | null;
   last_contact_date: string | null;
   anonymous_to_connections: boolean | null;
+  location: string | null;
+  email: string | null;
+  how_we_met: string | null;
+  ai_summary: string | null;
+  next_action_note: string | null;
 }
 
 interface Connection {
@@ -47,6 +52,8 @@ interface GraphNode extends d3.SimulationNodeDatum {
   profileId?: string;
   contactId?: string;
   isAnonymous?: boolean;
+  recency?: number;
+  searchText?: string;
 }
 
 interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
@@ -75,17 +82,13 @@ const CLOSENESS: Record<string, number> = {
 };
 
 function computeRecency(mostRecent: string | null): number {
-  if (!mostRecent) return 0.1;
+  if (!mostRecent) return 0.25;
   const daysSince =
     (Date.now() - new Date(mostRecent).getTime()) / (1000 * 60 * 60 * 24);
-  if (daysSince <= 1) return 1;
-  if (daysSince <= 7) return 0.9;
-  if (daysSince <= 14) return 0.75;
-  if (daysSince <= 30) return 0.6;
-  if (daysSince <= 90) return 0.45;
-  if (daysSince <= 180) return 0.3;
-  if (daysSince <= 365) return 0.2;
-  return 0.1;
+  if (daysSince <= 7) return 1.0;
+  if (daysSince <= 30) return 1.0 - ((daysSince - 7) / 23) * 0.2;
+  if (daysSince <= 365) return 0.8 - ((daysSince - 30) / 335) * 0.3;
+  return Math.max(0.25, 0.5 - ((daysSince - 365) / 730) * 0.25);
 }
 
 function lineColor(
@@ -103,14 +106,12 @@ function lineColor(
   if (isSecondDegree) {
     return "rgba(160, 180, 200, 0.5)";
   }
-  // Linked user connections: red, alpha based on recency
+  // Linked user connections: red, alpha matches recency
   if (isLinkedUser) {
-    const alpha = 0.55 + recency * 0.45;
-    return `rgba(220, 80, 80, ${alpha})`;
+    return `rgba(220, 80, 80, ${recency})`;
   }
-  // 1st degree: brighter slate, alpha based on recency
-  const alpha = 0.55 + recency * 0.45;
-  return `rgba(160, 180, 200, ${alpha})`;
+  // 1st degree: brighter slate, alpha matches recency
+  return `rgba(160, 180, 200, ${recency})`;
 }
 
 function lineThickness(count: number): number {
@@ -158,7 +159,7 @@ export default function NetworkPage() {
         await Promise.all([
           supabase.from("contacts").select("*"),
           supabase.from("connections").select("*").eq("status", "accepted"),
-          supabase.from("contact_notes").select("contact_id, entry_date"),
+          supabase.from("contact_notes").select("contact_id, entry_date, content"),
           supabase
             .from("profiles")
             .select("full_name, headline")
@@ -172,6 +173,7 @@ export default function NetworkPage() {
       const allNotes = notesRes.data || [];
 
       const noteMap: Record<string, NoteStats> = {};
+      const noteTextMap: Record<string, string> = {};
       for (const n of allNotes) {
         if (!noteMap[n.contact_id]) {
           noteMap[n.contact_id] = {
@@ -183,6 +185,9 @@ export default function NetworkPage() {
         noteMap[n.contact_id].count++;
         if (n.entry_date > noteMap[n.contact_id].most_recent) {
           noteMap[n.contact_id].most_recent = n.entry_date;
+        }
+        if (n.content) {
+          noteTextMap[n.contact_id] = (noteTextMap[n.contact_id] || "") + " " + n.content;
         }
       }
 
@@ -247,6 +252,27 @@ export default function NetworkPage() {
         }
       }
 
+      // Fetch work entries & education for all linked profiles (for smart search)
+      const allSearchableProfileIds = [
+        ...myContacts.filter(c => c.linked_profile_id).map(c => c.linked_profile_id!),
+        ...Array.from(mutualUserIds),
+      ].filter((id, i, arr) => arr.indexOf(id) === i);
+
+      const workTextMap: Record<string, string> = {};
+      const eduTextMap: Record<string, string> = {};
+      if (allSearchableProfileIds.length > 0) {
+        const [workRes, eduRes] = await Promise.all([
+          supabase.from("work_entries").select("user_id, title, company, description, location").in("user_id", allSearchableProfileIds),
+          supabase.from("education").select("user_id, institution, degree, field_of_study").in("user_id", allSearchableProfileIds),
+        ]);
+        for (const w of workRes.data || []) {
+          workTextMap[w.user_id] = (workTextMap[w.user_id] || "") + ` ${w.title || ""} ${w.company || ""} ${w.description || ""} ${w.location || ""}`;
+        }
+        for (const e of eduRes.data || []) {
+          eduTextMap[e.user_id] = (eduTextMap[e.user_id] || "") + ` ${e.institution || ""} ${e.degree || ""} ${e.field_of_study || ""}`;
+        }
+      }
+
       const theirContacts = allContacts.filter(
         (c) => mutualUserIds.has(c.owner_id) && c.owner_id !== user.id
       );
@@ -277,6 +303,8 @@ export default function NetworkPage() {
         connectionCount: selfConnCount,
         user_id: user.id,
         profileId: user.id,
+        recency: 1.0,
+        searchText: myName.toLowerCase(),
       });
       profileToNodeId[user.id] = "self";
       nameToNodeId[myName.toLowerCase()] = "self";
@@ -296,6 +324,16 @@ export default function NetworkPage() {
         const stats = myCard ? noteMap[myCard.id] : null;
         const relType = myCard?.relationship_type || "Acquaintance";
 
+        const rec = computeRecency(
+          stats?.most_recent || myCard?.last_contact_date || null
+        );
+
+        // Build search text from all available data
+        const cuSearchParts = [name, relType, myCard?.company, profile?.headline, myCard?.role, myCard?.location, myCard?.email, myCard?.how_we_met, myCard?.ai_summary, myCard?.next_action_note];
+        const cuNoteText = myCard ? noteTextMap[myCard.id] || "" : "";
+        const cuWorkText = workTextMap[uid] || "";
+        const cuEduText = eduTextMap[uid] || "";
+
         nodes.push({
           id: nodeId,
           label: lastName,
@@ -309,16 +347,16 @@ export default function NetworkPage() {
           relationship_type: relType,
           company: myCard?.company ?? undefined,
           role: profile?.headline || (myCard?.role ?? undefined),
+          recency: rec,
+          searchText: [...cuSearchParts.filter(Boolean), cuNoteText, cuWorkText, cuEduText].join(" ").toLowerCase(),
         });
 
         profileToNodeId[uid] = nodeId;
         nameToNodeId[name.toLowerCase()] = nodeId;
 
-        const dist = CLOSENESS[relType] || 200;
+        const baseDist = CLOSENESS[relType] || 200;
+        const dist = baseDist * (0.85 + Math.random() * 0.3);
         const thick = lineThickness(stats?.count || 0);
-        const rec = computeRecency(
-          stats?.most_recent || myCard?.last_contact_date || null
-        );
 
         links.push({
           source: "self",
@@ -345,6 +383,16 @@ export default function NetworkPage() {
         const relType = c.relationship_type || "Acquaintance";
         const cParts = c.full_name.split(" ");
         const cLastName = cParts.length > 1 ? cParts.slice(-1)[0] : c.full_name;
+        const rec = computeRecency(
+          stats?.most_recent || c.last_contact_date || null
+        );
+
+        // Build search text from all available data
+        const cSearchParts = [c.full_name, relType, c.company, c.role, c.location, c.email, c.how_we_met, c.ai_summary, c.next_action_note];
+        const cNoteText = noteTextMap[c.id] || "";
+        const cWorkText = c.linked_profile_id ? workTextMap[c.linked_profile_id] || "" : "";
+        const cEduText = c.linked_profile_id ? eduTextMap[c.linked_profile_id] || "" : "";
+
         nodes.push({
           id: nodeId,
           label: cLastName,
@@ -357,6 +405,8 @@ export default function NetworkPage() {
           role: c.role ?? undefined,
           owner_id: c.owner_id,
           contactId: c.id,
+          recency: rec,
+          searchText: [...cSearchParts.filter(Boolean), cNoteText, cWorkText, cEduText].join(" ").toLowerCase(),
         });
 
         nameToNodeId[c.full_name.toLowerCase()] = nodeId;
@@ -364,11 +414,9 @@ export default function NetworkPage() {
           profileToNodeId[c.linked_profile_id] = nodeId;
         }
 
-        const dist = CLOSENESS[relType] || 200;
+        const baseDist = CLOSENESS[relType] || 200;
+        const dist = baseDist * (0.85 + Math.random() * 0.3);
         const thick = lineThickness(stats?.count || 0);
-        const rec = computeRecency(
-          stats?.most_recent || c.last_contact_date || null
-        );
 
         links.push({
           source: "self",
@@ -450,6 +498,7 @@ export default function NetworkPage() {
         // 2nd degree: show job title only, no name or company
         const jobLabel = tc.role || "";
 
+        const tcSearchParts = [tc.full_name, tc.relationship_type, tc.company, tc.role, tc.location];
         nodes.push({
           id: nodeId,
           label: jobLabel,
@@ -462,6 +511,8 @@ export default function NetworkPage() {
           role: tc.role ?? undefined,
           owner_id: tc.owner_id,
           isAnonymous: false,
+          recency: 0.5,
+          searchText: tcSearchParts.filter(Boolean).join(" ").toLowerCase(),
         });
 
         if (tc.linked_profile_id) profileToNodeId[tc.linked_profile_id] = nodeId;
@@ -470,7 +521,7 @@ export default function NetworkPage() {
         links.push({
           source: ownerNodeId,
           target: nodeId,
-          distance: 160,
+          distance: 160 * (0.85 + Math.random() * 0.3),
           thickness: 1,
           recency: 0.3,
           isMutual: false,
@@ -520,8 +571,8 @@ export default function NetworkPage() {
       const force = () => {
         for (const n of wNodes) {
           if (n.fx != null) continue; // skip dragged nodes
-          n.vx = (n.vx || 0) + (Math.random() - 0.5) * 0.35;
-          n.vy = (n.vy || 0) + (Math.random() - 0.5) * 0.35;
+          n.vx = (n.vx || 0) + (Math.random() - 0.5) * 0.65;
+          n.vy = (n.vy || 0) + (Math.random() - 0.5) * 0.65;
         }
       };
       force.initialize = (n: GraphNode[]) => { wNodes = n; };
@@ -550,6 +601,7 @@ export default function NetworkPage() {
 
     // Create cluster links between non-linked nodes that share neighbors
     const clusterLinks: GraphLink[] = [];
+    const clusterPairSet = new Set<string>();
     const nodeIds = graphData.nodes.map(n => n.id);
     for (let i = 0; i < nodeIds.length; i++) {
       for (let j = i + 1; j < nodeIds.length; j++) {
@@ -561,10 +613,43 @@ export default function NetworkPage() {
         let shared = 0;
         for (const n of aNeighbors) { if (bNeighbors.has(n)) shared++; }
         if (shared >= 1) {
+          const pairKey = a < b ? `${a}|${b}` : `${b}|${a}`;
+          clusterPairSet.add(pairKey);
           clusterLinks.push({
             source: a,
             target: b,
-            distance: Math.max(80, 200 - shared * 40),
+            distance: Math.max(60, 180 - shared * 50),
+            thickness: 0,
+            recency: 0,
+            isMutual: false,
+            isLinkedUser: false,
+          });
+        }
+      }
+    }
+
+    // Company similarity links — people at the same company attract slightly
+    const companyGroups: Record<string, string[]> = {};
+    for (const n of graphData.nodes) {
+      if (n.company && n.id !== 'self') {
+        const key = n.company.toLowerCase().trim();
+        if (!companyGroups[key]) companyGroups[key] = [];
+        companyGroups[key].push(n.id);
+      }
+    }
+    for (const ids of Object.values(companyGroups)) {
+      if (ids.length < 2) continue;
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          const a = ids[i], b = ids[j];
+          const pairKey = a < b ? `${a}|${b}` : `${b}|${a}`;
+          if ((adjacency[a] || new Set()).has(b)) continue;
+          if (clusterPairSet.has(pairKey)) continue;
+          clusterPairSet.add(pairKey);
+          clusterLinks.push({
+            source: a,
+            target: b,
+            distance: 100,
             thickness: 0,
             recency: 0,
             isMutual: false,
@@ -584,18 +669,18 @@ export default function NetworkPage() {
           .forceLink<GraphNode, GraphLink>(allLinks)
           .id((d) => d.id)
           .distance((d) => d.distance)
-          .strength((d) => d.thickness === 0 ? 0.03 : 0.15)
+          .strength((d) => d.thickness === 0 ? 0.04 : 0.12)
       )
-      .force("charge", d3.forceManyBody().strength(-120))
-      .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => d.id === "self" ? 0.12 : 0.02))
-      .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => d.id === "self" ? 0.12 : 0.02))
+      .force("charge", d3.forceManyBody().strength(-160).distanceMax(600))
+      .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => d.id === "self" ? 0.12 : 0.015))
+      .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => d.id === "self" ? 0.12 : 0.015))
       .force(
         "collision",
-        d3.forceCollide<GraphNode>().radius((d) => d.radius + 4)
+        d3.forceCollide<GraphNode>().radius((d) => d.radius + 5)
       )
       .force("wiggle", wiggleForce() as unknown as d3.Force<GraphNode, GraphLink>)
-      .alphaTarget(0.015)
-      .alphaDecay(0.005);
+      .alphaTarget(0.02)
+      .alphaDecay(0.004);
 
     simulationRef.current = simulation;
 
@@ -610,13 +695,14 @@ export default function NetworkPage() {
       .attr("stroke-linecap", "round")
       .attr("stroke-dasharray", (d) => d.isCrossLink ? "6 4" : null);
 
-    // Node groups
+    // Node groups — opacity reflects recency (self always 1.0)
     const node = g
       .append("g")
       .selectAll<SVGGElement, GraphNode>("g")
       .data(graphData.nodes)
       .join("g")
-      .style("cursor", "pointer");
+      .style("cursor", "pointer")
+      .attr("opacity", (d) => d.recency ?? 1);
 
     // Circles
     node
@@ -682,7 +768,7 @@ export default function NetworkPage() {
         d.fy = event.y;
       })
       .on("end", (event, d) => {
-        if (!event.active) simulation.alphaTarget(0);
+        if (!event.active) simulation.alphaTarget(0.02);
         // Keep self pinned at center
         if (d.type !== "self") {
           d.fx = null;
@@ -717,30 +803,24 @@ export default function NetworkPage() {
       node.attr("transform", (d) => `translate(${d.x || 0},${d.y || 0})`);
     });
 
-    // Filter highlight — search across name, company, role, relationship type
+    // Filter highlight — smart search across all contact data (notes, resume, city, etc.)
     if (filterText.trim()) {
       const q = filterText.toLowerCase();
       const matchesFilter = (d: GraphNode) => {
         if (d.type === "self") return true;
-        return (
-          d.fullName.toLowerCase().includes(q) ||
-          (d.company && d.company.toLowerCase().includes(q)) ||
-          (d.role && d.role.toLowerCase().includes(q)) ||
-          (d.relationship_type && d.relationship_type.toLowerCase().includes(q)) ||
-          (d.label && d.label.toLowerCase().includes(q))
-        );
+        return d.searchText ? d.searchText.includes(q) : false;
       };
       const matchedIds = new Set(graphData.nodes.filter(matchesFilter).map(n => n.id));
-      node.attr("opacity", (d) => matchedIds.has(d.id) ? 1 : 0.08);
+      node.attr("opacity", (d) => matchedIds.has(d.id) ? 1 : 0.06);
       link.attr("opacity", (d) => {
         const sId = (d.source as GraphNode).id;
         const tId = (d.target as GraphNode).id;
-        // Show link if both ends are matched, or if one matched end connects to self
         if (matchedIds.has(sId) && matchedIds.has(tId)) return 1;
         return 0.03;
       });
     } else {
-      node.attr("opacity", 1);
+      // No filter — use recency-based opacity (self always 1.0)
+      node.attr("opacity", (d) => d.recency ?? 1);
       link.attr("opacity", 1);
     }
 
