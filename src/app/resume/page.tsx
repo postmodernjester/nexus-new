@@ -209,25 +209,14 @@ export default function ResumePage() {
         setProfileName(profile.full_name || '')
         setProfileHeadline(profile.headline || '')
         setProfileLocation(profile.location || '')
-        // Load key links from profiles.key_links (JSONB) or fallback table
-        if (profile.key_links && Array.isArray(profile.key_links)) {
-          const saved = profile.key_links as KeyLink[]
+        // Load key links: try profiles.key_links first, then auth user_metadata
+        const savedLinks = profile.key_links
+          || authUser.user_metadata?.key_links
+        if (savedLinks && Array.isArray(savedLinks)) {
           setKeyLinks(LINK_TYPES.map(lt => {
-            const existing = saved.find(s => s.type === lt.type)
+            const existing = (savedLinks as KeyLink[]).find(s => s.type === lt.type)
             return existing || { type: lt.type, url: '', visible: true }
           }))
-        } else {
-          // Try loading from user_key_links table
-          const { data: linkRows } = await supabase
-            .from('user_key_links')
-            .select('link_type, url, visible')
-            .eq('user_id', authUser.id)
-          if (linkRows && linkRows.length > 0) {
-            setKeyLinks(LINK_TYPES.map(lt => {
-              const existing = linkRows.find((r: any) => r.link_type === lt.type)
-              return existing ? { type: lt.type, url: existing.url, visible: existing.visible } : { type: lt.type, url: '', visible: true }
-            }))
-          }
         }
       }
 
@@ -270,29 +259,20 @@ export default function ResumePage() {
 
   const saveKeyLinks = async () => {
     if (!user) return
-    // Try saving to profiles.key_links (JSONB column)
+    // Try saving to profiles.key_links (JSONB column) first
     const { error } = await supabase
       .from('profiles')
       .update({ key_links: keyLinks })
       .eq('id', user.id)
     if (error) {
-      // key_links column may not exist — fall back to user_key_links table
-      console.warn('profiles.key_links save failed, trying user_key_links table:', error.message)
-      // Delete existing links for this user, then insert fresh
-      await supabase.from('user_key_links').delete().eq('user_id', user.id)
-      const rows = keyLinks.filter(l => l.url).map(l => ({
-        user_id: user.id,
-        link_type: l.type,
-        url: l.url,
-        visible: l.visible,
-      }))
-      if (rows.length > 0) {
-        const { error: err2 } = await supabase.from('user_key_links').insert(rows)
-        if (err2) {
-          console.warn('user_key_links save also failed:', err2.message)
-          alert('Could not save links. Please add a "key_links" column (type: jsonb) to the profiles table in Supabase.')
-          return
-        }
+      // Column doesn't exist — save to auth user_metadata instead (always works)
+      console.warn('profiles.key_links save failed, using user_metadata:', error.message)
+      const { error: authErr } = await supabase.auth.updateUser({
+        data: { key_links: keyLinks }
+      })
+      if (authErr) {
+        alert('Could not save links: ' + authErr.message)
+        return
       }
     }
     setEditingLinks(false)
