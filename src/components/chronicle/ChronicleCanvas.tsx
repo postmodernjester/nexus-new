@@ -11,159 +11,18 @@ import {
 import ChronicleModal, { type EntryFormData } from './ChronicleModal'
 import ChronicleGeoModal, { type GeoFormData } from './ChronicleGeoModal'
 
-// ═══════════════════════════════════════════════
-// CONFIG
-// ═══════════════════════════════════════════════
-const CURRENT_YEAR = new Date().getFullYear()
-const COL_W = 148
-const COLLAPSED_W = 24
-const AXIS_W = 72
-
-// Zoom: slider 0 → 40yr visible, 0.5 → ~4yr, 1 → 2yr
-const ZOOM_YEARS_MAX = 40
-const ZOOM_YEARS_MIN = 2
-const ZOOM_GAMMA = 0.38
-
-// localStorage keys
-const LS_SLIDER = 'chronicle_slider_pos'
-const LS_CENTER_YEAR = 'chronicle_center_year'
-const LS_CENTER_MONTH = 'chronicle_center_month'
-const LS_COLLAPSED = 'chronicle_collapsed_cols'
-
-const COLS: { id: string; label: string; color: string; private?: boolean }[] = [
-  { id: 'work', label: 'Work', color: '#4070a8' },
-  { id: 'project', label: 'Projects', color: '#508038' },
-  { id: 'education', label: 'Education', color: '#2a8a6a' },
-  { id: 'personal', label: 'Personal', color: '#a85060', private: true },
-  { id: 'residence', label: 'Residences', color: '#806840', private: true },
-  { id: 'gatherings', label: 'Gatherings', color: '#c06848' },
-  { id: 'tech', label: 'Tech', color: '#986020' },
-  { id: 'people', label: 'People', color: '#7050a8' },
-]
-
-const DEFAULT_COLORS: Record<string, string> = {
-  work: '#4070a8', project: '#508038', education: '#2a8a6a', personal: '#a85060',
-  residence: '#806840', gatherings: '#c06848', tech: '#986020', people: '#7050a8',
-}
-
-// Columns where double-click should NOT open add modal
-const NO_ADD_COLS = new Set(['gatherings', 'people'])
-
-// ═══════════════════════════════════════════════
-// UTILS
-// ═══════════════════════════════════════════════
-interface YM { y: number; m: number }
-
-function parseYM(s: string | null | undefined): YM | null {
-  if (!s) return null
-  const p = s.split('-')
-  return { y: +p[0], m: +(p[1] || 1) }
-}
-
-function toMo(ym: YM, vs: number): number {
-  return (ym.y - vs) * 12 + (ym.m - 1)
-}
-
-function toPx(ym: YM, pxm: number, vs: number): number {
-  return toMo(ym, vs) * pxm
-}
-
-function pxToYM(px: number, pxm: number, vs: number): YM {
-  const mo = Math.round(px / pxm)
-  return { y: vs + Math.floor(mo / 12), m: (mo % 12) + 1 }
-}
-
-function ymStr(ym: YM): string {
-  return ym.y + '-' + String(ym.m).padStart(2, '0')
-}
-
-function fmtYM(ym: YM): string {
-  return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][ym.m - 1] + ' ' + ym.y
-}
-
-function hex2rgba(h: string, a: number): string {
-  const r = parseInt(h.slice(1, 3), 16)
-  const g = parseInt(h.slice(3, 5), 16)
-  const b = parseInt(h.slice(5, 7), 16)
-  return `rgba(${r},${g},${b},${a})`
-}
-
-function addOneYear(ym: string): string {
-  const p = ym.split('-')
-  return (parseInt(p[0]) + 1) + '-' + (p[1] || '01')
-}
-
-// Zoom conversion: slider position [0,1] → years visible
-function sliderToYears(t: number): number {
-  const clamped = Math.max(0, Math.min(1, t))
-  return ZOOM_YEARS_MAX * Math.pow(ZOOM_YEARS_MIN / ZOOM_YEARS_MAX, Math.pow(clamped, ZOOM_GAMMA))
-}
-
-// Column layout (collapse-aware)
-function getColLeft(colId: string, collapsed: Set<string>): number {
-  let x = 0
-  for (const c of COLS) {
-    if (c.id === colId) return x
-    x += collapsed.has(c.id) ? COLLAPSED_W : COL_W
-  }
-  return x
-}
-
-function getTotalGridW(collapsed: Set<string>): number {
-  return COLS.reduce((sum, c) => sum + (collapsed.has(c.id) ? COLLAPSED_W : COL_W), 0)
-}
-
-function getColAtX(x: number, collapsed: Set<string>): number {
-  let acc = 0
-  for (let i = 0; i < COLS.length; i++) {
-    const w = collapsed.has(COLS[i].id) ? COLLAPSED_W : COL_W
-    if (x < acc + w) return i
-    acc += w
-  }
-  return -1
-}
-
-// Extract earliest year from a date string like "YYYY-MM" or "YYYY-MM-DD"
-function yearFromDate(s: string | null | undefined): number | null {
-  if (!s) return null
-  const y = parseInt(s)
-  return isNaN(y) ? null : y
-}
-
-// Lock icon SVG
-function LockIcon() {
-  return (
-    <svg width="8" height="10" viewBox="0 0 8 10" fill="none" style={{ marginLeft: 3, opacity: 0.4, flexShrink: 0 }}>
-      <rect x="0.5" y="4" width="7" height="5.5" rx="1" stroke="currentColor" strokeWidth="1" fill="none" />
-      <path d="M2 4V2.5C2 1.4 2.9.5 4 .5s2 .9 2 2V4" stroke="currentColor" strokeWidth="1" fill="none" />
-    </svg>
-  )
-}
-
-// Unified timeline item
-interface TimelineItem {
-  id: string
-  cat: string
-  title: string
-  start: string
-  end: string | null
-  color: string
-  fuzzyStart: boolean
-  fuzzyEnd: boolean
-  note: string
-  source: 'chronicle' | 'work' | 'contact' | 'education'
-}
-
-interface PlaceItem {
-  id: string
-  title: string
-  start: string
-  end: string | null
-  color: string
-  fuzzyStart: boolean
-  fuzzyEnd: boolean
-  note: string
-}
+import {
+  CURRENT_YEAR, COL_W, COLLAPSED_W, AXIS_W,
+  LS_SLIDER, LS_CENTER_YEAR, LS_CENTER_MONTH, LS_COLLAPSED,
+  COLS, DEFAULT_COLORS, NO_ADD_COLS,
+} from './constants'
+import type { TimelineItem, PlaceItem } from './types'
+import {
+  parseYM, toMo, toPx, pxToYM, ymStr, fmtYM, hex2rgba, addOneYear,
+  sliderToYears, getColLeft, getTotalGridW, getColAtX, yearFromDate,
+} from './utils'
+import LockIcon from './LockIcon'
+import Toolbar from './Toolbar'
 
 // ═══════════════════════════════════════════════
 // COMPONENT
@@ -1123,39 +982,12 @@ export default function ChronicleCanvas() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f0ead8', color: '#1a1812', fontFamily: "'DM Mono', monospace", userSelect: 'none' }}>
 
       {/* ── TOOLBAR ───────────────────────────── */}
-      <div style={{
-        flexShrink: 0, display: 'flex', alignItems: 'center', borderBottom: '2px solid #1a1812',
-        background: '#f6f1e6', zIndex: 60, height: 40,
-      }}>
-        <div style={{
-          padding: '0 14px', borderRight: '1px solid #d8d0c0', height: '100%',
-          display: 'flex', alignItems: 'center',
-          fontFamily: "'Libre Baskerville', serif", fontStyle: 'italic', fontSize: 12, color: '#5a5040',
-        }}>
-          chronicle
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '0 14px', borderRight: '1px solid #d8d0c0', height: '100%' }}>
-          <label style={{ fontSize: '7.5px', letterSpacing: '.15em', color: '#9a8e78' }}>SCALE</label>
-          <div
-            id="chr-zoom-track"
-            onMouseDown={(e) => { zoomDragRef.current = true; zoomFromTrack(e.clientX); e.preventDefault() }}
-            style={{ position: 'relative', width: 110, height: 3, background: '#d8d0c0', borderRadius: 2, cursor: 'pointer' }}
-          >
-            <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${sliderPos * 100}%`, background: '#9a8e78', borderRadius: 2, pointerEvents: 'none' }} />
-            <div style={{
-              position: 'absolute', top: '50%', left: `${sliderPos * 100}%`,
-              transform: 'translate(-50%,-50%)', width: 12, height: 12, borderRadius: '50%',
-              background: '#1a1812', cursor: 'grab', boxShadow: '0 1px 4px rgba(0,0,0,.25)',
-            }} />
-          </div>
-          <span style={{ fontSize: 9, color: '#9a8e78', minWidth: 34 }}>{zoomLabel}</span>
-        </div>
-
-        <div style={{ padding: '0 14px', fontSize: '7.5px', color: '#d8d0c0', letterSpacing: '.06em', lineHeight: 1.5 }}>
-          dbl-click axis → add geography &nbsp;·&nbsp; dbl-click column → new entry &nbsp;·&nbsp; drag body → move &nbsp;·&nbsp; drag edge → resize &nbsp;·&nbsp; del → delete
-        </div>
-      </div>
+      <Toolbar
+        sliderPos={sliderPos}
+        zoomLabel={zoomLabel}
+        zoomDragRef={zoomDragRef}
+        zoomFromTrack={zoomFromTrack}
+      />
 
       {/* ── SCROLL CONTAINER ─────────────────── */}
       <div

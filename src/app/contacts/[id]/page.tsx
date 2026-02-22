@@ -7,257 +7,21 @@ import Link from "next/link";
 
 import Nav from "@/components/Nav";
 
-// ─── Types ───
-interface Contact {
-  id: string;
-  owner_id: string;
-  linked_profile_id: string | null;
-  full_name: string;
-  email: string | null;
-  phone: string | null;
-  company: string | null;
-  role: string | null;
-  location: string | null;
-  relationship_type: string | null;
-  follow_up_status: string | null;
-  last_contact_date: string | null;
-  next_action_date: string | null;
-  next_action_note: string | null;
-  ai_summary: string | null;
-  how_we_met: string | null;
-  met_date: string | null;
-  avatar_url: string | null;
-  show_on_chronicle: boolean;
-  created_at: string;
-}
+import type {
+  Contact,
+  LinkedProfile,
+  LinkedWorkEntry,
+  LinkedChronicleEntry,
+  LinkedEducationEntry,
+  NoteEntry,
+} from "./types";
 
-interface KeyLink {
-  type: string;
-  url: string;
-  visible: boolean;
-}
+import { formatDate, extractUrls, initials } from "./utils";
+import { s } from "./styles";
 
-interface LinkedProfile {
-  full_name: string;
-  headline: string | null;
-  bio: string | null;
-  location: string | null;
-  website: string | null;
-  avatar_url: string | null;
-  key_links: KeyLink[] | null;
-}
-
-interface LinkedWorkEntry {
-  id: string;
-  title: string;
-  company: string | null;
-  engagement_type: string | null;
-  start_date: string | null;
-  end_date: string | null;
-  is_current: boolean;
-  description: string | null;
-  location: string | null;
-}
-
-interface LinkedChronicleEntry {
-  id: string;
-  type: string;
-  title: string;
-  start_date: string;
-  end_date: string | null;
-  canvas_col: string;
-  note: string | null;
-  description: string | null;
-}
-
-interface LinkedEducationEntry {
-  id: string;
-  institution: string;
-  degree: string | null;
-  field_of_study: string | null;
-  start_date: string | null;
-  end_date: string | null;
-  is_current: boolean;
-}
-
-interface NoteEntry {
-  id: string;
-  contact_id: string;
-  owner_id: string;
-  content: string;
-  context: string | null;
-  entry_date: string;
-  action_text: string | null;
-  action_due_date: string | null;
-  action_completed: boolean;
-  created_at: string;
-}
-
-const REL_TYPES = [
-  "None",
-  "Acquaintance",
-  "Business Contact",
-  "Work-Friend",
-  "Close Friend",
-  "Family",
-];
-
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function formatWorkDate(d: string) {
-  if (!d) return "";
-  const parts = d.split("-");
-  const year = parts[0] || "";
-  const month = parts[1] ? parseInt(parts[1]) : 0;
-  if (!year) return "";
-  const months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  if (!month) return year;
-  return `${months[month]} ${year}`;
-}
-
-function initials(name: string) {
-  const p = name.trim().split(/\s+/);
-  return p.length >= 2
-    ? (p[0][0] + p[p.length - 1][0]).toUpperCase()
-    : name.slice(0, 2).toUpperCase();
-}
-
-// Detect URLs in text and render as clickable links
-function renderContent(text: string) {
-  const urlRegex = /(https?:\/\/[^\s<]+)/g;
-  const parts = text.split(urlRegex);
-  return parts.map((part, i) => {
-    if (part.match(/^https?:\/\//)) {
-      let domain = "";
-      try {
-        domain = new URL(part).hostname.replace("www.", "");
-      } catch {
-        domain = part;
-      }
-      return (
-        <a
-          key={i}
-          href={part}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            color: "#60a5fa",
-            textDecoration: "none",
-            borderBottom: "1px solid rgba(96,165,250,0.3)",
-            wordBreak: "break-all",
-          }}
-        >
-          {domain}
-          <span style={{ fontSize: "10px", marginLeft: "3px", opacity: 0.5 }}>
-            ↗
-          </span>
-        </a>
-      );
-    }
-    return <span key={i}>{part}</span>;
-  });
-}
-
-// Extract URLs from text
-function extractUrls(text: string): string[] {
-  const matches = text.match(/(https?:\/\/[^\s<]+)/g);
-  return matches || [];
-}
-
-// ─── Styles ───
-const s = {
-  label: {
-    display: "block",
-    fontSize: "11px",
-    color: "#64748b",
-    marginBottom: "4px",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.5px",
-  },
-  input: {
-    width: "100%",
-    padding: "8px 12px",
-    background: "#0f172a",
-    border: "1px solid #334155",
-    borderRadius: "6px",
-    color: "#e2e8f0",
-    fontSize: "14px",
-    outline: "none",
-    boxSizing: "border-box" as const,
-  },
-  textarea: {
-    width: "100%",
-    padding: "10px 12px",
-    background: "#0f172a",
-    border: "1px solid #334155",
-    borderRadius: "6px",
-    color: "#e2e8f0",
-    fontSize: "14px",
-    outline: "none",
-    resize: "vertical" as const,
-    fontFamily: "inherit",
-    lineHeight: "1.5",
-    boxSizing: "border-box" as const,
-  },
-  select: {
-    width: "100%",
-    padding: "8px 12px",
-    background: "#0f172a",
-    border: "1px solid #334155",
-    borderRadius: "6px",
-    color: "#e2e8f0",
-    fontSize: "14px",
-    outline: "none",
-  },
-  card: {
-    background: "#1e293b",
-    border: "1px solid #334155",
-    borderRadius: "12px",
-    padding: "20px",
-    marginBottom: "16px",
-  } as React.CSSProperties,
-  btnPrimary: {
-    padding: "8px 20px",
-    background: "#a78bfa",
-    color: "#0f172a",
-    border: "none",
-    borderRadius: "6px",
-    fontWeight: 600,
-    fontSize: "13px",
-    cursor: "pointer",
-  } as React.CSSProperties,
-  btnSecondary: {
-    padding: "8px 16px",
-    background: "transparent",
-    color: "#94a3b8",
-    border: "1px solid #334155",
-    borderRadius: "6px",
-    fontSize: "13px",
-    cursor: "pointer",
-  } as React.CSSProperties,
-  btnDanger: {
-    padding: "6px 14px",
-    background: "rgba(220,38,38,0.15)",
-    color: "#f87171",
-    border: "1px solid rgba(220,38,38,0.3)",
-    borderRadius: "6px",
-    fontSize: "12px",
-    cursor: "pointer",
-  } as React.CSSProperties,
-  sectionLabel: {
-    fontSize: "11px",
-    color: "#64748b",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.5px",
-    marginBottom: "12px",
-  },
-};
+import NotesSection from "./components/NotesSection";
+import ResumeView from "./components/ResumeView";
+import EditContactForm from "./components/EditContactForm";
 
 export default function ContactDossierPage() {
   const router = useRouter();
@@ -678,7 +442,7 @@ export default function ContactDossierPage() {
           </div>
         </div>
 
-        {/* ═══ HEADER ═══ */}
+        {/* HEADER */}
         <div
           style={{
             ...s.card,
@@ -803,7 +567,7 @@ export default function ContactDossierPage() {
           )}
         </div>
 
-        {/* ═══ AI SUMMARY ═══ */}
+        {/* AI SUMMARY */}
         <div style={s.card}>
           <div
             style={{
@@ -858,634 +622,55 @@ export default function ContactDossierPage() {
           )}
         </div>
 
-        {/* ═══ NOTES & RESEARCH ═══ */}
-        <div style={s.card}>
-          <div style={s.sectionLabel}>Notes & Research</div>
+        {/* NOTES & RESEARCH */}
+        <NotesSection
+          notes={notes}
+          noteText={noteText}
+          setNoteText={setNoteText}
+          noteDate={noteDate}
+          setNoteDate={setNoteDate}
+          noteContext={noteContext}
+          setNoteContext={setNoteContext}
+          noteAction={noteAction}
+          setNoteAction={setNoteAction}
+          noteActionDue={noteActionDue}
+          setNoteActionDue={setNoteActionDue}
+          addingNote={addingNote}
+          showActionFields={showActionFields}
+          setShowActionFields={setShowActionFields}
+          addNote={addNote}
+          handleNoteKeyDown={handleNoteKeyDown}
+          editingNoteId={editingNoteId}
+          setEditingNoteId={setEditingNoteId}
+          editNoteContent={editNoteContent}
+          setEditNoteContent={setEditNoteContent}
+          editNoteDate={editNoteDate}
+          setEditNoteDate={setEditNoteDate}
+          editNoteContext={editNoteContext}
+          setEditNoteContext={setEditNoteContext}
+          editNoteAction={editNoteAction}
+          setEditNoteAction={setEditNoteAction}
+          editNoteActionDue={editNoteActionDue}
+          setEditNoteActionDue={setEditNoteActionDue}
+          editNoteActionCompleted={editNoteActionCompleted}
+          setEditNoteActionCompleted={setEditNoteActionCompleted}
+          updateNote={updateNote}
+          toggleAction={toggleAction}
+          deleteNote={deleteNote}
+        />
 
-          {/* Add note */}
-          <div
-            style={{
-              marginBottom: "20px",
-              background: "#0f172a",
-              borderRadius: "8px",
-              border: "1px solid #334155",
-              overflow: "hidden",
-            }}
-          >
-            <textarea
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              onKeyDown={handleNoteKeyDown}
-              placeholder="Add a note, paste a URL, meeting notes, research…"
-              rows={3}
-              style={{
-                ...s.textarea,
-                border: "none",
-                borderRadius: "8px 8px 0 0",
-                background: "transparent",
-              }}
-            />
-            <div
-              style={{
-                padding: "8px 12px",
-                borderTop: "1px solid #1e293b",
-                display: "flex",
-                flexDirection: "column",
-                gap: "8px",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  flexWrap: "wrap",
-                }}
-              >
-                <input
-                  type="date"
-                  value={noteDate}
-                  onChange={(e) => setNoteDate(e.target.value)}
-                  style={{
-                    ...s.input,
-                    width: "140px",
-                    fontSize: "12px",
-                    padding: "4px 8px",
-                    background: "transparent",
-                    border: "1px solid #1e293b",
-                  }}
-                />
-                <input
-                  value={noteContext}
-                  onChange={(e) => setNoteContext(e.target.value)}
-                  placeholder="context (meeting, call, research…)"
-                  style={{
-                    ...s.input,
-                    width: "200px",
-                    fontSize: "12px",
-                    padding: "4px 8px",
-                    background: "transparent",
-                    border: "1px solid #1e293b",
-                  }}
-                />
-                <button
-                  onClick={() => setShowActionFields(!showActionFields)}
-                  style={{
-                    ...s.btnSecondary,
-                    fontSize: "11px",
-                    padding: "3px 10px",
-                    color: showActionFields ? "#a78bfa" : "#64748b",
-                    borderColor: showActionFields ? "#a78bfa" : "#334155",
-                  }}
-                >
-                  + Action
-                </button>
-                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={{ fontSize: "10px", color: "#475569" }}>
-                    Cmd+Enter
-                  </span>
-                  <button
-                    onClick={addNote}
-                    disabled={addingNote || !noteText.trim()}
-                    style={{
-                      ...s.btnPrimary,
-                      fontSize: "12px",
-                      padding: "5px 14px",
-                      opacity: addingNote || !noteText.trim() ? 0.4 : 1,
-                    }}
-                  >
-                    {addingNote ? "…" : "Add"}
-                  </button>
-                </div>
-              </div>
+        {/* RESUME VIEW */}
+        {linkedProfile && (
+          <ResumeView
+            linkedProfile={linkedProfile}
+            linkedWork={linkedWork}
+            linkedChronicle={linkedChronicle}
+            linkedEducation={linkedEducation}
+            contact={contact}
+          />
+        )}
 
-              {showActionFields && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    padding: "6px 0",
-                  }}
-                >
-                  <span style={{ fontSize: "11px", color: "#64748b" }}>
-                    Action:
-                  </span>
-                  <input
-                    value={noteAction}
-                    onChange={(e) => setNoteAction(e.target.value)}
-                    placeholder="Follow up, send proposal, schedule call…"
-                    style={{
-                      ...s.input,
-                      flex: 1,
-                      fontSize: "12px",
-                      padding: "4px 8px",
-                      background: "transparent",
-                      border: "1px solid #1e293b",
-                    }}
-                  />
-                  <span style={{ fontSize: "11px", color: "#64748b" }}>
-                    Due:
-                  </span>
-                  <input
-                    type="date"
-                    value={noteActionDue}
-                    onChange={(e) => setNoteActionDue(e.target.value)}
-                    style={{
-                      ...s.input,
-                      width: "140px",
-                      fontSize: "12px",
-                      padding: "4px 8px",
-                      background: "transparent",
-                      border: "1px solid #1e293b",
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Notes list */}
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {notes.map((note) => (
-              <div
-                key={note.id}
-                style={{
-                  padding: "14px 0",
-                  borderBottom: "1px solid #1e293b",
-                }}
-              >
-                {editingNoteId === note.id ? (
-                  /* Edit mode */
-                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                    <textarea
-                      value={editNoteContent}
-                      onChange={(e) => setEditNoteContent(e.target.value)}
-                      rows={3}
-                      style={s.textarea}
-                    />
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <input
-                        type="date"
-                        value={editNoteDate}
-                        onChange={(e) => setEditNoteDate(e.target.value)}
-                        style={{
-                          ...s.input,
-                          width: "140px",
-                          fontSize: "12px",
-                          padding: "4px 8px",
-                        }}
-                      />
-                      <input
-                        value={editNoteContext}
-                        onChange={(e) => setEditNoteContext(e.target.value)}
-                        placeholder="context"
-                        style={{
-                          ...s.input,
-                          width: "160px",
-                          fontSize: "12px",
-                          padding: "4px 8px",
-                        }}
-                      />
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <span style={{ fontSize: "11px", color: "#64748b" }}>
-                        Action:
-                      </span>
-                      <input
-                        value={editNoteAction}
-                        onChange={(e) => setEditNoteAction(e.target.value)}
-                        placeholder="action item"
-                        style={{
-                          ...s.input,
-                          flex: 1,
-                          fontSize: "12px",
-                          padding: "4px 8px",
-                        }}
-                      />
-                      <input
-                        type="date"
-                        value={editNoteActionDue}
-                        onChange={(e) => setEditNoteActionDue(e.target.value)}
-                        style={{
-                          ...s.input,
-                          width: "140px",
-                          fontSize: "12px",
-                          padding: "4px 8px",
-                        }}
-                      />
-                      <label
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "4px",
-                          fontSize: "11px",
-                          color: "#64748b",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={editNoteActionCompleted}
-                          onChange={(e) =>
-                            setEditNoteActionCompleted(e.target.checked)
-                          }
-                          style={{ accentColor: "#a78bfa" }}
-                        />
-                        Done
-                      </label>
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "8px",
-                        marginTop: "4px",
-                      }}
-                    >
-                      <button
-                        onClick={() => updateNote(note.id)}
-                        style={{
-                          ...s.btnPrimary,
-                          fontSize: "11px",
-                          padding: "5px 14px",
-                        }}
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => setEditingNoteId(null)}
-                        style={{
-                          ...s.btnSecondary,
-                          fontSize: "11px",
-                          padding: "5px 12px",
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  /* Read mode */
-                  <div>
-                    <div
-                      style={{
-                        fontSize: "14px",
-                        lineHeight: "1.6",
-                        color: "#e2e8f0",
-                        whiteSpace: "pre-wrap",
-                        marginBottom: "6px",
-                      }}
-                    >
-                      {renderContent(note.content)}
-                    </div>
-
-                    {/* Action item */}
-                    {note.action_text && (
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          gap: "8px",
-                          margin: "8px 0",
-                          padding: "8px 12px",
-                          background: note.action_completed
-                            ? "rgba(16,185,129,0.08)"
-                            : "rgba(251,191,36,0.08)",
-                          borderRadius: "6px",
-                          border: `1px solid ${note.action_completed ? "rgba(16,185,129,0.2)" : "rgba(251,191,36,0.2)"}`,
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={note.action_completed}
-                          onChange={() => toggleAction(note)}
-                          style={{
-                            marginTop: "2px",
-                            cursor: "pointer",
-                            accentColor: "#a78bfa",
-                          }}
-                        />
-                        <div style={{ flex: 1 }}>
-                          <span
-                            style={{
-                              fontSize: "13px",
-                              textDecoration: note.action_completed
-                                ? "line-through"
-                                : "none",
-                              color: note.action_completed
-                                ? "#64748b"
-                                : "#e2e8f0",
-                            }}
-                          >
-                            {note.action_text}
-                          </span>
-                          {note.action_due_date && (
-                            <span
-                              style={{
-                                fontSize: "11px",
-                                marginLeft: "10px",
-                                color:
-                                  !note.action_completed &&
-                                  new Date(note.action_due_date) < new Date()
-                                    ? "#f87171"
-                                    : "#64748b",
-                              }}
-                            >
-                              due {formatDate(note.action_due_date)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Meta row */}
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
-                          fontSize: "11px",
-                          color: "#475569",
-                        }}
-                      >
-                        <span>{formatDate(note.entry_date)}</span>
-                        {note.context && (
-                          <span
-                            style={{
-                              padding: "1px 6px",
-                              background: "#334155",
-                              borderRadius: "4px",
-                              fontSize: "10px",
-                            }}
-                          >
-                            {note.context}
-                          </span>
-                        )}
-                      </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: "8px",
-                          opacity: 0.3,
-                        }}
-                        onMouseEnter={(e) =>
-                          (e.currentTarget.style.opacity = "1")
-                        }
-                        onMouseLeave={(e) =>
-                          (e.currentTarget.style.opacity = "0.3")
-                        }
-                      >
-                        <button
-                          onClick={() => {
-                            setEditingNoteId(note.id);
-                            setEditNoteContent(note.content);
-                            setEditNoteDate(note.entry_date);
-                            setEditNoteContext(note.context || "");
-                            setEditNoteAction(note.action_text || "");
-                            setEditNoteActionDue(note.action_due_date || "");
-                            setEditNoteActionCompleted(note.action_completed);
-                          }}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "#64748b",
-                            cursor: "pointer",
-                            fontSize: "11px",
-                          }}
-                        >
-                          edit
-                        </button>
-                        <button
-                          onClick={() => deleteNote(note.id)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "#64748b",
-                            cursor: "pointer",
-                            fontSize: "11px",
-                          }}
-                        >
-                          delete
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-            {notes.length === 0 && (
-              <div
-                style={{
-                  padding: "24px 0",
-                  textAlign: "center",
-                  color: "#475569",
-                  fontSize: "13px",
-                  lineHeight: "1.6",
-                }}
-              >
-                No notes yet. Paste LinkedIn profiles, Wikipedia pages, articles,
-                meeting notes — anything.
-                <br />
-                The AI summary reads linked pages and synthesizes a profile.
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ═══ RESUME VIEW ═══ */}
-        {linkedProfile && (() => {
-          const projectEntries = linkedChronicle.filter(e => e.canvas_col === "project" || e.canvas_col === "projects");
-          const educationChronicle = linkedChronicle.filter(e => e.canvas_col === "education");
-          const otherEntries = linkedChronicle.filter(e => e.canvas_col !== "project" && e.canvas_col !== "projects" && e.canvas_col !== "education");
-          const visibleLinks = linkedProfile.key_links?.filter(l => l.url && l.visible) || [];
-          const linkLabels: Record<string, string> = {
-            linkedin: "LinkedIn", wikipedia: "Wikipedia", twitter: "X / Twitter",
-            github: "GitHub", website: "Website",
-          };
-
-          return (
-            <div
-              style={{
-                background: "#faf9f6",
-                borderRadius: "12px",
-                padding: "36px 40px",
-                marginBottom: "16px",
-                boxShadow: "0 2px 16px rgba(0,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.06)",
-                color: "#1a1a2e",
-                fontFamily: "'Georgia', 'Times New Roman', serif",
-              }}
-            >
-              {/* Resume header */}
-              <div style={{ textAlign: "center", marginBottom: "24px", borderBottom: "2px solid #2d2d44", paddingBottom: "20px" }}>
-                <h2 style={{ fontSize: "22px", fontWeight: 700, margin: "0 0 4px", color: "#1a1a2e", letterSpacing: "0.5px" }}>
-                  {linkedProfile.full_name}
-                </h2>
-                {linkedProfile.headline && (
-                  <div style={{ fontSize: "13px", color: "#555", marginBottom: "6px", fontStyle: "italic" }}>
-                    {linkedProfile.headline}
-                  </div>
-                )}
-                <div style={{ display: "flex", justifyContent: "center", gap: "16px", flexWrap: "wrap", fontSize: "12px", color: "#666" }}>
-                  {linkedProfile.location && <span>{linkedProfile.location}</span>}
-                  {linkedProfile.website && (
-                    <a href={linkedProfile.website} target="_blank" rel="noopener noreferrer" style={{ color: "#3b5998", textDecoration: "none" }}>
-                      {(() => { try { return new URL(linkedProfile.website!).hostname.replace("www.", ""); } catch { return linkedProfile.website; } })()}
-                    </a>
-                  )}
-                  {contact.email && <span>{contact.email}</span>}
-                </div>
-                {visibleLinks.length > 0 && (
-                  <div style={{ display: "flex", justifyContent: "center", gap: "12px", marginTop: "8px", flexWrap: "wrap" }}>
-                    {visibleLinks.map(link => (
-                      <a
-                        key={link.type}
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontSize: "11px", color: "#3b5998", textDecoration: "none", borderBottom: "1px dotted #aaa" }}
-                      >
-                        {linkLabels[link.type] || link.type}
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Bio */}
-              {linkedProfile.bio && (
-                <div style={{ marginBottom: "20px", fontSize: "13px", lineHeight: "1.7", color: "#333", fontStyle: "italic" }}>
-                  {linkedProfile.bio}
-                </div>
-              )}
-
-              {/* Experience */}
-              {linkedWork.length > 0 && (
-                <div style={{ marginBottom: "22px" }}>
-                  <h3 style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", color: "#1a1a2e", borderBottom: "1px solid #ccc", paddingBottom: "4px", marginBottom: "14px", fontFamily: "sans-serif" }}>
-                    Experience
-                  </h3>
-                  {linkedWork.map((entry, i) => (
-                    <div key={entry.id} style={{ marginBottom: i < linkedWork.length - 1 ? "14px" : 0 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap" }}>
-                        <div style={{ fontWeight: 700, fontSize: "14px", color: "#1a1a2e" }}>
-                          {entry.title}
-                        </div>
-                        <div style={{ fontSize: "12px", color: "#777", fontFamily: "sans-serif" }}>
-                          {formatWorkDate(entry.start_date || "")} – {entry.is_current ? "Present" : formatWorkDate(entry.end_date || "")}
-                        </div>
-                      </div>
-                      {(entry.company || entry.location) && (
-                        <div style={{ fontSize: "13px", color: "#555", fontStyle: "italic" }}>
-                          {entry.company}{entry.location ? ` — ${entry.location}` : ""}
-                          {entry.engagement_type && entry.engagement_type !== "full-time" ? ` (${entry.engagement_type})` : ""}
-                        </div>
-                      )}
-                      {entry.description && (
-                        <p style={{ fontSize: "12.5px", lineHeight: "1.6", color: "#444", margin: "6px 0 0", whiteSpace: "pre-wrap" }}>
-                          {entry.description}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Projects */}
-              {(projectEntries.length > 0 || otherEntries.length > 0) && (
-                <div style={{ marginBottom: "22px" }}>
-                  <h3 style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", color: "#1a1a2e", borderBottom: "1px solid #ccc", paddingBottom: "4px", marginBottom: "14px", fontFamily: "sans-serif" }}>
-                    Projects
-                  </h3>
-                  {[...projectEntries, ...otherEntries].map((entry, i, arr) => (
-                    <div key={entry.id} style={{ marginBottom: i < arr.length - 1 ? "14px" : 0 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap" }}>
-                        <div style={{ fontWeight: 700, fontSize: "14px", color: "#1a1a2e" }}>
-                          {entry.title}
-                        </div>
-                        <div style={{ fontSize: "12px", color: "#777", fontFamily: "sans-serif" }}>
-                          {formatWorkDate(entry.start_date || "")}
-                          {entry.end_date ? ` – ${formatWorkDate(entry.end_date)}` : ""}
-                        </div>
-                      </div>
-                      {(entry.description || entry.note) && (
-                        <p style={{ fontSize: "12.5px", lineHeight: "1.6", color: "#444", margin: "6px 0 0", whiteSpace: "pre-wrap" }}>
-                          {entry.description || entry.note}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Education */}
-              {(linkedEducation.length > 0 || educationChronicle.length > 0) && (
-                <div style={{ marginBottom: "22px" }}>
-                  <h3 style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", color: "#1a1a2e", borderBottom: "1px solid #ccc", paddingBottom: "4px", marginBottom: "14px", fontFamily: "sans-serif" }}>
-                    Education
-                  </h3>
-                  {linkedEducation.map((edu, i) => (
-                    <div key={edu.id} style={{ marginBottom: i < linkedEducation.length - 1 || educationChronicle.length > 0 ? "14px" : 0 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap" }}>
-                        <div style={{ fontWeight: 700, fontSize: "14px", color: "#1a1a2e" }}>
-                          {edu.institution}
-                        </div>
-                        <div style={{ fontSize: "12px", color: "#777", fontFamily: "sans-serif" }}>
-                          {formatWorkDate(edu.start_date || "")} – {edu.is_current ? "Present" : formatWorkDate(edu.end_date || "")}
-                        </div>
-                      </div>
-                      {(edu.degree || edu.field_of_study) && (
-                        <div style={{ fontSize: "13px", color: "#555", fontStyle: "italic" }}>
-                          {[edu.degree, edu.field_of_study].filter(Boolean).join(" in ")}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {educationChronicle.map((entry, i) => (
-                    <div key={entry.id} style={{ marginBottom: i < educationChronicle.length - 1 ? "14px" : 0 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap" }}>
-                        <div style={{ fontWeight: 700, fontSize: "14px", color: "#1a1a2e" }}>
-                          {entry.title}
-                        </div>
-                        <div style={{ fontSize: "12px", color: "#777", fontFamily: "sans-serif" }}>
-                          {formatWorkDate(entry.start_date || "")}
-                          {entry.end_date ? ` – ${formatWorkDate(entry.end_date)}` : ""}
-                        </div>
-                      </div>
-                      {(entry.description || entry.note) && (
-                        <p style={{ fontSize: "12.5px", lineHeight: "1.6", color: "#444", margin: "6px 0 0", whiteSpace: "pre-wrap" }}>
-                          {entry.description || entry.note}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
-        {/* ═══ PENDING ACTIONS ═══ */}
+        {/* PENDING ACTIONS */}
         {pendingActions.length > 0 && (
           <div
             style={{
@@ -1546,146 +731,18 @@ export default function ContactDossierPage() {
           </div>
         )}
 
-        {/* ═══ EDIT CONTACT FIELDS ═══ */}
+        {/* EDIT CONTACT FIELDS */}
         {editing && (
-          <div style={s.card}>
-            <div style={s.sectionLabel}>Edit Contact</div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "12px",
-              }}
-            >
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label style={s.label}>Full Name</label>
-                <input
-                  style={s.input}
-                  value={editFields.full_name || ""}
-                  onChange={(e) => setField("full_name", e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={s.label}>Role / Title</label>
-                <input
-                  style={s.input}
-                  value={editFields.role || ""}
-                  onChange={(e) => setField("role", e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={s.label}>Company</label>
-                <input
-                  style={s.input}
-                  value={editFields.company || ""}
-                  onChange={(e) => setField("company", e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={s.label}>Email</label>
-                <input
-                  style={s.input}
-                  type="email"
-                  value={editFields.email || ""}
-                  onChange={(e) => setField("email", e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={s.label}>Phone</label>
-                <input
-                  style={s.input}
-                  value={editFields.phone || ""}
-                  onChange={(e) => setField("phone", e.target.value)}
-                />
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label style={s.label}>Location</label>
-                <input
-                  style={s.input}
-                  value={editFields.location || ""}
-                  onChange={(e) => setField("location", e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={s.label}>Relationship</label>
-                <select
-                  style={s.select}
-                  value={editFields.relationship_type || "Acquaintance"}
-                  onChange={(e) =>
-                    setField("relationship_type", e.target.value)
-                  }
-                >
-                  {REL_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label style={s.label}>Last Contact</label>
-                <input
-                  style={s.input}
-                  type="date"
-                  value={editFields.last_contact_date || ""}
-                  onChange={(e) =>
-                    setField("last_contact_date", e.target.value)
-                  }
-                />
-              </div>
-              <div style={{ gridColumn: "1 / -1", borderTop: "1px solid #334155", paddingTop: "12px", marginTop: "4px" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={editFields.show_on_chronicle || false}
-                    onChange={(e) => setField("show_on_chronicle", e.target.checked)}
-                    style={{ width: "14px", height: "14px", accentColor: "#a78bfa" }}
-                  />
-                  <span style={{ fontSize: "13px", color: "#e2e8f0" }}>Show on Chronicle</span>
-                </label>
-              </div>
-              {editFields.show_on_chronicle && (
-                <div>
-                  <label style={s.label}>Chronicle Start Date</label>
-                  <input
-                    style={s.input}
-                    type="date"
-                    value={editFields.met_date || ""}
-                    onChange={(e) => setField("met_date", e.target.value)}
-                    placeholder="When they entered the story"
-                  />
-                  <div style={{ fontSize: "10px", color: "#64748b", marginTop: "4px" }}>
-                    When this person entered your story (defaults to card creation date)
-                  </div>
-                </div>
-              )}
-            </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "8px",
-                marginTop: "16px",
-              }}
-            >
-              <button
-                onClick={() => {
-                  setEditing(false);
-                  setEditFields(contact);
-                }}
-                style={s.btnSecondary}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveContact}
-                disabled={saving}
-                style={{ ...s.btnPrimary, opacity: saving ? 0.5 : 1 }}
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
+          <EditContactForm
+            editFields={editFields}
+            setField={setField}
+            saving={saving}
+            saveContact={saveContact}
+            onCancel={() => {
+              setEditing(false);
+              setEditFields(contact);
+            }}
+          />
         )}
 
       </div>
