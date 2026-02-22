@@ -316,6 +316,155 @@ export async function getConnectedUserIds(userId: string): Promise<string[]> {
   return Array.from(ids);
 }
 
+// ─── Direct connect (link-based, no invite code needed) ──────────
+// Used by /connect/[userId] page. Handles contact-aware bidirectional linking.
+// If contactId is provided, it references the inviter's existing contact card for the invitee.
+export async function connectDirectly(
+  currentUserId: string,
+  targetUserId: string,
+  existingContactId?: string | null,
+): Promise<{ success: boolean; error?: string }> {
+  // 1. Prevent self-connection
+  if (currentUserId === targetUserId) {
+    return { success: false, error: 'You cannot connect with yourself' };
+  }
+
+  // 2. Check if already connected (either direction)
+  const { data: existingConnection } = await supabase
+    .from('connections')
+    .select('id')
+    .eq('status', 'accepted')
+    .or(
+      `and(inviter_id.eq.${targetUserId},invitee_id.eq.${currentUserId}),and(inviter_id.eq.${currentUserId},invitee_id.eq.${targetUserId})`
+    )
+    .limit(1)
+    .single();
+
+  if (existingConnection) {
+    return { success: false, error: 'Already connected' };
+  }
+
+  // 3. Get both profiles
+  const [{ data: targetProfile }, { data: currentProfile }] = await Promise.all([
+    supabase.from('profiles').select('id, full_name, email, avatar_url, location, bio, headline, website').eq('id', targetUserId).single(),
+    supabase.from('profiles').select('id, full_name, email, avatar_url, location, bio, headline, website').eq('id', currentUserId).single(),
+  ]);
+
+  if (!targetProfile || !currentProfile) {
+    return { success: false, error: 'Could not find user profiles' };
+  }
+
+  // 4. Ensure target (link sender) has a contact card for current user (link clicker)
+  //    Check by linked_profile_id first
+  const { data: targetHasCard } = await supabase
+    .from('contacts')
+    .select('id')
+    .eq('owner_id', targetUserId)
+    .eq('linked_profile_id', currentUserId)
+    .limit(1)
+    .single();
+
+  let targetContactId = targetHasCard?.id;
+
+  if (!targetContactId) {
+    if (existingContactId) {
+      // The link specified a contact card — link it to the current user's profile
+      await supabase
+        .from('contacts')
+        .update({ linked_profile_id: currentUserId })
+        .eq('id', existingContactId)
+        .eq('owner_id', targetUserId);
+      targetContactId = existingContactId;
+    } else {
+      // No specific card — try matching by email
+      const { data: matchByEmail } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('owner_id', targetUserId)
+        .is('linked_profile_id', null)
+        .ilike('email', currentProfile.email || '__no_match__')
+        .limit(1)
+        .single();
+
+      if (matchByEmail) {
+        await supabase
+          .from('contacts')
+          .update({ linked_profile_id: currentUserId })
+          .eq('id', matchByEmail.id);
+        targetContactId = matchByEmail.id;
+      } else {
+        // Create a new card for the target
+        const { data: newContact } = await supabase
+          .from('contacts')
+          .insert({
+            owner_id: targetUserId,
+            linked_profile_id: currentUserId,
+            full_name: currentProfile.full_name,
+            email: currentProfile.email,
+          })
+          .select('id')
+          .single();
+        targetContactId = newContact?.id;
+      }
+    }
+  }
+
+  // 5. Ensure current user (link clicker) has a contact card for target (link sender)
+  const { data: currentHasCard } = await supabase
+    .from('contacts')
+    .select('id')
+    .eq('owner_id', currentUserId)
+    .eq('linked_profile_id', targetUserId)
+    .limit(1)
+    .single();
+
+  if (!currentHasCard) {
+    // Try matching by email
+    const { data: matchByEmail } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('owner_id', currentUserId)
+      .is('linked_profile_id', null)
+      .ilike('email', targetProfile.email || '__no_match__')
+      .limit(1)
+      .single();
+
+    if (matchByEmail) {
+      await supabase
+        .from('contacts')
+        .update({ linked_profile_id: targetUserId })
+        .eq('id', matchByEmail.id);
+    } else {
+      // Create a new card for the current user
+      await supabase
+        .from('contacts')
+        .insert({
+          owner_id: currentUserId,
+          linked_profile_id: targetUserId,
+          full_name: targetProfile.full_name,
+          email: targetProfile.email,
+        });
+    }
+  }
+
+  // 6. Create the accepted connection record
+  const { error: insertError } = await supabase.from('connections').insert({
+    inviter_id: targetUserId,
+    invitee_id: currentUserId,
+    contact_id: targetContactId,
+    invite_code: generateInviteCode(), // connections table requires a unique code
+    status: 'accepted',
+    accepted_at: new Date().toISOString(),
+  });
+
+  if (insertError) {
+    console.error('Error creating connection:', insertError);
+    return { success: false, error: 'Failed to create connection' };
+  }
+
+  return { success: true };
+}
+
 // Get pending invites sent by a user
 export async function getPendingInvites(userId: string) {
   const { data, error } = await supabase

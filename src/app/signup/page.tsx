@@ -12,6 +12,7 @@ function SignUpForm() {
   const [fullName, setFullName] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [connectUserId, setConnectUserId] = useState<string | null>(null)
+  const [connectContactId, setConnectContactId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -19,11 +20,15 @@ function SignUpForm() {
   useEffect(() => {
     const code = searchParams.get('code')
     const connect = searchParams.get('connect')
+    const contact = searchParams.get('contact')
     if (code) {
       setInviteCode(code.toUpperCase())
     }
     if (connect) {
       setConnectUserId(connect)
+    }
+    if (contact) {
+      setConnectContactId(contact)
     }
   }, [searchParams])
 
@@ -34,8 +39,9 @@ function SignUpForm() {
 
     try {
       const redirectBase = window.location.origin
+      const connectQuery = connectContactId ? `?contact=${connectContactId}` : ''
       const redirectPath = connectUserId
-        ? `/auth/callback?next=/connect/${connectUserId}`
+        ? `/auth/callback?next=/connect/${connectUserId}${encodeURIComponent(connectQuery)}`
         : '/auth/callback'
 
       const { data, error: signUpError } = await supabase.auth.signUp({

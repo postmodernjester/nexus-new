@@ -29,6 +29,8 @@ export default function ContactDossierPage() {
   const params = useParams();
   const cid = params.id as string;
 
+  const [userId, setUserId] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [contact, setContact] = useState<Contact | null>(null);
   const [linkedProfile, setLinkedProfile] = useState<LinkedProfile | null>(
     null
@@ -115,6 +117,7 @@ export default function ContactDossierPage() {
       router.push("/login");
       return;
     }
+    setUserId(user.id);
 
     const [contactRes, notesRes] = await Promise.all([
       supabase
@@ -474,6 +477,23 @@ export default function ContactDossierPage() {
             ← All Contacts
           </Link>
           <div style={{ display: "flex", gap: "8px" }}>
+            {!linkedProfile && userId && (
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/connect/${userId}?contact=${cid}`;
+                  navigator.clipboard.writeText(url);
+                  setCopiedLink(true);
+                  setTimeout(() => setCopiedLink(false), 2000);
+                }}
+                style={{
+                  ...s.btnSecondary,
+                  background: copiedLink ? "rgba(96,165,250,0.2)" : undefined,
+                  color: copiedLink ? "#60a5fa" : undefined,
+                }}
+              >
+                {copiedLink ? "Copied!" : "Copy Invite Link"}
+              </button>
+            )}
             {!editing && (
               <button onClick={() => setEditing(true)} style={s.btnSecondary}>
                 Edit

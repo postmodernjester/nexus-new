@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { connectDirectly } from "@/lib/connections";
 import Link from "next/link";
 
 type ConnectState =
@@ -17,8 +18,10 @@ type ConnectState =
 
 export default function ConnectPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const targetUserId = params.userId as string;
+  const contactId = searchParams.get("contact"); // optional: sender's existing contact card
 
   const [state, setState] = useState<ConnectState>("loading");
   const [targetProfile, setTargetProfile] = useState<any>(null);
@@ -76,25 +79,15 @@ export default function ConnectPage() {
       return;
     }
 
-    // 5. Connect using the server-side function (bypasses RLS)
+    // 5. Connect using contact-aware bidirectional linking
     setState("connecting");
 
-    const { data, error } = await supabase.rpc("create_mutual_connection", {
-      current_user_id: user.id,
-      target_user_id: targetUserId,
-    });
+    const result = await connectDirectly(user.id, targetUserId, contactId);
 
-    if (error) {
-      console.error("Connection error:", error);
-      setErrorMsg(error.message || "Failed to connect");
-      setState("error");
-      return;
-    }
-
-    if (data && data.success) {
+    if (result.success) {
       setState("connected");
     } else {
-      setErrorMsg(data?.error || "Failed to connect");
+      setErrorMsg(result.error || "Failed to connect");
       setState("error");
     }
   }
@@ -308,7 +301,7 @@ export default function ConnectPage() {
             }}
           >
             <Link
-              href={`/signup?connect=${targetUserId}`}
+              href={`/signup?connect=${targetUserId}${contactId ? `&contact=${contactId}` : ''}`}
               style={{
                 display: "block",
                 padding: "12px",
@@ -324,7 +317,7 @@ export default function ConnectPage() {
               Create Account & Connect
             </Link>
             <Link
-              href={`/login?next=/connect/${targetUserId}`}
+              href={`/login?next=/connect/${targetUserId}${contactId ? `?contact=${contactId}` : ''}`}
               style={{
                 display: "block",
                 padding: "12px",
