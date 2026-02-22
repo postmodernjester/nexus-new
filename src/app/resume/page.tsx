@@ -597,7 +597,75 @@ export default function ResumePage() {
           saveKeyLinks={saveKeyLinks}
         />
 
-        {/* SKILLS — hidden for now */}
+        {/* SKILLS & INTERESTS */}
+        <section style={{ marginTop: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Skills &amp; Interests</h2>
+          </div>
+
+          {/* Add new skill */}
+          <div style={{ ...cardStyle, display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 180px' }}>
+              <label style={{ display: 'block', fontSize: '11px', color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Skill / Interest</label>
+              <input
+                value={newSkillName}
+                onChange={e => setNewSkillName(e.target.value)}
+                placeholder="e.g. Python, Sailing, Machine Learning"
+                style={inputStyle}
+                onKeyDown={e => { if (e.key === 'Enter') addSkill() }}
+              />
+            </div>
+            <div style={{ flex: '0 1 140px' }}>
+              <label style={{ display: 'block', fontSize: '11px', color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Category</label>
+              <input
+                value={newSkillCategory}
+                onChange={e => setNewSkillCategory(e.target.value)}
+                placeholder="e.g. Tech, Hobby"
+                style={inputStyle}
+                onKeyDown={e => { if (e.key === 'Enter') addSkill() }}
+              />
+            </div>
+            <div style={{ flex: '0 0 auto' }}>
+              <button onClick={addSkill} style={btnPrimary}>+ Add</button>
+            </div>
+          </div>
+
+          {/* Skill list */}
+          {skills.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
+              {skills.map(sk => (
+                <div key={sk.id} style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  background: '#1e293b', border: '1px solid #334155', borderRadius: '20px',
+                  padding: '6px 14px', fontSize: '13px', color: '#e2e8f0',
+                }}>
+                  <span>{sk.name}</span>
+                  {sk.category && (
+                    <span style={{ fontSize: '10px', color: '#64748b', background: '#0f172a', borderRadius: '8px', padding: '1px 7px' }}>
+                      {sk.category}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => sk.id && deleteSkill(sk.id)}
+                    style={{
+                      background: 'none', border: 'none', color: '#64748b', cursor: 'pointer',
+                      fontSize: '14px', padding: '0 2px', lineHeight: 1,
+                    }}
+                    title="Remove"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {skills.length === 0 && (
+            <div style={{ color: '#475569', fontSize: '14px', textAlign: 'center', marginTop: '12px' }}>
+              No skills or interests added yet. These help identify synergies with your connections.
+            </div>
+          )}
+        </section>
       </main>
 
       {/* WORK MODAL */}

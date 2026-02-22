@@ -20,6 +20,7 @@ import { formatDate, extractUrls, initials } from "./utils";
 import { s } from "./styles";
 
 import NotesSection from "./components/NotesSection";
+import SynergySection from "./components/SynergySection";
 import ResumeView from "./components/ResumeView";
 import EditContactForm from "./components/EditContactForm";
 
@@ -714,6 +715,15 @@ export default function ContactDossierPage() {
           updateNote={updateNote}
           toggleAction={toggleAction}
           deleteNote={deleteNote}
+        />
+
+        {/* SYNERGY */}
+        <SynergySection
+          contact={contact}
+          linkedProfile={linkedProfile}
+          linkedWork={linkedWork}
+          linkedChronicle={linkedChronicle}
+          linkedEducation={linkedEducation}
         />
 
         {/* RESUME VIEW */}
