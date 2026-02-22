@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 
 const NAV_ITEMS = [
-  { href: '/resume',    label: 'Profile' },
+  { href: '/resume',    label: 'Resume' },
   { href: '/contacts',  label: 'Contacts' },
   { href: '/network',   label: 'Network' },
   { href: '/chronicle', label: 'Chronicle' },

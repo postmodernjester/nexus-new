@@ -37,6 +37,9 @@ interface ChronicleResumeEntry {
   note: string | null
   canvas_col: string
   color: string | null
+  show_on_resume: boolean
+  description?: string | null
+  image_url?: string | null
 }
 
 interface Skill {
@@ -200,7 +203,7 @@ export default function ResumePage() {
 
       const { data: chron } = await supabase
         .from('chronicle_entries')
-        .select('id, type, title, start_date, end_date, note, canvas_col, color')
+        .select('id, type, title, start_date, end_date, note, canvas_col, color, show_on_resume, description, image_url')
         .eq('user_id', authUser.id)
         .eq('show_on_resume', true)
         .order('start_date', { ascending: false })
@@ -297,11 +300,19 @@ export default function ResumePage() {
         start_date: editingChronicle.start_date,
         end_date: editingChronicle.end_date || null,
         note: editingChronicle.note,
+        description: editingChronicle.description || null,
+        show_on_resume: editingChronicle.show_on_resume,
+        image_url: editingChronicle.image_url || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', editingChronicle.id)
     if (!error) {
-      setChronicleEntries(prev => prev.map(e => e.id === editingChronicle.id ? editingChronicle : e))
+      if (!editingChronicle.show_on_resume) {
+        // Remove from resume view if unchecked
+        setChronicleEntries(prev => prev.filter(e => e.id !== editingChronicle.id))
+      } else {
+        setChronicleEntries(prev => prev.map(e => e.id === editingChronicle.id ? editingChronicle : e))
+      }
     }
     setShowChronicleModal(false)
     setEditingChronicle(null)
@@ -364,6 +375,20 @@ export default function ResumePage() {
     fontWeight: 500,
     fontSize: '12px',
     cursor: 'pointer',
+  }
+
+  const iconBtn: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    width: 32, height: 32, borderRadius: '6px',
+    background: 'transparent', border: '1px solid #334155',
+    color: '#94a3b8', cursor: 'pointer',
+  }
+
+  const iconBtnDanger: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    width: 32, height: 32, borderRadius: '6px',
+    background: 'transparent', border: '1px solid #7f1d1d',
+    color: '#ef4444', cursor: 'pointer',
   }
 
   const cardStyle: React.CSSProperties = {
@@ -488,8 +513,12 @@ export default function ResumePage() {
                           )}
                         </div>
                         <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                          <button onClick={() => openEditWork(entry)} style={btnSecondary}>Edit</button>
-                          <button onClick={() => entry.id && deleteWork(entry.id)} style={btnDanger}>Delete</button>
+                          <button onClick={() => openEditWork(entry)} style={iconBtn} title="Edit">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                          <button onClick={() => entry.id && deleteWork(entry.id)} style={iconBtnDanger} title="Delete">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -517,9 +546,14 @@ export default function ResumePage() {
                             <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.note}</p>
                           )}
                         </div>
-                        <button onClick={() => openEditChronicle(entry)} style={{ ...btnSecondary, fontSize: '12px', padding: '6px 12px' }}>
-                          Edit
-                        </button>
+                        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                          <button onClick={() => openEditChronicle(entry)} style={iconBtn} title="Edit">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                          <button onClick={() => deleteChronicle(entry.id)} style={iconBtnDanger} title="Delete">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )
@@ -557,25 +591,29 @@ export default function ResumePage() {
                         overflow: 'hidden',
                         transition: 'border-color 0.2s',
                       }}>
-                        {/* Image placeholder — future: upload a cover image */}
                         <div style={{
                           height: '120px',
-                          background: `linear-gradient(135deg, ${accentColor}22, ${accentColor}44)`,
+                          background: project.image_url ? 'none' : `linear-gradient(135deg, ${accentColor}22, ${accentColor}44)`,
                           borderBottom: `2px solid ${accentColor}66`,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           position: 'relative',
+                          overflow: 'hidden',
                         }}>
-                          <div style={{
-                            width: 48, height: 48, borderRadius: '50%',
-                            background: `${accentColor}33`,
-                            border: `2px solid ${accentColor}88`,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: '20px', color: accentColor, fontWeight: 700,
-                          }}>
-                            {project.title.charAt(0).toUpperCase()}
-                          </div>
+                          {project.image_url ? (
+                            <img src={project.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            <div style={{
+                              width: 48, height: 48, borderRadius: '50%',
+                              background: `${accentColor}33`,
+                              border: `2px solid ${accentColor}88`,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: '20px', color: accentColor, fontWeight: 700,
+                            }}>
+                              {project.title.charAt(0).toUpperCase()}
+                            </div>
+                          )}
                         </div>
                         <div style={{ padding: '16px 20px 20px' }}>
                           <div style={{ fontWeight: 700, fontSize: '17px', marginBottom: '4px' }}>{project.title}</div>
@@ -590,12 +628,12 @@ export default function ResumePage() {
                               {project.note}
                             </p>
                           )}
-                          <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
-                            <button onClick={() => openEditChronicle(project)} style={{
-                              ...btnSecondary,
-                              fontSize: '11px', padding: '5px 10px',
-                            }}>
-                              Edit
+                          <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                            <button onClick={() => openEditChronicle(project)} style={iconBtn} title="Edit">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </button>
+                            <button onClick={() => deleteChronicle(project.id)} style={iconBtnDanger} title="Delete">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                             </button>
                           </div>
                         </div>
@@ -638,8 +676,12 @@ export default function ResumePage() {
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                    <button onClick={() => openEditEdu(entry)} style={btnSecondary}>Edit</button>
-                    <button onClick={() => entry.id && deleteEdu(entry.id)} style={btnDanger}>Delete</button>
+                    <button onClick={() => openEditEdu(entry)} style={iconBtn} title="Edit">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
+                    <button onClick={() => entry.id && deleteEdu(entry.id)} style={iconBtnDanger} title="Delete">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -723,9 +765,45 @@ export default function ResumePage() {
                 </div>
               </div>
               <div>
+                <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Description</label>
+                <textarea value={editingChronicle.description || ''} onChange={e => setEditingChronicle({ ...editingChronicle, description: e.target.value })} placeholder="Brief description..." style={textareaStyle} />
+              </div>
+              <div>
                 <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Note</label>
                 <textarea value={editingChronicle.note || ''} onChange={e => setEditingChronicle({ ...editingChronicle, note: e.target.value })} style={textareaStyle} />
               </div>
+              {(editingChronicle.canvas_col === 'project' || editingChronicle.type === 'project') && (
+                <div>
+                  <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Project Image</label>
+                  {editingChronicle.image_url && (
+                    <div style={{ marginBottom: '8px', position: 'relative', display: 'inline-block' }}>
+                      <img src={editingChronicle.image_url} alt="" style={{ maxWidth: '100%', maxHeight: '120px', borderRadius: '6px', border: '1px solid #334155' }} />
+                      <button onClick={() => setEditingChronicle({ ...editingChronicle, image_url: null })} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,.7)', color: '#fff', border: 'none', borderRadius: '50%', width: 20, height: 20, cursor: 'pointer', fontSize: '11px', lineHeight: '20px', textAlign: 'center' as const, padding: 0 }}>×</button>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      if (file.size > 2 * 1024 * 1024) { alert('Image must be under 2 MB'); e.target.value = ''; return }
+                      if (!file.type.startsWith('image/')) { alert('Only image files allowed'); e.target.value = ''; return }
+                      const path = `projects/${user!.id}/${Date.now()}-${file.name}`
+                      const { error: upErr } = await supabase.storage.from('chronicle-images').upload(path, file)
+                      if (upErr) { alert('Upload failed: ' + upErr.message); return }
+                      const { data: urlData } = supabase.storage.from('chronicle-images').getPublicUrl(path)
+                      setEditingChronicle({ ...editingChronicle, image_url: urlData.publicUrl })
+                    }}
+                    style={{ fontSize: '12px', color: '#94a3b8' }}
+                  />
+                  <div style={{ fontSize: '10px', color: '#475569', marginTop: '4px' }}>PNG, JPG, WebP, GIF — max 2 MB</div>
+                </div>
+              )}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', borderTop: '1px solid #334155', paddingTop: '12px' }}>
+                <input type="checkbox" checked={editingChronicle.show_on_resume} onChange={e => setEditingChronicle({ ...editingChronicle, show_on_resume: e.target.checked })} style={{ width: 14, height: 14, accentColor: '#a78bfa' }} />
+                <span style={{ fontSize: '13px', color: '#e2e8f0' }}>Show on Resume</span>
+              </label>
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between', marginTop: '8px' }}>
                 <button onClick={() => deleteChronicle(editingChronicle.id)} style={btnDanger}>Delete</button>
                 <div style={{ display: 'flex', gap: '8px' }}>

@@ -301,8 +301,10 @@ export default function ChronicleCanvas() {
   }, [])
 
   // ─── Scroll to saved center or current year on first load ──
+  const initialScrollDone = useRef(false)
   useEffect(() => {
-    if (!loading && scrollRef.current) {
+    if (!loading && scrollRef.current && !initialScrollDone.current) {
+      initialScrollDone.current = true
       let centerY = CURRENT_YEAR
       let centerM = 1
       if (typeof window !== 'undefined') {
@@ -317,11 +319,14 @@ export default function ChronicleCanvas() {
           if (!isNaN(pm) && pm >= 1 && pm <= 12) centerM = pm
         }
       }
-      const targetPx = toPx({ y: centerY, m: centerM }, pxm, viewStart)
-      scrollRef.current.scrollTop = targetPx - scrollRef.current.clientHeight / 2
+      // Use rAF to ensure layout is complete and pxm is accurate
+      requestAnimationFrame(() => {
+        if (!scrollRef.current) return
+        const targetPx = toPx({ y: centerY, m: centerM }, pxm, viewStart)
+        scrollRef.current.scrollTop = targetPx - scrollRef.current.clientHeight / 2
+      })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading])
+  }, [loading, pxm, viewStart, viewEnd])
 
   // ─── Build unified timeline items ────────────
   const timelineItems = useMemo<TimelineItem[]>(() => {
@@ -494,14 +499,14 @@ export default function ChronicleCanvas() {
         }
       }
       if (ev.key === 'Escape') {
+        // Don't handle Escape if a modal is open — let the modal handle it
+        if (entryModal.open || geoModal.open) return
         setSelectedId(null)
-        setEntryModal({ open: false })
-        setGeoModal({ open: false })
       }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [selectedId, timelineItems])
+  }, [selectedId, timelineItems, entryModal.open, geoModal.open])
 
   // ─── Drag handlers ──────────────────────────
   const startDrag = useCallback((ev: React.MouseEvent, item: TimelineItem, type: 'move' | 'top' | 'bot') => {
@@ -627,12 +632,19 @@ export default function ChronicleCanvas() {
   }, [pxm, viewStart, dragDelta, fuzzyMonths])
 
   // ─── Zoom ────────────────────────────────────
+  const sliderPosRef = useRef(sliderPos)
+  useEffect(() => { sliderPosRef.current = sliderPos }, [sliderPos])
+
   const applySlider = useCallback((newPos: number) => {
     const sw = scrollRef.current
     if (!sw) return
+    // Compute current pxm from the latest slider pos (avoids stale closure)
+    const curYears = sliderToYears(sliderPosRef.current)
+    const curPxm = Math.max(0.5, sw.clientHeight / (curYears * 12))
     const centerPx = sw.scrollTop + sw.clientHeight / 2
-    const centerYM = pxToYM(centerPx, pxm, viewStart)
+    const centerYM = pxToYM(centerPx, curPxm, viewStart)
     const clamped = Math.max(0, Math.min(1, newPos))
+    sliderPosRef.current = clamped
     setSliderPos(clamped)
     localStorage.setItem(LS_SLIDER, String(clamped))
     requestAnimationFrame(() => {
@@ -640,7 +652,7 @@ export default function ChronicleCanvas() {
       const newPxm = Math.max(0.5, sw.clientHeight / (newYears * 12))
       sw.scrollTop = toPx(centerYM, newPxm, viewStart) - sw.clientHeight / 2
     })
-  }, [pxm, viewStart])
+  }, [viewStart])
 
   const zoomFromTrack = useCallback((clientX: number) => {
     const el = document.getElementById('chr-zoom-track')
@@ -671,11 +683,15 @@ export default function ChronicleCanvas() {
       if (!ev.ctrlKey && !ev.metaKey) return
       ev.preventDefault()
       const rect = sw.getBoundingClientRect()
+      // Compute current pxm from ref to avoid stale closure
+      const curYears = sliderToYears(sliderPosRef.current)
+      const curPxm = Math.max(0.5, sw.clientHeight / (curYears * 12))
       const mouseY = ev.clientY - rect.top + sw.scrollTop
-      const mouseYM = pxToYM(mouseY, pxm, viewStart)
+      const mouseYM = pxToYM(mouseY, curPxm, viewStart)
       const mouseOffset = ev.clientY - rect.top
       const delta = ev.deltaY > 0 ? -0.03 : 0.03
-      const newPos = Math.max(0, Math.min(1, sliderPos + delta))
+      const newPos = Math.max(0, Math.min(1, sliderPosRef.current + delta))
+      sliderPosRef.current = newPos
       setSliderPos(newPos)
       localStorage.setItem(LS_SLIDER, String(newPos))
       requestAnimationFrame(() => {
@@ -686,7 +702,7 @@ export default function ChronicleCanvas() {
     }
     sw.addEventListener('wheel', handleWheel, { passive: false })
     return () => sw.removeEventListener('wheel', handleWheel)
-  }, [pxm, viewStart, sliderPos])
+  }, [viewStart])
 
   // ─── Persist scroll center (debounced) ────────
   useEffect(() => {
@@ -890,6 +906,10 @@ export default function ChronicleCanvas() {
   }, [entryModal.editing])
 
   const openEditModal = useCallback((item: TimelineItem) => {
+    // Cancel any active drag to prevent interference with the modal
+    dragRef.current = null
+    setDragDelta(null)
+
     if (item.source === 'chronicle') {
       const entry = entries.find(e => e.id === item.id)
       if (!entry) return

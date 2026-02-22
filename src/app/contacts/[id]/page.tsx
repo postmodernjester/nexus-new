@@ -1,69 +1,11 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { useRouter, useParams, usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 
-// ─── Nav ───
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/network", label: "Network" },
-  { href: "/contacts", label: "Contacts" },
-];
-
-function Nav() {
-  const pathname = usePathname();
-  return (
-    <nav
-      style={{
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "10px 20px",
-        background: "#0f172a",
-        borderBottom: "1px solid #1e293b",
-      }}
-    >
-      <Link
-        href="/dashboard"
-        style={{
-          fontSize: "18px",
-          fontWeight: "bold",
-          color: "#fff",
-          textDecoration: "none",
-          letterSpacing: "-0.5px",
-        }}
-      >
-        NEXUS
-      </Link>
-      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-        {NAV_ITEMS.map((item) => {
-          const active = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              style={{
-                padding: "6px 14px",
-                borderRadius: "6px",
-                fontSize: "13px",
-                fontWeight: 500,
-                textDecoration: "none",
-                color: active ? "#0f172a" : "#94a3b8",
-                background: active ? "#fff" : "transparent",
-                transition: "all 0.15s",
-              }}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
-  );
-}
+import Nav from "@/components/Nav";
 
 // ─── Types ───
 interface Contact {
@@ -108,6 +50,17 @@ interface LinkedWorkEntry {
   is_current: boolean;
   description: string | null;
   location: string | null;
+}
+
+interface LinkedChronicleEntry {
+  id: string;
+  type: string;
+  title: string;
+  start_date: string;
+  end_date: string | null;
+  canvas_col: string;
+  note: string | null;
+  description: string | null;
 }
 
 interface NoteEntry {
@@ -299,6 +252,7 @@ export default function ContactDossierPage() {
     null
   );
   const [linkedWork, setLinkedWork] = useState<LinkedWorkEntry[]>([]);
+  const [linkedChronicle, setLinkedChronicle] = useState<LinkedChronicleEntry[]>([]);
   const [notes, setNotes] = useState<NoteEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -368,7 +322,7 @@ export default function ContactDossierPage() {
     setNotes(notesRes.data || []);
 
     if (contactRes.data.linked_profile_id) {
-      const [profileRes, workRes] = await Promise.all([
+      const [profileRes, workRes, chronRes] = await Promise.all([
         supabase
           .from("profiles")
           .select("full_name, headline, bio, location, website, avatar_url")
@@ -380,9 +334,16 @@ export default function ContactDossierPage() {
           .eq("user_id", contactRes.data.linked_profile_id)
           .order("is_current", { ascending: false })
           .order("start_date", { ascending: false }),
+        supabase
+          .from("chronicle_entries")
+          .select("id, type, title, start_date, end_date, canvas_col, note, description")
+          .eq("user_id", contactRes.data.linked_profile_id)
+          .eq("show_on_resume", true)
+          .order("start_date", { ascending: false }),
       ]);
       if (profileRes.data) setLinkedProfile(profileRes.data);
       if (workRes.data) setLinkedWork(workRes.data);
+      if (chronRes.data) setLinkedChronicle(chronRes.data);
     }
 
     setLoading(false);
@@ -980,6 +941,65 @@ export default function ContactDossierPage() {
                       }}
                     >
                       {entry.description}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ═══ LINKED CHRONICLE/PROJECT ENTRIES ═══ */}
+        {linkedChronicle.length > 0 && (
+          <div
+            style={{
+              ...s.card,
+              borderColor: "rgba(96,165,250,0.2)",
+              background: "rgba(30,41,59,0.7)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "11px",
+                color: "#60a5fa",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                marginBottom: "14px",
+              }}
+            >
+              Projects & Other (from their resume)
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              {linkedChronicle.map((entry) => (
+                <div
+                  key={entry.id}
+                  style={{
+                    padding: "12px 14px",
+                    background: "rgba(15,23,42,0.5)",
+                    borderRadius: "8px",
+                    border: "1px solid #1e293b",
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: "14px" }}>
+                    {entry.title}
+                  </div>
+                  <div style={{ color: "#64748b", fontSize: "12px", marginTop: "2px" }}>
+                    {entry.start_date?.slice(0, 7) || ""}
+                    {entry.end_date ? ` – ${entry.end_date.slice(0, 7)}` : entry.start_date ? " – Present" : ""}
+                    {entry.canvas_col && entry.canvas_col !== "work" ? ` · ${entry.canvas_col}` : ""}
+                  </div>
+                  {(entry.description || entry.note) && (
+                    <p
+                      style={{
+                        color: "#cbd5e1",
+                        fontSize: "13px",
+                        marginTop: "8px",
+                        lineHeight: "1.5",
+                        whiteSpace: "pre-wrap",
+                        margin: "8px 0 0",
+                      }}
+                    >
+                      {entry.description || entry.note}
                     </p>
                   )}
                 </div>
