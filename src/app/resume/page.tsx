@@ -87,7 +87,14 @@ export default function ResumePage() {
       const { data: work } = await supabase.from('work_entries').select('*').eq('user_id', authUser.id).order('start_date', { ascending: false })
       if (work) setWorkEntries(work.map((w: any) => ({
         ...w,
+        title: w.title || '',
+        company: w.company || '',
+        location: w.location || '',
         location_type: w.remote_type || '',
+        start_date: w.start_date || '',
+        end_date: w.end_date || '',
+        description: w.description || '',
+        engagement_type: w.engagement_type || 'full-time',
         ai_skills_extracted: w.ai_skills_extracted || [],
       })))
 
@@ -220,7 +227,14 @@ export default function ResumePage() {
 
     const mapWork = (data: any) => ({
       ...data,
+      title: data.title || '',
+      company: data.company || '',
+      location: data.location || '',
       location_type: data.remote_type || '',
+      start_date: data.start_date || '',
+      end_date: data.end_date || '',
+      description: data.description || '',
+      engagement_type: data.engagement_type || 'full-time',
       ai_skills_extracted: data.ai_skills_extracted || [],
       show_on_resume: editingWork.show_on_resume !== false,
     })

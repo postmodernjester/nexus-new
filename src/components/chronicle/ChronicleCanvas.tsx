@@ -198,13 +198,13 @@ export default function ChronicleCanvas() {
     if (!loading && scrollRef.current && viewportMeasured.current && !initialScrollDone.current) {
       initialScrollDone.current = true
       let centerY = CURRENT_YEAR
-      let centerM = 1
+      let centerM = 6
       if (typeof window !== 'undefined') {
         const savedY = localStorage.getItem(LS_CENTER_YEAR)
         const savedM = localStorage.getItem(LS_CENTER_MONTH)
         if (savedY) {
           const py = parseInt(savedY)
-          if (!isNaN(py) && py >= viewStart && py <= viewEnd) centerY = py
+          if (!isNaN(py)) centerY = Math.max(viewStart, Math.min(viewEnd, py))
         }
         if (savedM) {
           const pm = parseInt(savedM)
@@ -214,7 +214,9 @@ export default function ChronicleCanvas() {
       // Use rAF to ensure layout is complete and pxm is accurate
       requestAnimationFrame(() => {
         if (!scrollRef.current) return
-        const targetPx = toPx({ y: centerY, m: centerM }, pxm, viewStart)
+        // Re-derive pxm from current viewport to avoid stale closure
+        const curPxm = Math.max(0.5, scrollRef.current.clientHeight / (sliderToYears(sliderPosRef.current) * 12))
+        const targetPx = toPx({ y: centerY, m: centerM }, curPxm, viewStart)
         scrollRef.current.scrollTop = targetPx - scrollRef.current.clientHeight / 2
       })
     }
