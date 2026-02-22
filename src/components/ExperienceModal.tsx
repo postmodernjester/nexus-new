@@ -137,20 +137,29 @@ export default function ExperienceModal({ isOpen, onClose, onSaved, editEntry }:
         compensation_period: showCompensation ? entry.compensation_period : null,
         compensation_notes: showCompensation ? (entry.compensation_notes.trim() || null) : null,
         is_compensation_private: entry.is_compensation_private,
-        ai_skills_extracted: skills,
       }
 
+      let savedId: string | undefined
       if (entry.id) {
         const { error: updateError } = await supabase
           .from('work_entries')
           .update(payload)
           .eq('id', entry.id)
         if (updateError) throw updateError
+        savedId = entry.id
       } else {
-        const { error: insertError } = await supabase
+        const { data: inserted, error: insertError } = await supabase
           .from('work_entries')
           .insert(payload)
+          .select('id')
+          .single()
         if (insertError) throw insertError
+        savedId = inserted?.id
+      }
+
+      // Phase 2: optional column (silently skip if missing)
+      if (savedId && skills.length > 0) {
+        await supabase.from('work_entries').update({ ai_skills_extracted: skills }).eq('id', savedId).then(() => {}, () => {})
       }
 
       // Upsert skills to the skills table

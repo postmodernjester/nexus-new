@@ -988,15 +988,15 @@ export default function ChronicleCanvas() {
             location: w.location || null,
             remote_type: w.location_type || null,
             description: w.description || null,
-            ai_skills_extracted: w.ai_skills_extracted || [],
           }
         const { data: newWork, error } = await sb
           .from('work_entries').insert(newBase).select().single()
         if (error) throw error
 
-        // Phase 2: chronicle display columns (silently skip if missing)
+        // Phase 2: optional columns (silently skip if missing)
         if (newWork) {
           await sb.from('work_entries').update({
+            ai_skills_extracted: w.ai_skills_extracted || [],
             chronicle_color: w.chronicle_color || '#4070a8',
             chronicle_fuzzy_start: w.chronicle_fuzzy_start || false,
             chronicle_fuzzy_end: w.chronicle_fuzzy_end || false,

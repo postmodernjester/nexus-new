@@ -189,10 +189,10 @@ export default function ResumePage() {
       is_current: editingWork.is_current,
       description: editingWork.description || null,
       engagement_type: editingWork.engagement_type,
-      ai_skills_extracted: editingWork.ai_skills_extracted || [],
     }
     // Phase 2 payload: optional columns from later migrations (applied silently)
     const extraCols: Record<string, unknown> = {}
+    if (editingWork.ai_skills_extracted !== undefined) extraCols.ai_skills_extracted = editingWork.ai_skills_extracted || []
     if (editingWork.show_on_resume !== undefined) extraCols.show_on_resume = editingWork.show_on_resume
     if (editingWork.chronicle_color) extraCols.chronicle_color = editingWork.chronicle_color
     if (editingWork.chronicle_fuzzy_start !== undefined) extraCols.chronicle_fuzzy_start = editingWork.chronicle_fuzzy_start

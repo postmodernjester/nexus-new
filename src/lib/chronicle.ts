@@ -102,7 +102,7 @@ export async function loadChronicleData() {
   const [entries, places, workEntries, contacts, education] = await Promise.all([
     supabase.from('chronicle_entries').select('*').eq('user_id', userId).order('start_date'),
     supabase.from('chronicle_places').select('*').eq('user_id', userId).order('start_date'),
-    supabase.from('work_entries').select('id, user_id, title, company, start_date, end_date, is_current, engagement_type, location, remote_type, description, ai_skills_extracted, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').eq('user_id', userId).order('start_date'),
+    supabase.from('work_entries').select('*').eq('user_id', userId).order('start_date'),
     supabase.from('contacts').select('id, owner_id, full_name, company, role, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, show_on_chronicle, met_date, created_at').eq('owner_id', userId).eq('show_on_chronicle', true).order('full_name'),
     supabase.from('education').select('id, user_id, institution, degree, field_of_study, start_date, end_date, is_current, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').eq('user_id', userId).order('start_date'),
   ])
@@ -239,12 +239,13 @@ export async function updateWorkEntryFromChronicle(id: string, fields: {
   chronicle_note?: string
 }) {
   // Phase 1: update base columns (always exist per 003_resume_tables migration)
-  const { chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, show_on_resume, ...base } = fields
+  const { chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, show_on_resume, ai_skills_extracted, ...base } = fields
   const { error } = await supabase.from('work_entries').update(base).eq('id', id)
   if (error) throw error
 
   // Phase 2: update optional columns that may not exist yet (silently skip on failure)
   const extras: Record<string, unknown> = {}
+  if (ai_skills_extracted !== undefined) extras.ai_skills_extracted = ai_skills_extracted
   if (chronicle_color !== undefined) extras.chronicle_color = chronicle_color
   if (chronicle_fuzzy_start !== undefined) extras.chronicle_fuzzy_start = chronicle_fuzzy_start
   if (chronicle_fuzzy_end !== undefined) extras.chronicle_fuzzy_end = chronicle_fuzzy_end
