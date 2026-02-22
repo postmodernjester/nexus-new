@@ -1,5 +1,5 @@
--- Update accept_link_invitation (no silent auto-merge — all merges go
--- through the client-side name-match prompt where the user decides).
+-- Update accept_link_invitation: auto-merge silently on email match,
+-- name-match merges go through the client-side prompt where the user decides.
 -- Add merge_duplicate_contact RPC for the user-confirmed merge action.
 
 -- ─── Updated accept_link_invitation ───
@@ -43,11 +43,22 @@ BEGIN
   END IF;
 
   -- === SENDER's contact card for recipient ===
-  -- Check if already linked
+  -- 1. Already linked?
   SELECT id INTO v_from_contact_id FROM contacts
     WHERE owner_id = v_inv.from_user_id AND linked_profile_id = v_inv.to_user_id
     LIMIT 1;
-  -- Create new if not already linked (name-match merges handled client-side)
+  -- 2. Email match → silent auto-merge (no prompt needed)
+  IF v_from_contact_id IS NULL AND v_to_profile.email IS NOT NULL THEN
+    SELECT id INTO v_from_contact_id FROM contacts
+      WHERE owner_id = v_inv.from_user_id
+        AND linked_profile_id IS NULL
+        AND lower(email) = lower(v_to_profile.email)
+      LIMIT 1;
+    IF v_from_contact_id IS NOT NULL THEN
+      UPDATE contacts SET linked_profile_id = v_inv.to_user_id WHERE id = v_from_contact_id;
+    END IF;
+  END IF;
+  -- 3. Create new if still not found (name-match merges handled client-side)
   IF v_from_contact_id IS NULL THEN
     INSERT INTO contacts (owner_id, linked_profile_id, full_name, email)
       VALUES (v_inv.from_user_id, v_inv.to_user_id, v_to_profile.full_name, v_to_profile.email)
@@ -55,11 +66,22 @@ BEGIN
   END IF;
 
   -- === RECIPIENT's contact card for sender ===
-  -- Check if already linked
+  -- 1. Already linked?
   SELECT id INTO v_to_contact_id FROM contacts
     WHERE owner_id = v_inv.to_user_id AND linked_profile_id = v_inv.from_user_id
     LIMIT 1;
-  -- Create new if not already linked (name-match merges handled client-side)
+  -- 2. Email match → silent auto-merge (no prompt needed)
+  IF v_to_contact_id IS NULL AND v_from_profile.email IS NOT NULL THEN
+    SELECT id INTO v_to_contact_id FROM contacts
+      WHERE owner_id = v_inv.to_user_id
+        AND linked_profile_id IS NULL
+        AND lower(email) = lower(v_from_profile.email)
+      LIMIT 1;
+    IF v_to_contact_id IS NOT NULL THEN
+      UPDATE contacts SET linked_profile_id = v_inv.from_user_id WHERE id = v_to_contact_id;
+    END IF;
+  END IF;
+  -- 3. Create new if still not found (name-match merges handled client-side)
   IF v_to_contact_id IS NULL THEN
     INSERT INTO contacts (owner_id, linked_profile_id, full_name, email)
       VALUES (v_inv.to_user_id, v_inv.from_user_id, v_from_profile.full_name, v_from_profile.email)
