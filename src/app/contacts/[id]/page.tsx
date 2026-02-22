@@ -341,12 +341,29 @@ export default function ContactDossierPage() {
 
     if (contactRes.data.linked_profile_id) {
       const pid = contactRes.data.linked_profile_id;
-      const [profileRes, workRes, chronRes, eduRes] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("full_name, headline, bio, location, website, avatar_url, key_links")
-          .eq("id", pid)
-          .single(),
+      // Fetch each independently so one failure doesn't block others
+      const profileRes = await supabase
+        .from("profiles")
+        .select("full_name, headline, bio, location, website, avatar_url, key_links")
+        .eq("id", pid)
+        .single();
+
+      // Use profile data if available, otherwise build a minimal one from the contact
+      if (profileRes.data) {
+        setLinkedProfile(profileRes.data);
+      } else {
+        setLinkedProfile({
+          full_name: contactRes.data.full_name,
+          headline: contactRes.data.role ? [contactRes.data.role, contactRes.data.company].filter(Boolean).join(" at ") : null,
+          bio: null,
+          location: contactRes.data.location || null,
+          website: null,
+          avatar_url: contactRes.data.avatar_url || null,
+          key_links: null,
+        });
+      }
+
+      const [workRes, chronRes, eduRes] = await Promise.all([
         supabase
           .from("work_entries")
           .select("id, title, company, engagement_type, start_date, end_date, is_current, description, location")
@@ -365,12 +382,6 @@ export default function ContactDossierPage() {
           .eq("user_id", pid)
           .order("start_date", { ascending: false }),
       ]);
-      console.log("[contact] linked_profile_id:", pid);
-      console.log("[contact] profile:", profileRes.error?.message || profileRes.data);
-      console.log("[contact] work:", workRes.error?.message || `${workRes.data?.length} entries`);
-      console.log("[contact] chronicle:", chronRes.error?.message || `${chronRes.data?.length} entries`);
-      console.log("[contact] education:", eduRes.error?.message || `${eduRes.data?.length} entries`);
-      if (profileRes.data) setLinkedProfile(profileRes.data);
       if (workRes.data) setLinkedWork(workRes.data);
       if (chronRes.data) setLinkedChronicle(chronRes.data);
       if (eduRes.data) setLinkedEducation(eduRes.data);
