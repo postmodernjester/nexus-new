@@ -114,7 +114,7 @@ export default function PublicProfilePage() {
       await Promise.all([
         supabase
           .from("profiles")
-          .select("id, full_name, headline, bio, location, website, avatar_url, profile_photo_url, key_links, is_public")
+          .select("*")
           .eq("id", targetUserId)
           .single(),
         supabase
