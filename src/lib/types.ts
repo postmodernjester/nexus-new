@@ -177,15 +177,12 @@ export type PaymentStatus =
   | 'pro-bono'
 
 export type RelationshipType =
-  | 'colleague'
-  | 'client'
-  | 'vendor'
-  | 'mentor'
-  | 'mentee'
-  | 'collaborator'
-  | 'friend'
-  | 'acquaintance'
-  | 'other'
+  | 'None'
+  | 'Acquaintance'
+  | 'Business Contact'
+  | 'Work-Friend'
+  | 'Close Friend'
+  | 'Family'
 
 export type FollowUpStatus =
   | 'none'

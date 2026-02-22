@@ -196,7 +196,7 @@ export async function redeemInviteCode(
             location: inviteeProfile.location,
             bio: inviteeProfile.bio,
             website: inviteeProfile.website,
-            relationship_type: 'connection',
+            relationship_type: 'Acquaintance',
           })
           .select('id')
           .single();
@@ -246,7 +246,7 @@ export async function redeemInviteCode(
           location: inviterProfile.location,
           bio: inviterProfile.bio,
           website: inviterProfile.website,
-          relationship_type: 'connection',
+          relationship_type: 'Acquaintance',
         })
         .select('id')
         .single();
