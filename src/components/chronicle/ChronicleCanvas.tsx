@@ -886,9 +886,7 @@ export default function ChronicleCanvas() {
         if (!userId) throw new Error('Not authenticated')
 
         // Create proper work_entry
-        const { data: newWork, error } = await sb
-          .from('work_entries')
-          .insert({
+        const baseInsert = {
             user_id: userId,
             title: w.title,
             company: w.company,
@@ -899,14 +897,20 @@ export default function ChronicleCanvas() {
             location: w.location || null,
             remote_type: w.location_type || null,
             description: w.description || null,
+          }
+        const optionalInsert = {
             ai_skills_extracted: w.ai_skills_extracted || [],
             chronicle_color: w.chronicle_color || '#4070a8',
             chronicle_fuzzy_start: w.chronicle_fuzzy_start || false,
             chronicle_fuzzy_end: w.chronicle_fuzzy_end || false,
             chronicle_note: w.chronicle_note || null,
-          })
-          .select()
-          .single()
+          }
+        let { data: newWork, error } = await sb
+          .from('work_entries').insert({ ...baseInsert, ...optionalInsert }).select().single()
+        if (error && error.message.includes('column')) {
+          ;({ data: newWork, error } = await sb
+            .from('work_entries').insert(baseInsert).select().single())
+        }
         if (error) throw error
 
         // Delete the old chronicle entry
@@ -957,9 +961,7 @@ export default function ChronicleCanvas() {
         const { supabase: sb } = await import('@/lib/supabase')
         const userId = (await sb.auth.getUser()).data.user?.id
         if (!userId) throw new Error('Not authenticated')
-        const { data: newWork, error } = await sb
-          .from('work_entries')
-          .insert({
+        const newBase = {
             user_id: userId,
             title: w.title,
             company: w.company,
@@ -970,14 +972,20 @@ export default function ChronicleCanvas() {
             location: w.location || null,
             remote_type: w.location_type || null,
             description: w.description || null,
+          }
+        const newOptional = {
             ai_skills_extracted: w.ai_skills_extracted || [],
             chronicle_color: w.chronicle_color || '#4070a8',
             chronicle_fuzzy_start: w.chronicle_fuzzy_start || false,
             chronicle_fuzzy_end: w.chronicle_fuzzy_end || false,
             chronicle_note: w.chronicle_note || null,
-          })
-          .select()
-          .single()
+          }
+        let { data: newWork, error } = await sb
+          .from('work_entries').insert({ ...newBase, ...newOptional }).select().single()
+        if (error && error.message.includes('column')) {
+          ;({ data: newWork, error } = await sb
+            .from('work_entries').insert(newBase).select().single())
+        }
         if (error) throw error
         setWorkEntries(prev => [...prev, newWork as ChronicleWorkEntry])
       }

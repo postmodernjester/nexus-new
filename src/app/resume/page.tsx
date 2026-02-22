@@ -178,7 +178,7 @@ export default function ResumePage() {
     const chronicleId = isMigration ? editingWork.id!.slice(migratePrefix.length) : null
 
     // Build a clean payload with only work_entries columns
-    const payload: Record<string, unknown> = {
+    const basePayload: Record<string, unknown> = {
       user_id: user.id,
       title: editingWork.title,
       company: editingWork.company,
@@ -189,31 +189,51 @@ export default function ResumePage() {
       is_current: editingWork.is_current,
       description: editingWork.description || null,
       engagement_type: editingWork.engagement_type,
+    }
+    // Optional columns that may not exist in the table yet
+    const optionalCols: Record<string, unknown> = {
       ai_skills_extracted: editingWork.ai_skills_extracted || [],
     }
-    // Include chronicle display fields if set
-    if (editingWork.chronicle_color) payload.chronicle_color = editingWork.chronicle_color
-    if (editingWork.chronicle_fuzzy_start !== undefined) payload.chronicle_fuzzy_start = editingWork.chronicle_fuzzy_start
-    if (editingWork.chronicle_fuzzy_end !== undefined) payload.chronicle_fuzzy_end = editingWork.chronicle_fuzzy_end
-    if (editingWork.chronicle_note !== undefined) payload.chronicle_note = editingWork.chronicle_note || null
+    if (editingWork.chronicle_color) optionalCols.chronicle_color = editingWork.chronicle_color
+    if (editingWork.chronicle_fuzzy_start !== undefined) optionalCols.chronicle_fuzzy_start = editingWork.chronicle_fuzzy_start
+    if (editingWork.chronicle_fuzzy_end !== undefined) optionalCols.chronicle_fuzzy_end = editingWork.chronicle_fuzzy_end
+    if (editingWork.chronicle_note !== undefined) optionalCols.chronicle_note = editingWork.chronicle_note || null
+
+    // Try with all columns first, then retry with base-only if columns don't exist
+    const tryInsertOrUpdate = async (isUpdate: boolean, id?: string) => {
+      const fullPayload = { ...basePayload, ...optionalCols }
+      if (isUpdate) delete fullPayload.user_id
+
+      let result = isUpdate
+        ? await supabase.from('work_entries').update(fullPayload).eq('id', id!).select().single()
+        : await supabase.from('work_entries').insert(fullPayload).select().single()
+
+      // Retry without optional columns if they don't exist
+      if (result.error && result.error.message.includes('column')) {
+        console.warn('Retrying without optional columns:', result.error.message)
+        const fallback = isUpdate ? { ...basePayload } : { ...basePayload }
+        if (isUpdate) delete fallback.user_id
+        result = isUpdate
+          ? await supabase.from('work_entries').update(fallback).eq('id', id!).select().single()
+          : await supabase.from('work_entries').insert(fallback).select().single()
+      }
+      return result
+    }
 
     if (isMigration) {
-      // Migrate from chronicle_entry → work_entry
-      const { data, error } = await supabase.from('work_entries').insert(payload).select().single()
+      const { data, error } = await tryInsertOrUpdate(false)
       if (error) { console.error('Migration insert failed:', error.message); alert('Failed to save: ' + error.message); return }
       if (data) {
         setWorkEntries(prev => [{ ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] }, ...prev])
-        // Delete the old chronicle entry
         await supabase.from('chronicle_entries').delete().eq('id', chronicleId!)
         setChronicleEntries(prev => prev.filter(e => e.id !== chronicleId))
       }
     } else if (editingWorkId) {
-      delete payload.user_id
-      const { data, error } = await supabase.from('work_entries').update(payload).eq('id', editingWorkId).select().single()
+      const { data, error } = await tryInsertOrUpdate(true, editingWorkId)
       if (error) { console.error('Update failed:', error.message); alert('Failed to save: ' + error.message); return }
       if (data) setWorkEntries(prev => prev.map(e => e.id === editingWorkId ? { ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] } : e))
     } else {
-      const { data, error } = await supabase.from('work_entries').insert(payload).select().single()
+      const { data, error } = await tryInsertOrUpdate(false)
       if (error) { console.error('Insert failed:', error.message); alert('Failed to save: ' + error.message); return }
       if (data) setWorkEntries(prev => [{ ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] }, ...prev])
     }

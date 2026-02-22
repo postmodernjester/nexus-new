@@ -236,7 +236,14 @@ export async function updateWorkEntryFromChronicle(id: string, fields: {
   chronicle_note?: string
 }) {
   const { error } = await supabase.from('work_entries').update(fields).eq('id', id)
-  if (error) throw error
+  if (error && error.message.includes('column')) {
+    // Retry without optional columns that may not exist yet
+    const { ai_skills_extracted, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, ...base } = fields
+    const { error: err2 } = await supabase.from('work_entries').update(base).eq('id', id)
+    if (err2) throw err2
+  } else if (error) {
+    throw error
+  }
 }
 
 export async function deleteWorkEntry(id: string) {
