@@ -92,6 +92,13 @@ export default function PublicProfilePage() {
   const [receivedInvitationId, setReceivedInvitationId] = useState<string | null>(null);
   const [respondingTo, setRespondingTo] = useState(false);
 
+  // Merge prompt
+  const [mergePrompt, setMergePrompt] = useState<{
+    newContactId: string;
+    existingContacts: { id: string; full_name: string; email: string | null; company: string | null; role: string | null; location: string | null }[];
+  } | null>(null);
+  const [merging, setMerging] = useState(false);
+
   useEffect(() => {
     loadProfile();
   }, [targetUserId]);
@@ -194,7 +201,13 @@ export default function PublicProfilePage() {
       const { data } = await supabase.rpc("accept_link_invitation", {
         p_invitation_id: receivedInvitationId,
       });
-      if (data?.success) setLinkStatus("connected");
+      if (data?.success) {
+        setLinkStatus("connected");
+        // Check for name-match duplicates
+        if (currentUserId && profile) {
+          await checkForDuplicateContacts(targetUserId, profile.full_name);
+        }
+      }
     } else {
       await supabase
         .from("link_invitations")
@@ -203,6 +216,39 @@ export default function PublicProfilePage() {
       setLinkStatus("none");
     }
     setRespondingTo(false);
+  }
+
+  async function checkForDuplicateContacts(linkedProfileId: string, linkedName: string) {
+    if (!currentUserId) return;
+    const { data: newContact } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("owner_id", currentUserId)
+      .eq("linked_profile_id", linkedProfileId)
+      .limit(1)
+      .single();
+    if (!newContact) return;
+
+    const { data: dupes } = await supabase
+      .from("contacts")
+      .select("id, full_name, email, company, role, location")
+      .eq("owner_id", currentUserId)
+      .is("linked_profile_id", null)
+      .ilike("full_name", linkedName);
+    if (!dupes || dupes.length === 0) return;
+
+    setMergePrompt({ newContactId: newContact.id, existingContacts: dupes });
+  }
+
+  async function handleMerge(keepContactId: string) {
+    if (!mergePrompt) return;
+    setMerging(true);
+    const { data } = await supabase.rpc("merge_duplicate_contact", {
+      p_keep_id: keepContactId,
+      p_remove_id: mergePrompt.newContactId,
+    });
+    if (data?.success) setMergePrompt(null);
+    setMerging(false);
   }
 
   // Categorize chronicle entries
@@ -729,6 +775,135 @@ export default function PublicProfilePage() {
           )}
         </div>
       </div>
+
+      {/* ═══ MERGE PROMPT MODAL ═══ */}
+      {mergePrompt && profile && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+            padding: "20px",
+          }}
+          onClick={() => setMergePrompt(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#1e293b",
+              borderRadius: "12px",
+              border: "1px solid #334155",
+              padding: "24px",
+              maxWidth: "440px",
+              width: "100%",
+            }}
+          >
+            <h3 style={{ fontSize: "15px", fontWeight: 600, margin: "0 0 6px", color: "#e2e8f0" }}>
+              Possible duplicate contact
+            </h3>
+            <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 16px" }}>
+              You just linked with {profile.full_name}. You may already have a contact card for this person.
+            </p>
+
+            {/* Linked profile info */}
+            <div
+              style={{
+                background: "#0f172a",
+                borderRadius: "8px",
+                padding: "12px 14px",
+                marginBottom: "12px",
+                border: "1px solid #334155",
+              }}
+            >
+              <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                Linked profile
+              </div>
+              <div style={{ fontWeight: 600, fontSize: "14px", color: "#e2e8f0" }}>{profile.full_name}</div>
+              {profile.headline && (
+                <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>{profile.headline}</div>
+              )}
+              {profile.location && (
+                <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>{profile.location}</div>
+              )}
+            </div>
+
+            {/* Existing contact matches */}
+            <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              Your existing contact{mergePrompt.existingContacts.length > 1 ? "s" : ""} with this name
+            </div>
+            {mergePrompt.existingContacts.map((c) => (
+              <div
+                key={c.id}
+                style={{
+                  background: "#0f172a",
+                  borderRadius: "8px",
+                  padding: "12px 14px",
+                  marginBottom: "8px",
+                  border: "1px solid #334155",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: "13px", color: "#e2e8f0" }}>{c.full_name}</div>
+                  {(c.role || c.company) && (
+                    <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>
+                      {[c.role, c.company].filter(Boolean).join(" at ")}
+                    </div>
+                  )}
+                  {c.location && (
+                    <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>{c.location}</div>
+                  )}
+                  {c.email && (
+                    <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>{c.email}</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleMerge(c.id)}
+                  disabled={merging}
+                  style={{
+                    padding: "6px 14px",
+                    background: "#22c55e",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "6px",
+                    fontWeight: 600,
+                    fontSize: "11px",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                    opacity: merging ? 0.5 : 1,
+                  }}
+                >
+                  {merging ? "..." : "Yes, same person"}
+                </button>
+              </div>
+            ))}
+
+            <button
+              onClick={() => setMergePrompt(null)}
+              style={{
+                marginTop: "8px",
+                width: "100%",
+                padding: "8px",
+                background: "transparent",
+                color: "#64748b",
+                border: "1px solid #334155",
+                borderRadius: "6px",
+                fontSize: "12px",
+                cursor: "pointer",
+              }}
+            >
+              No, keep them separate
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

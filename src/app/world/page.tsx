@@ -31,6 +31,13 @@ interface InvitationRow {
   from_profile?: { full_name: string; headline: string | null };
 }
 
+interface MergePromptData {
+  newContactId: string;
+  linkedProfileId: string;
+  linkedProfile: { full_name: string; headline: string | null; location: string | null };
+  existingContacts: { id: string; full_name: string; email: string | null; company: string | null; role: string | null; location: string | null }[];
+}
+
 type Tab = "people" | "companies" | "invitations";
 
 const ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -87,6 +94,10 @@ export default function WorldPage() {
   // Unlink
   const [unlinkConfirmId, setUnlinkConfirmId] = useState<string | null>(null);
   const [unlinking, setUnlinking] = useState(false);
+
+  // Merge prompt
+  const [mergePrompt, setMergePrompt] = useState<MergePromptData | null>(null);
+  const [merging, setMerging] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -194,13 +205,22 @@ export default function WorldPage() {
     setInviteSending(null);
   }
 
-  async function respondToInvitation(invitationId: string, accept: boolean) {
+  async function respondToInvitation(
+    invitationId: string,
+    accept: boolean,
+    senderUserId?: string,
+    senderName?: string
+  ) {
     setRespondingTo(invitationId);
     if (accept) {
       const { data } = await supabase.rpc("accept_link_invitation", {
         p_invitation_id: invitationId,
       });
       if (data?.success) {
+        // Check for name-match duplicates before reloading
+        if (senderUserId && senderName && userId) {
+          await checkForDuplicateContacts(senderUserId, senderName);
+        }
         await loadData();
       }
     } else {
@@ -213,6 +233,56 @@ export default function WorldPage() {
       );
     }
     setRespondingTo(null);
+  }
+
+  async function checkForDuplicateContacts(linkedProfileId: string, linkedName: string) {
+    if (!userId) return;
+    // Find the newly created linked contact card
+    const { data: newContact } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("owner_id", userId)
+      .eq("linked_profile_id", linkedProfileId)
+      .limit(1)
+      .single();
+    if (!newContact) return;
+
+    // Check for existing unlinked contacts with the same name
+    const { data: dupes } = await supabase
+      .from("contacts")
+      .select("id, full_name, email, company, role, location")
+      .eq("owner_id", userId)
+      .is("linked_profile_id", null)
+      .ilike("full_name", linkedName);
+    if (!dupes || dupes.length === 0) return;
+
+    // Get the linked profile info for comparison hints
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name, headline, location")
+      .eq("id", linkedProfileId)
+      .single();
+
+    setMergePrompt({
+      newContactId: newContact.id,
+      linkedProfileId,
+      linkedProfile: profile || { full_name: linkedName, headline: null, location: null },
+      existingContacts: dupes,
+    });
+  }
+
+  async function handleMerge(keepContactId: string) {
+    if (!mergePrompt) return;
+    setMerging(true);
+    const { data } = await supabase.rpc("merge_duplicate_contact", {
+      p_keep_id: keepContactId,
+      p_remove_id: mergePrompt.newContactId,
+    });
+    if (data?.success) {
+      setMergePrompt(null);
+      await loadData();
+    }
+    setMerging(false);
   }
 
   async function handleUnlink(profileId: string, fullName: string) {
@@ -824,7 +894,9 @@ export default function WorldPage() {
                     {inv.status === "pending" ? (
                       <>
                         <button
-                          onClick={() => respondToInvitation(inv.id, true)}
+                          onClick={() =>
+                            respondToInvitation(inv.id, true, inv.from_user_id, inv.from_profile?.full_name)
+                          }
                           disabled={respondingTo === inv.id}
                           style={{
                             padding: "5px 12px",
@@ -943,6 +1015,162 @@ export default function WorldPage() {
           </>
         )}
       </div>
+
+      {/* ═══ MERGE PROMPT MODAL ═══ */}
+      {mergePrompt && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+            padding: "20px",
+          }}
+          onClick={() => setMergePrompt(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#1e293b",
+              borderRadius: "12px",
+              border: "1px solid #334155",
+              padding: "24px",
+              maxWidth: "440px",
+              width: "100%",
+            }}
+          >
+            <h3 style={{ fontSize: "15px", fontWeight: 600, margin: "0 0 6px", color: "#e2e8f0" }}>
+              Possible duplicate contact
+            </h3>
+            <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 16px" }}>
+              You just linked with a NEXUS profile. You may already have a contact card for this person.
+            </p>
+
+            {/* Linked profile info */}
+            <div
+              style={{
+                background: "#0f172a",
+                borderRadius: "8px",
+                padding: "12px 14px",
+                marginBottom: "12px",
+                border: "1px solid #334155",
+              }}
+            >
+              <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                Linked profile
+              </div>
+              <div style={{ fontWeight: 600, fontSize: "14px", color: "#e2e8f0" }}>
+                {mergePrompt.linkedProfile.full_name}
+              </div>
+              {mergePrompt.linkedProfile.headline && (
+                <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>
+                  {mergePrompt.linkedProfile.headline}
+                </div>
+              )}
+              {mergePrompt.linkedProfile.location && (
+                <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
+                  {mergePrompt.linkedProfile.location}
+                </div>
+              )}
+              <button
+                onClick={() => router.push(`/world/${mergePrompt.linkedProfileId}`)}
+                style={{
+                  marginTop: "8px",
+                  padding: "4px 10px",
+                  background: "transparent",
+                  color: "#a78bfa",
+                  border: "1px solid #334155",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  cursor: "pointer",
+                }}
+              >
+                View Resume
+              </button>
+            </div>
+
+            {/* Existing contact matches */}
+            <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              Your existing contact{mergePrompt.existingContacts.length > 1 ? "s" : ""} with this name
+            </div>
+            {mergePrompt.existingContacts.map((c) => (
+              <div
+                key={c.id}
+                style={{
+                  background: "#0f172a",
+                  borderRadius: "8px",
+                  padding: "12px 14px",
+                  marginBottom: "8px",
+                  border: "1px solid #334155",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: "13px", color: "#e2e8f0" }}>
+                    {c.full_name}
+                  </div>
+                  {(c.role || c.company) && (
+                    <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>
+                      {[c.role, c.company].filter(Boolean).join(" at ")}
+                    </div>
+                  )}
+                  {c.location && (
+                    <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+                      {c.location}
+                    </div>
+                  )}
+                  {c.email && (
+                    <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+                      {c.email}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleMerge(c.id)}
+                  disabled={merging}
+                  style={{
+                    padding: "6px 14px",
+                    background: "#22c55e",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "6px",
+                    fontWeight: 600,
+                    fontSize: "11px",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                    opacity: merging ? 0.5 : 1,
+                  }}
+                >
+                  {merging ? "..." : "Yes, same person"}
+                </button>
+              </div>
+            ))}
+
+            <button
+              onClick={() => setMergePrompt(null)}
+              style={{
+                marginTop: "8px",
+                width: "100%",
+                padding: "8px",
+                background: "transparent",
+                color: "#64748b",
+                border: "1px solid #334155",
+                borderRadius: "6px",
+                fontSize: "12px",
+                cursor: "pointer",
+              }}
+            >
+              No, keep them separate
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
