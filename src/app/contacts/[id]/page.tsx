@@ -174,7 +174,7 @@ export default function ContactDossierPage() {
       const [workRes, chronRes, eduRes] = await Promise.all([
         supabase
           .from("work_entries")
-          .select("id, title, company, engagement_type, start_date, end_date, is_current, description, location")
+          .select("id, title, company, engagement_type, start_date, end_date, is_current, description, location, show_on_resume")
           .eq("user_id", pid)
           .order("is_current", { ascending: false })
           .order("start_date", { ascending: false }),
@@ -186,13 +186,14 @@ export default function ContactDossierPage() {
           .order("start_date", { ascending: false }),
         supabase
           .from("education")
-          .select("id, institution, degree, field_of_study, start_date, end_date, is_current")
+          .select("id, institution, degree, field_of_study, start_date, end_date, is_current, show_on_resume")
           .eq("user_id", pid)
           .order("start_date", { ascending: false }),
       ]);
-      if (workRes.data) setLinkedWork(workRes.data);
+      // Filter out items where show_on_resume is explicitly false (null/undefined = visible)
+      if (workRes.data) setLinkedWork(workRes.data.filter((w: any) => w.show_on_resume !== false));
       if (chronRes.data) setLinkedChronicle(chronRes.data);
-      if (eduRes.data) setLinkedEducation(eduRes.data);
+      if (eduRes.data) setLinkedEducation(eduRes.data.filter((e: any) => e.show_on_resume !== false));
     }
 
     setLoading(false);

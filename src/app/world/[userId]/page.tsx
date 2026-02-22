@@ -119,12 +119,12 @@ export default function PublicProfilePage() {
           .single(),
         supabase
           .from("work_entries")
-          .select("id, title, company, engagement_type, start_date, end_date, is_current, description, location")
+          .select("id, title, company, engagement_type, start_date, end_date, is_current, description, location, show_on_resume")
           .eq("user_id", targetUserId)
           .order("start_date", { ascending: false }),
         supabase
           .from("education")
-          .select("id, institution, degree, field_of_study, start_date, end_date, is_current")
+          .select("id, institution, degree, field_of_study, start_date, end_date, is_current, show_on_resume")
           .eq("user_id", targetUserId)
           .order("start_date", { ascending: false }),
         supabase
@@ -155,8 +155,9 @@ export default function PublicProfilePage() {
       ]);
 
     setProfile(profileRes.data as Profile | null);
-    setWork(workRes.data || []);
-    setEducation(eduRes.data || []);
+    // Filter out items where show_on_resume is explicitly false (null/undefined = visible)
+    setWork((workRes.data || []).filter((w: any) => w.show_on_resume !== false));
+    setEducation((eduRes.data || []).filter((e: any) => e.show_on_resume !== false));
     setChronicle(chronicleRes.data || []);
 
     if (user.id !== targetUserId) {

@@ -55,6 +55,11 @@ export default function ResumePage() {
   )
   const [editingLinks, setEditingLinks] = useState(false)
 
+  // Account deletion
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleting, setDeleting] = useState(false)
+
   useEffect(() => {
     const init = async () => {
       const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -470,6 +475,50 @@ export default function ResumePage() {
     setChronicleEntries(prev => prev.filter(e => e.id !== id))
     setShowChronicleModal(false)
     setEditingChronicle(null)
+  }
+
+  const deleteAccount = async () => {
+    if (!user || deleteConfirmText !== 'DELETE') return
+    setDeleting(true)
+    try {
+      const uid = user.id
+
+      // 1. Clear linked_profile_id on OTHER people's contacts that point to this user
+      await supabase
+        .from('contacts')
+        .update({ linked_profile_id: null })
+        .eq('linked_profile_id', uid)
+
+      // 2. Delete contact_notes for contacts I own
+      const { data: myContacts } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('owner_id', uid)
+      if (myContacts && myContacts.length > 0) {
+        const contactIds = myContacts.map((c: { id: string }) => c.id)
+        for (const cid of contactIds) {
+          await supabase.from('contact_notes').delete().eq('contact_id', cid)
+        }
+      }
+
+      // 3. Delete all user data from each table
+      await supabase.from('contacts').delete().eq('owner_id', uid)
+      await supabase.from('connections').delete().or(`inviter_id.eq.${uid},invitee_id.eq.${uid}`)
+      await supabase.from('link_invitations').delete().or(`from_user_id.eq.${uid},to_user_id.eq.${uid}`)
+      await supabase.from('work_entries').delete().eq('user_id', uid)
+      await supabase.from('education').delete().eq('user_id', uid)
+      await supabase.from('chronicle_entries').delete().eq('user_id', uid)
+      await supabase.from('skills').delete().eq('user_id', uid)
+      await supabase.from('profiles').delete().eq('id', uid)
+
+      // 4. Sign out and redirect
+      await supabase.auth.signOut()
+      router.push('/login')
+    } catch (err: any) {
+      console.error('Account deletion error:', err)
+      alert('Failed to delete account: ' + (err.message || 'Unknown error'))
+      setDeleting(false)
+    }
   }
 
   if (loading) {
@@ -946,6 +995,79 @@ export default function ResumePage() {
           {skills.length === 0 && (
             <div style={{ color: '#475569', fontSize: '14px', textAlign: 'center', marginTop: '12px' }}>
               No skills or interests added yet. These help identify synergies with your connections.
+            </div>
+          )}
+        </section>
+        {/* DANGER ZONE */}
+        <section style={{ marginTop: '48px', borderTop: '1px solid #7f1d1d', paddingTop: '24px' }}>
+          <h2 style={{ fontSize: '16px', fontWeight: 'bold', margin: '0 0 8px', color: '#ef4444' }}>Danger Zone</h2>
+          {!showDeleteConfirm ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', ...cardStyle, borderColor: '#7f1d1d' }}>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 600 }}>Delete Account</div>
+                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                  Permanently delete your account and all associated data. This cannot be undone.
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                style={{
+                  padding: '8px 18px',
+                  background: 'transparent',
+                  color: '#ef4444',
+                  border: '1px solid #7f1d1d',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                Delete Account
+              </button>
+            </div>
+          ) : (
+            <div style={{ ...cardStyle, borderColor: '#ef4444' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#ef4444', marginBottom: '8px' }}>
+                Are you absolutely sure?
+              </div>
+              <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '12px', lineHeight: '1.6' }}>
+                This will permanently delete your profile, all work entries, education, projects, skills, contacts, notes, connections, and invitations. Other users who linked with you will have their link removed. There is no going back.
+              </div>
+              <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '8px' }}>
+                Type <span style={{ fontWeight: 700, color: '#ef4444' }}>DELETE</span> to confirm:
+              </div>
+              <input
+                value={deleteConfirmText}
+                onChange={e => setDeleteConfirmText(e.target.value)}
+                placeholder="Type DELETE"
+                style={{ ...inputStyle, borderColor: '#7f1d1d', marginBottom: '12px', maxWidth: '200px' }}
+              />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={deleteAccount}
+                  disabled={deleteConfirmText !== 'DELETE' || deleting}
+                  style={{
+                    padding: '8px 18px',
+                    background: deleteConfirmText === 'DELETE' ? '#ef4444' : '#334155',
+                    color: deleteConfirmText === 'DELETE' ? '#fff' : '#64748b',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    fontSize: '13px',
+                    cursor: deleteConfirmText === 'DELETE' ? 'pointer' : 'not-allowed',
+                    opacity: deleting ? 0.5 : 1,
+                  }}
+                >
+                  {deleting ? 'Deleting…' : 'Permanently Delete Account'}
+                </button>
+                <button
+                  onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText('') }}
+                  style={btnSecondary}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
         </section>

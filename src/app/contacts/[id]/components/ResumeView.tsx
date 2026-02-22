@@ -250,7 +250,6 @@ export default function ResumeView({
               })()}
             </a>
           )}
-          {contact.email && <span>{contact.email}</span>}
         </div>
         {visibleLinks.length > 0 && (
           <div
