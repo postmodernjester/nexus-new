@@ -71,6 +71,7 @@ Also needs: `ALTER TABLE chronicle_entries ADD COLUMN IF NOT EXISTS image_url TE
 All in `supabase/migrations/`:
 1. `20260222_add_image_url.sql` — adds `image_url TEXT` to `chronicle_entries`
 2. `20260222_connected_resume_rls.sql` — RLS policies for linked contacts to view resume data
+3. `20260222_connect_users_rpc_and_contacts_rls.sql` — SECURITY DEFINER `connect_users()` RPC for bidirectional connect + contacts SELECT policy for connected users (enables 2nd degree network)
 
 ### Key Files
 - `/home/user/nexus-new/src/app/contacts/[id]/page.tsx` — Contact dossier page (~2086 lines)
@@ -84,3 +85,4 @@ All in `supabase/migrations/`:
 **Session 2**: Profile→Resume rename, chronicle modal, image upload, icon buttons, linked profiles, contact nav, zoom, edit modal
 **Session 3**: Projects not showing, image upload, network single-click, geography band, chronicle click-through, key links, network filter
 **Session 4**: Education in wrong resume section, geography save resilience, click-through double-fire fix, key links save (user_metadata), photo upload bucket→base64, geography opacity, key links position, contact page restructure (notes moved up, resume view added), RLS policies for linked contacts
+**Session 5**: Fix direct connect (swapped inviter/invitee IDs + move to SECURITY DEFINER RPC for bidirectional contact creation), fix 2nd degree network (contacts RLS policy for connected users)
