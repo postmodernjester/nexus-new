@@ -15,27 +15,27 @@ import ChronicleGeoModal, { type GeoFormData } from './ChronicleGeoModal'
 // CONFIG
 // ═══════════════════════════════════════════════
 const CURRENT_YEAR = new Date().getFullYear()
-const ABSOLUTE_START = CURRENT_YEAR - 100
-const ABSOLUTE_END = CURRENT_YEAR + 100
-const BASE_PXM = 28
-const ZOOM_MIN = 0.06
-const ZOOM_MAX = 2.4
 const COL_W = 148
+const COLLAPSED_W = 24
 const AXIS_W = 72
 
+// Zoom: slider 0 → 40yr visible, 0.5 → ~4yr, 1 → 2yr
+const ZOOM_YEARS_MAX = 40
+const ZOOM_YEARS_MIN = 2
+const ZOOM_GAMMA = 0.38
+
 // localStorage keys
-const LS_ZOOM = 'chronicle_zoom'
+const LS_SLIDER = 'chronicle_slider_pos'
 const LS_CENTER_YEAR = 'chronicle_center_year'
 const LS_CENTER_MONTH = 'chronicle_center_month'
-const LS_VIEW_START = 'chronicle_view_start'
-const LS_VIEW_END = 'chronicle_view_end'
+const LS_COLLAPSED = 'chronicle_collapsed_cols'
 
-const COLS = [
+const COLS: { id: string; label: string; color: string; private?: boolean }[] = [
   { id: 'work', label: 'Work', color: '#4070a8' },
   { id: 'project', label: 'Projects', color: '#508038' },
   { id: 'education', label: 'Education', color: '#2a8a6a' },
-  { id: 'personal', label: 'Personal', color: '#a85060' },
-  { id: 'residence', label: 'Residences', color: '#806840' },
+  { id: 'personal', label: 'Personal', color: '#a85060', private: true },
+  { id: 'residence', label: 'Residences', color: '#806840', private: true },
   { id: 'gatherings', label: 'Gatherings', color: '#c06848' },
   { id: 'tech', label: 'Tech', color: '#986020' },
   { id: 'people', label: 'People', color: '#7050a8' },
@@ -45,6 +45,9 @@ const DEFAULT_COLORS: Record<string, string> = {
   work: '#4070a8', project: '#508038', education: '#2a8a6a', personal: '#a85060',
   residence: '#806840', gatherings: '#c06848', tech: '#986020', people: '#7050a8',
 }
+
+// Columns where double-click should NOT open add modal
+const NO_ADD_COLS = new Set(['gatherings', 'people'])
 
 // ═══════════════════════════════════════════════
 // UTILS
@@ -85,13 +88,56 @@ function hex2rgba(h: string, a: number): string {
   return `rgba(${r},${g},${b},${a})`
 }
 
-function colLeft(colId: string): number {
-  return COLS.findIndex(c => c.id === colId) * COL_W
-}
-
 function addOneYear(ym: string): string {
   const p = ym.split('-')
   return (parseInt(p[0]) + 1) + '-' + (p[1] || '01')
+}
+
+// Zoom conversion: slider position [0,1] → years visible
+function sliderToYears(t: number): number {
+  const clamped = Math.max(0, Math.min(1, t))
+  return ZOOM_YEARS_MAX * Math.pow(ZOOM_YEARS_MIN / ZOOM_YEARS_MAX, Math.pow(clamped, ZOOM_GAMMA))
+}
+
+// Column layout (collapse-aware)
+function getColLeft(colId: string, collapsed: Set<string>): number {
+  let x = 0
+  for (const c of COLS) {
+    if (c.id === colId) return x
+    x += collapsed.has(c.id) ? COLLAPSED_W : COL_W
+  }
+  return x
+}
+
+function getTotalGridW(collapsed: Set<string>): number {
+  return COLS.reduce((sum, c) => sum + (collapsed.has(c.id) ? COLLAPSED_W : COL_W), 0)
+}
+
+function getColAtX(x: number, collapsed: Set<string>): number {
+  let acc = 0
+  for (let i = 0; i < COLS.length; i++) {
+    const w = collapsed.has(COLS[i].id) ? COLLAPSED_W : COL_W
+    if (x < acc + w) return i
+    acc += w
+  }
+  return -1
+}
+
+// Extract earliest year from a date string like "YYYY-MM" or "YYYY-MM-DD"
+function yearFromDate(s: string | null | undefined): number | null {
+  if (!s) return null
+  const y = parseInt(s)
+  return isNaN(y) ? null : y
+}
+
+// Lock icon SVG
+function LockIcon() {
+  return (
+    <svg width="8" height="10" viewBox="0 0 8 10" fill="none" style={{ marginLeft: 3, opacity: 0.4, flexShrink: 0 }}>
+      <rect x="0.5" y="4" width="7" height="5.5" rx="1" stroke="currentColor" strokeWidth="1" fill="none" />
+      <path d="M2 4V2.5C2 1.4 2.9.5 4 .5s2 .9 2 2V4" stroke="currentColor" strokeWidth="1" fill="none" />
+    </svg>
+  )
 }
 
 // Unified timeline item
@@ -131,41 +177,32 @@ export default function ChronicleCanvas() {
   const [educationEntries, setEducationEntries] = useState<ChronicleEducationEntry[]>([])
   const [loading, setLoading] = useState(true)
 
-  // View range
-  const [viewStart, setViewStart] = useState(() => {
+  // Zoom slider position [0, 1] — persisted
+  const [sliderPos, setSliderPos] = useState(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(LS_VIEW_START)
-      if (saved) {
-        const v = parseInt(saved)
-        if (!isNaN(v) && v >= ABSOLUTE_START && v <= ABSOLUTE_END) return v
-      }
-    }
-    return CURRENT_YEAR - 30
-  })
-  const [viewEnd, setViewEnd] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(LS_VIEW_END)
-      if (saved) {
-        const v = parseInt(saved)
-        if (!isNaN(v) && v >= ABSOLUTE_START && v <= ABSOLUTE_END) return v
-      }
-    }
-    return CURRENT_YEAR + 10
-  })
-
-  // View — zoom (default to physical middle of range)
-  const [scale, setScale] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(LS_ZOOM)
+      const saved = localStorage.getItem(LS_SLIDER)
       if (saved) {
         const parsed = parseFloat(saved)
-        if (!isNaN(parsed) && parsed >= ZOOM_MIN && parsed <= ZOOM_MAX) return parsed
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 1) return parsed
       }
     }
-    return (ZOOM_MIN + ZOOM_MAX) / 2
+    return 0.5
   })
+
+  // Collapsed columns — persisted
+  const [collapsedCols, setCollapsedCols] = useState<Set<string>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(LS_COLLAPSED)
+        if (saved) return new Set(JSON.parse(saved))
+      } catch { /* ignore */ }
+    }
+    return new Set()
+  })
+
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDelHint, setShowDelHint] = useState(false)
+  const [viewportH, setViewportH] = useState(750)
 
   // Tooltip
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
@@ -196,19 +233,54 @@ export default function ChronicleCanvas() {
     defaultYM?: string
   }>({ open: false })
 
-  // Range picker modal
-  const [rangeModal, setRangeModal] = useState(false)
-  const [rangeStartInput, setRangeStartInput] = useState('')
-  const [rangeEndInput, setRangeEndInput] = useState('')
-
   // Zoom drag
   const zoomDragRef = useRef(false)
 
   // Scroll ref
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const pxm = BASE_PXM * scale
+  // ─── Compute view range from data ──────────────
+  const { viewStart, viewEnd } = useMemo(() => {
+    const years: number[] = []
+    entries.forEach(e => { const y = yearFromDate(e.start_date); if (y) years.push(y) })
+    places.forEach(p => { const y = yearFromDate(p.start_date); if (y) years.push(y) })
+    workEntries.forEach(w => { const y = yearFromDate(w.start_date); if (y) years.push(y) })
+    contacts.forEach(c => {
+      const y = yearFromDate(c.met_date) || yearFromDate(c.created_at)
+      if (y) years.push(y)
+    })
+    educationEntries.forEach(edu => { const y = yearFromDate(edu.start_date); if (y) years.push(y) })
+
+    if (years.length === 0) {
+      return { viewStart: CURRENT_YEAR - 10, viewEnd: CURRENT_YEAR + 3 }
+    }
+    const earliest = Math.min(...years)
+    return { viewStart: earliest - 2, viewEnd: CURRENT_YEAR + 3 }
+  }, [entries, places, workEntries, contacts, educationEntries])
+
+  // ─── Derived zoom values ───────────────────────
+  const yearsVisible = sliderToYears(sliderPos)
+  const pxm = Math.max(0.5, viewportH / (yearsVisible * 12))
+  const totalGridW = getTotalGridW(collapsedCols)
   const totalH = (viewEnd - viewStart) * 12 * pxm
+
+  const zoomLabel = yearsVisible >= 10
+    ? Math.round(yearsVisible) + 'yr'
+    : yearsVisible >= 1
+      ? yearsVisible.toFixed(1).replace(/\.0$/, '') + 'yr'
+      : (yearsVisible * 12).toFixed(0) + 'mo'
+
+  // ─── Track viewport height ─────────────────────
+  useEffect(() => {
+    const sw = scrollRef.current
+    if (!sw) return
+    setViewportH(sw.clientHeight)
+    const observer = new ResizeObserver(resizeEntries => {
+      if (resizeEntries[0]) setViewportH(resizeEntries[0].contentRect.height)
+    })
+    observer.observe(sw)
+    return () => observer.disconnect()
+  }, [])
 
   // ─── Load data on mount ──────────────────────
   useEffect(() => {
@@ -251,7 +323,6 @@ export default function ChronicleCanvas() {
   const timelineItems = useMemo<TimelineItem[]>(() => {
     const items: TimelineItem[] = []
 
-    // Chronicle entries
     entries.forEach(e => {
       items.push({
         id: e.id,
@@ -267,7 +338,6 @@ export default function ChronicleCanvas() {
       })
     })
 
-    // Work entries → "work" column
     workEntries.forEach(w => {
       items.push({
         id: `work-${w.id}`,
@@ -283,7 +353,6 @@ export default function ChronicleCanvas() {
       })
     })
 
-    // Education entries → "education" column
     educationEntries.forEach(edu => {
       items.push({
         id: `edu-${edu.id}`,
@@ -299,7 +368,6 @@ export default function ChronicleCanvas() {
       })
     })
 
-    // Contacts → "people" column (only those with show_on_chronicle)
     contacts.forEach(c => {
       const startDate = c.met_date?.slice(0, 7) || c.created_at?.slice(0, 7) || '2020-01'
       items.push({
@@ -348,7 +416,6 @@ export default function ChronicleCanvas() {
     return ticks
   }, [pxm, viewStart, viewEnd])
 
-  // ─── Year grid lines ────────────────────────
   const yearRules = useMemo(() => {
     const rules: { y: number; top: number; isDecade: boolean }[] = []
     for (let y = viewStart; y <= viewEnd; y++) {
@@ -357,7 +424,6 @@ export default function ChronicleCanvas() {
     return rules
   }, [pxm, viewStart, viewEnd])
 
-  // ─── Month grid lines (only when zoomed in enough) ─
   const monthRules = useMemo(() => {
     if (pxm < 10) return []
     const rules: { top: number }[] = []
@@ -369,11 +435,22 @@ export default function ChronicleCanvas() {
     return rules
   }, [pxm, viewStart, viewEnd])
 
-  // ─── Today line ──────────────────────────────
   const todayTop = useMemo(() => {
     const now = new Date()
     return toPx({ y: now.getFullYear(), m: now.getMonth() + 1 }, pxm, viewStart)
   }, [pxm, viewStart])
+
+  // ─── Column divider positions (collapse-aware) ─
+  const colDividers = useMemo(() => {
+    const divs: { left: number }[] = []
+    let x = 0
+    for (let i = 0; i < COLS.length; i++) {
+      const w = collapsedCols.has(COLS[i].id) ? COLLAPSED_W : COL_W
+      x += w
+      if (i < COLS.length - 1) divs.push({ left: x })
+    }
+    return divs
+  }, [collapsedCols])
 
   // ─── Selection ───────────────────────────────
   const selectEntry = useCallback((id: string | null) => {
@@ -382,6 +459,17 @@ export default function ChronicleCanvas() {
       setShowDelHint(true)
       setTimeout(() => setShowDelHint(false), 2000)
     }
+  }, [])
+
+  // ─── Toggle column collapse ──────────────────
+  const toggleCollapse = useCallback((colId: string) => {
+    setCollapsedCols(prev => {
+      const next = new Set(prev)
+      if (next.has(colId)) next.delete(colId)
+      else next.add(colId)
+      localStorage.setItem(LS_COLLAPSED, JSON.stringify([...next]))
+      return next
+    })
   }, [])
 
   // ─── Keyboard handler ────────────────────────
@@ -400,13 +488,11 @@ export default function ChronicleCanvas() {
           setWorkEntries(prev => prev.filter(w => w.id !== realId))
           setSelectedId(null)
         }
-        // Education items: manage via Resume, not deletable from chronicle
       }
       if (ev.key === 'Escape') {
         setSelectedId(null)
         setEntryModal({ open: false })
         setGeoModal({ open: false })
-        setRangeModal(false)
       }
     }
     document.addEventListener('keydown', handler)
@@ -433,7 +519,6 @@ export default function ChronicleCanvas() {
       const dy = ev.clientY - dragRef.current.startY
       setDragDelta({ id: dragRef.current.id, dy })
 
-      // Show tooltip
       const d = dragRef.current
       let showTop: number
       if (d.type === 'move') showTop = Math.max(0, d.origTop + dy)
@@ -446,8 +531,6 @@ export default function ChronicleCanvas() {
       if (!dragRef.current) return
       const d = dragRef.current
       const dy = dragDelta?.dy ?? 0
-
-      // Snap to month
       const snap = (v: number) => Math.round(v / pxm) * pxm
 
       let newTop: number, newH: number
@@ -467,7 +550,6 @@ export default function ChronicleCanvas() {
       const newStart = ymStr(ns)
       const newEnd = ymStr(ne)
 
-      // Update local state + persist based on source
       if (d.source === 'work') {
         const realId = d.id.replace('work-', '')
         setWorkEntries(prev => prev.map(w =>
@@ -501,33 +583,28 @@ export default function ChronicleCanvas() {
   }, [pxm, viewStart, dragDelta])
 
   // ─── Zoom ────────────────────────────────────
-  const applyZoom = useCallback((newScale: number) => {
+  const applySlider = useCallback((newPos: number) => {
     const sw = scrollRef.current
     if (!sw) return
     const centerPx = sw.scrollTop + sw.clientHeight / 2
     const centerYM = pxToYM(centerPx, pxm, viewStart)
-    const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newScale))
-    setScale(clamped)
-    localStorage.setItem(LS_ZOOM, String(clamped))
+    const clamped = Math.max(0, Math.min(1, newPos))
+    setSliderPos(clamped)
+    localStorage.setItem(LS_SLIDER, String(clamped))
     requestAnimationFrame(() => {
-      const newPxm = BASE_PXM * clamped
+      const newYears = sliderToYears(clamped)
+      const newPxm = Math.max(0.5, sw.clientHeight / (newYears * 12))
       sw.scrollTop = toPx(centerYM, newPxm, viewStart) - sw.clientHeight / 2
     })
   }, [pxm, viewStart])
 
-  const zoomPct = (scale - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)
-  const zoomLabel = scale >= 1
-    ? scale.toFixed(1).replace(/\.0$/, '') + '×'
-    : (scale * 100).toFixed(0) + '%'
-
-  // Zoom track interaction
   const zoomFromTrack = useCallback((clientX: number) => {
     const el = document.getElementById('chr-zoom-track')
     if (!el) return
     const rect = el.getBoundingClientRect()
     const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-    applyZoom(ZOOM_MIN + pct * (ZOOM_MAX - ZOOM_MIN))
-  }, [applyZoom])
+    applySlider(pct)
+  }, [applySlider])
 
   useEffect(() => {
     const handleMouseMove = (ev: MouseEvent) => {
@@ -542,7 +619,7 @@ export default function ChronicleCanvas() {
     }
   }, [zoomFromTrack])
 
-  // ─── Persist scroll center on scroll (debounced) ─
+  // ─── Persist scroll center (debounced) ────────
   useEffect(() => {
     const sw = scrollRef.current
     if (!sw) return
@@ -570,25 +647,28 @@ export default function ChronicleCanvas() {
     }
   }, [])
 
-  // ─── Double-click grid → new entry (default 1yr duration) ──
+  // ─── Double-click grid → new entry ────────────
   const handleGridDblClick = useCallback((ev: React.MouseEvent) => {
     const gridEl = document.getElementById('chr-grid')
     if (!gridEl) return
     const rect = gridEl.getBoundingClientRect()
     const relX = ev.clientX - rect.left
     const relY = ev.clientY - rect.top + (scrollRef.current?.scrollTop || 0)
-    const colIdx = Math.floor(relX / COL_W)
+    const colIdx = getColAtX(relX, collapsedCols)
     if (colIdx < 0 || colIdx >= COLS.length) return
+    const col = COLS[colIdx]
+    // Don't add to collapsed, gatherings, or people columns
+    if (collapsedCols.has(col.id) || NO_ADD_COLS.has(col.id)) return
     const ym = pxToYM(relY, pxm, viewStart)
     const startYM = ymStr(ym)
     setEntryModal({
       open: true,
       editing: null,
-      defaultCat: COLS[colIdx].id,
+      defaultCat: col.id,
       defaultYM: startYM,
       defaultEndYM: addOneYear(startYM),
     })
-  }, [pxm, viewStart])
+  }, [pxm, viewStart, collapsedCols])
 
   // ─── Axis click → geo modal ──────────────────
   const handleAxisClick = useCallback((ev: React.MouseEvent) => {
@@ -598,7 +678,6 @@ export default function ChronicleCanvas() {
     const relY = ev.clientY - rect.top + (scrollRef.current?.scrollTop || 0)
     const ym = pxToYM(relY, pxm, viewStart)
 
-    // Check if clicking existing place
     const hit = placeItems.find(p => {
       const s = parseYM(p.start)
       const en = p.end ? parseYM(p.end) : { y: viewEnd, m: 1 }
@@ -627,26 +706,6 @@ export default function ChronicleCanvas() {
       })
     }
   }, [pxm, viewStart, viewEnd, placeItems])
-
-  // ─── Range picker handlers ────────────────────
-  const openRangeModal = useCallback(() => {
-    setRangeStartInput(String(viewStart))
-    setRangeEndInput(String(viewEnd))
-    setRangeModal(true)
-  }, [viewStart, viewEnd])
-
-  const saveRange = useCallback(() => {
-    const newStart = parseInt(rangeStartInput)
-    const newEnd = parseInt(rangeEndInput)
-    if (isNaN(newStart) || isNaN(newEnd) || newStart >= newEnd) return
-    const clampedStart = Math.max(ABSOLUTE_START, Math.min(ABSOLUTE_END - 1, newStart))
-    const clampedEnd = Math.max(ABSOLUTE_START + 1, Math.min(ABSOLUTE_END, newEnd))
-    setViewStart(clampedStart)
-    setViewEnd(clampedEnd)
-    localStorage.setItem(LS_VIEW_START, String(clampedStart))
-    localStorage.setItem(LS_VIEW_END, String(clampedEnd))
-    setRangeModal(false)
-  }, [rangeStartInput, rangeEndInput])
 
   // ─── Entry modal handlers ────────────────────
   const handleEntrySave = useCallback(async (data: EntryFormData) => {
@@ -692,7 +751,6 @@ export default function ChronicleCanvas() {
           chronicle_note: data.note,
         } : edu))
       } else {
-        // Chronicle entry (or new entry)
         const result = await upsertEntry({
           id: data.id || undefined,
           type: data.cat,
@@ -901,9 +959,9 @@ export default function ChronicleCanvas() {
             onMouseDown={(e) => { zoomDragRef.current = true; zoomFromTrack(e.clientX); e.preventDefault() }}
             style={{ position: 'relative', width: 110, height: 3, background: '#d8d0c0', borderRadius: 2, cursor: 'pointer' }}
           >
-            <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${zoomPct * 100}%`, background: '#9a8e78', borderRadius: 2, pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${sliderPos * 100}%`, background: '#9a8e78', borderRadius: 2, pointerEvents: 'none' }} />
             <div style={{
-              position: 'absolute', top: '50%', left: `${zoomPct * 100}%`,
+              position: 'absolute', top: '50%', left: `${sliderPos * 100}%`,
               transform: 'translate(-50%,-50%)', width: 12, height: 12, borderRadius: '50%',
               background: '#1a1812', cursor: 'grab', boxShadow: '0 1px 4px rgba(0,0,0,.25)',
             }} />
@@ -916,7 +974,7 @@ export default function ChronicleCanvas() {
         </div>
       </div>
 
-      {/* ── SCROLL CONTAINER (sticky headers + content) ─── */}
+      {/* ── SCROLL CONTAINER ─────────────────── */}
       <div
         ref={scrollRef}
         onClick={handleBackgroundClick}
@@ -926,38 +984,66 @@ export default function ChronicleCanvas() {
         <div style={{
           position: 'sticky', top: 0, zIndex: 50,
           display: 'flex', borderBottom: '1.5px solid #1a1812', background: '#f6f1e6',
-          minWidth: AXIS_W + COLS.length * COL_W,
+          minWidth: AXIS_W + totalGridW,
         }}>
           <div
-            onDoubleClick={openRangeModal}
             style={{
               width: AXIS_W, flexShrink: 0, borderRight: '2px solid #1a1812',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
             <span style={{ fontSize: 7, letterSpacing: '.15em', color: '#d8d0c0', textTransform: 'uppercase' }}>geography</span>
           </div>
           <div style={{ display: 'flex' }}>
-            {COLS.map(col => (
-              <div
-                key={col.id}
-                onDoubleClick={() => setEntryModal({ open: true, editing: null, defaultCat: col.id })}
-                style={{
-                  flexShrink: 0, width: COL_W, borderRight: '1px solid #d8d0c0',
-                  padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-                }}
-              >
-                <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: col.color }} />
-                <span style={{ fontSize: 8, letterSpacing: '.16em', textTransform: 'uppercase', color: '#9a8e78' }}>{col.label}</span>
-              </div>
-            ))}
+            {COLS.map(col => {
+              const isCollapsed = collapsedCols.has(col.id)
+              const w = isCollapsed ? COLLAPSED_W : COL_W
+              const canAdd = !NO_ADD_COLS.has(col.id)
+              return (
+                <div
+                  key={col.id}
+                  onDoubleClick={() => {
+                    if (!isCollapsed && canAdd) {
+                      setEntryModal({ open: true, editing: null, defaultCat: col.id })
+                    }
+                  }}
+                  style={{
+                    flexShrink: 0, width: w, borderRight: '1px solid #d8d0c0',
+                    padding: isCollapsed ? '7px 0' : '7px 10px',
+                    display: 'flex', alignItems: 'center', justifyContent: isCollapsed ? 'center' : 'flex-start',
+                    gap: isCollapsed ? 0 : 6, cursor: isCollapsed ? 'default' : (canAdd ? 'pointer' : 'default'),
+                    transition: 'width .2s ease',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {/* Dot — click to toggle collapse */}
+                  <span
+                    onClick={(e) => { e.stopPropagation(); toggleCollapse(col.id) }}
+                    style={{
+                      width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                      background: col.color, cursor: 'pointer',
+                      transition: 'transform .15s',
+                    }}
+                    title={isCollapsed ? `Expand ${col.label}` : `Collapse ${col.label}`}
+                  />
+                  {!isCollapsed && (
+                    <>
+                      <span style={{ fontSize: 8, letterSpacing: '.16em', textTransform: 'uppercase', color: '#9a8e78', whiteSpace: 'nowrap' }}>
+                        {col.label}
+                      </span>
+                      {col.private && <LockIcon />}
+                    </>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
 
         {/* ── CONTENT (axis + grid) ────────────── */}
-        <div style={{ display: 'flex', position: 'relative', minWidth: AXIS_W + COLS.length * COL_W }}>
+        <div style={{ display: 'flex', position: 'relative', minWidth: AXIS_W + totalGridW }}>
 
-          {/* ── GEO BANDS (behind everything, full width) ── */}
+          {/* ── GEO BANDS (behind everything) ──── */}
           <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
             {placeItems.map(p => {
               const s = parseYM(p.start)
@@ -1027,7 +1113,7 @@ export default function ChronicleCanvas() {
           <div
             id="chr-grid"
             onDoubleClick={handleGridDblClick}
-            style={{ flex: 1, position: 'relative', height: totalH, width: COLS.length * COL_W }}
+            style={{ flex: 1, position: 'relative', height: totalH, width: totalGridW }}
           >
             {/* Year rules */}
             {yearRules.map(r => (
@@ -1047,10 +1133,10 @@ export default function ChronicleCanvas() {
               }} />
             ))}
 
-            {/* Column rules */}
-            {COLS.map((_, i) => i > 0 && (
+            {/* Column dividers (collapse-aware) */}
+            {colDividers.map((d, i) => (
               <div key={`col-${i}`} style={{
-                position: 'absolute', top: 0, bottom: 0, left: i * COL_W,
+                position: 'absolute', top: 0, bottom: 0, left: d.left,
                 width: 1, background: 'rgba(0,0,0,.07)',
                 pointerEvents: 'none', zIndex: 2,
               }} />
@@ -1064,7 +1150,7 @@ export default function ChronicleCanvas() {
               <span style={{ position: 'absolute', right: 4, top: -9, fontSize: 7, letterSpacing: '.14em', color: '#c84030' }}>TODAY</span>
             </div>
 
-            {/* ── PLACE BANDS (interactive, in grid) ── */}
+            {/* ── PLACE BANDS (interactive) ─────── */}
             {placeItems.map(p => {
               const s = parseYM(p.start)
               const en = p.end ? parseYM(p.end) : { y: viewEnd, m: 1 }
@@ -1097,13 +1183,13 @@ export default function ChronicleCanvas() {
               )
             })}
 
-            {/* ── PEOPLE (square icon + name) ──────── */}
-            {peopleItems.map(item => {
+            {/* ── PEOPLE ─────────────────────────── */}
+            {!collapsedCols.has('people') && peopleItems.map(item => {
               const s = parseYM(item.start)
               if (!s) return null
               const top = toPx(s, pxm, viewStart)
               const dotH = Math.max(14, pxm * 0.9)
-              const left = colLeft('people')
+              const left = getColLeft('people', collapsedCols)
               const tailEnd = { y: viewEnd, m: 1 }
               const tailH = toPx(tailEnd, pxm, viewStart) - top - dotH / 2
 
@@ -1121,19 +1207,16 @@ export default function ChronicleCanvas() {
                     zIndex: 12, cursor: 'default', display: 'flex', alignItems: 'center',
                   }}
                 >
-                  {/* Square icon */}
                   <div style={{
                     width: 8, height: 8, flexShrink: 0, marginLeft: 6, borderRadius: 2,
                     ...(item.fuzzyStart
                       ? { background: 'transparent', border: `2px dashed ${item.color}`, boxSizing: 'border-box' as const }
                       : { background: item.color }),
-                    ...(selectedId === item.id ? { outline: `2px solid #1a1812`, outlineOffset: 2 } : {}),
+                    ...(selectedId === item.id ? { outline: '2px solid #1a1812', outlineOffset: 2 } : {}),
                   }} />
-                  {/* Label */}
                   <div style={{ fontSize: 8, marginLeft: 7, whiteSpace: 'nowrap', letterSpacing: '.02em', color: item.color }}>
                     {item.title}
                   </div>
-                  {/* Tail */}
                   {!item.end && tailH > 0 && (
                     <div style={{
                       position: 'absolute', left: 10, top: dotH / 2, width: 2,
@@ -1146,6 +1229,9 @@ export default function ChronicleCanvas() {
 
             {/* ── ENTRIES ────────────────────── */}
             {regularItems.map(item => {
+              // Skip entries in collapsed columns
+              if (collapsedCols.has(item.cat)) return null
+
               const s = parseYM(item.start)
               const en = item.end ? parseYM(item.end) : null
               if (!s) return null
@@ -1159,8 +1245,9 @@ export default function ChronicleCanvas() {
                 top = toPx(s, pxm, viewStart)
                 h = en ? Math.max(Math.round(pxm), toPx(en, pxm, viewStart) - top) : Math.round(pxm * 2)
               }
-              const left = colLeft(item.cat) + 3
-              const w = COL_W - 7
+              const colW = collapsedCols.has(item.cat) ? COLLAPSED_W : COL_W
+              const left = getColLeft(item.cat, collapsedCols) + 3
+              const w = colW - 7
               const showDate = h > Math.round(pxm * 1.2)
               const isSelected = selectedId === item.id
 
@@ -1199,7 +1286,6 @@ export default function ChronicleCanvas() {
                       </div>
                     )}
 
-                    {/* Fuzzy overlays */}
                     {item.fuzzyStart && (
                       <div style={{
                         position: 'absolute', left: 0, right: 0, top: 0, height: 12,
@@ -1266,90 +1352,6 @@ export default function ChronicleCanvas() {
       }}>
         DEL to delete selected
       </div>
-
-      {/* ── RANGE PICKER MODAL ───────────────── */}
-      {rangeModal && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(18,16,10,.5)', zIndex: 500,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            backdropFilter: 'blur(2px)',
-          }}
-          onClick={(e) => { if (e.target === e.currentTarget) setRangeModal(false) }}
-        >
-          <div style={{
-            background: '#f6f1e6', border: '1.5px solid #1a1812', borderRadius: 6,
-            padding: 22, width: 300, boxShadow: '0 10px 36px rgba(0,0,0,.2)',
-            fontFamily: "'DM Mono', monospace",
-          }}>
-            <div style={{
-              fontFamily: "'Libre Baskerville', serif", fontStyle: 'italic',
-              fontSize: 14, marginBottom: 16, color: '#1a1812',
-            }}>
-              Timeline Range
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginBottom: 14 }}>
-              <div>
-                <label style={{
-                  display: 'block', fontSize: '7.5px', letterSpacing: '.17em',
-                  textTransform: 'uppercase', color: '#9a8e78', marginBottom: 4,
-                }}>Start Year</label>
-                <input
-                  value={rangeStartInput}
-                  onChange={(e) => setRangeStartInput(e.target.value)}
-                  style={{
-                    width: '100%', background: '#f0ead8', border: '1px solid #d8d0c0',
-                    borderRadius: 3, padding: '6px 8px', fontFamily: "'DM Mono', monospace",
-                    fontSize: '10.5px', color: '#1a1812', outline: 'none',
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{
-                  display: 'block', fontSize: '7.5px', letterSpacing: '.17em',
-                  textTransform: 'uppercase', color: '#9a8e78', marginBottom: 4,
-                }}>End Year</label>
-                <input
-                  value={rangeEndInput}
-                  onChange={(e) => setRangeEndInput(e.target.value)}
-                  style={{
-                    width: '100%', background: '#f0ead8', border: '1px solid #d8d0c0',
-                    borderRadius: 3, padding: '6px 8px', fontFamily: "'DM Mono', monospace",
-                    fontSize: '10.5px', color: '#1a1812', outline: 'none',
-                  }}
-                />
-              </div>
-            </div>
-            <div style={{ fontSize: 8, color: '#9a8e78', marginBottom: 14 }}>
-              Range: {ABSOLUTE_START} – {ABSOLUTE_END}
-            </div>
-            <div style={{ display: 'flex', gap: 7, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setRangeModal(false)}
-                style={{
-                  padding: '6px 14px', borderRadius: 3, fontFamily: "'DM Mono', monospace",
-                  fontSize: '8.5px', letterSpacing: '.12em', cursor: 'pointer',
-                  border: '1px solid #d8d0c0', background: 'none', color: '#5a5040',
-                  textTransform: 'uppercase',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveRange}
-                style={{
-                  padding: '6px 14px', borderRadius: 3, fontFamily: "'DM Mono', monospace",
-                  fontSize: '8.5px', letterSpacing: '.12em', cursor: 'pointer',
-                  border: '1px solid #1a1812', background: '#1a1812', color: '#f6f1e6',
-                  textTransform: 'uppercase',
-                }}
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── MODALS ───────────────────────────── */}
       <ChronicleModal

@@ -1,5 +1,12 @@
 import { supabase } from './supabase'
 
+// ─── Auth helper ─────────────────────────────────────────────
+async function getUserId(): Promise<string> {
+  const { data: { user }, error } = await supabase.auth.getUser()
+  if (error || !user) throw new Error('Not authenticated')
+  return user.id
+}
+
 // ─── Types ───────────────────────────────────────────────────
 export interface ChronicleEntry {
   id: string
@@ -113,9 +120,10 @@ export async function upsertEntry(entry: Partial<ChronicleEntry> & { title: stri
     if (error) throw error
     return data as ChronicleEntry
   } else {
+    const userId = await getUserId()
     const { data, error } = await supabase
       .from('chronicle_entries')
-      .insert(payload)
+      .insert({ ...payload, user_id: userId })
       .select()
       .single()
     if (error) throw error
@@ -141,9 +149,10 @@ export async function upsertPlace(place: Partial<ChroniclePlace> & { title: stri
     if (error) throw error
     return data as ChroniclePlace
   } else {
+    const userId = await getUserId()
     const { data, error } = await supabase
       .from('chronicle_places')
-      .insert(payload)
+      .insert({ ...payload, user_id: userId })
       .select()
       .single()
     if (error) throw error
