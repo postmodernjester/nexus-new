@@ -340,30 +340,36 @@ export default function ContactDossierPage() {
     setNotes(notesRes.data || []);
 
     if (contactRes.data.linked_profile_id) {
+      const pid = contactRes.data.linked_profile_id;
       const [profileRes, workRes, chronRes, eduRes] = await Promise.all([
         supabase
           .from("profiles")
           .select("full_name, headline, bio, location, website, avatar_url, key_links")
-          .eq("id", contactRes.data.linked_profile_id)
+          .eq("id", pid)
           .single(),
         supabase
           .from("work_entries")
           .select("id, title, company, engagement_type, start_date, end_date, is_current, description, location")
-          .eq("user_id", contactRes.data.linked_profile_id)
+          .eq("user_id", pid)
           .order("is_current", { ascending: false })
           .order("start_date", { ascending: false }),
         supabase
           .from("chronicle_entries")
           .select("*")
-          .eq("user_id", contactRes.data.linked_profile_id)
+          .eq("user_id", pid)
           .eq("show_on_resume", true)
           .order("start_date", { ascending: false }),
         supabase
           .from("education")
           .select("id, institution, degree, field_of_study, start_date, end_date, is_current")
-          .eq("user_id", contactRes.data.linked_profile_id)
+          .eq("user_id", pid)
           .order("start_date", { ascending: false }),
       ]);
+      console.log("[contact] linked_profile_id:", pid);
+      console.log("[contact] profile:", profileRes.error?.message || profileRes.data);
+      console.log("[contact] work:", workRes.error?.message || `${workRes.data?.length} entries`);
+      console.log("[contact] chronicle:", chronRes.error?.message || `${chronRes.data?.length} entries`);
+      console.log("[contact] education:", eduRes.error?.message || `${eduRes.data?.length} entries`);
       if (profileRes.data) setLinkedProfile(profileRes.data);
       if (workRes.data) setLinkedWork(workRes.data);
       if (chronRes.data) setLinkedChronicle(chronRes.data);
