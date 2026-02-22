@@ -55,6 +55,7 @@ export interface ChronicleWorkEntry {
   remote_type?: string
   description?: string
   ai_skills_extracted?: string[]
+  show_on_resume?: boolean
   chronicle_color?: string
   chronicle_fuzzy_start?: boolean
   chronicle_fuzzy_end?: boolean
@@ -230,19 +231,26 @@ export async function updateWorkEntryFromChronicle(id: string, fields: {
   remote_type?: string | null
   description?: string
   ai_skills_extracted?: string[]
+  show_on_resume?: boolean
   chronicle_color?: string
   chronicle_fuzzy_start?: boolean
   chronicle_fuzzy_end?: boolean
   chronicle_note?: string
 }) {
-  const { error } = await supabase.from('work_entries').update(fields).eq('id', id)
-  if (error && error.message.includes('column')) {
-    // Retry without optional columns that may not exist yet
-    const { remote_type, ai_skills_extracted, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, ...base } = fields
-    const { error: err2 } = await supabase.from('work_entries').update(base).eq('id', id)
-    if (err2) throw err2
-  } else if (error) {
-    throw error
+  // Phase 1: update base columns (always exist per 003_resume_tables migration)
+  const { chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, show_on_resume, ...base } = fields
+  const { error } = await supabase.from('work_entries').update(base).eq('id', id)
+  if (error) throw error
+
+  // Phase 2: update optional columns that may not exist yet (silently skip on failure)
+  const extras: Record<string, unknown> = {}
+  if (chronicle_color !== undefined) extras.chronicle_color = chronicle_color
+  if (chronicle_fuzzy_start !== undefined) extras.chronicle_fuzzy_start = chronicle_fuzzy_start
+  if (chronicle_fuzzy_end !== undefined) extras.chronicle_fuzzy_end = chronicle_fuzzy_end
+  if (chronicle_note !== undefined) extras.chronicle_note = chronicle_note
+  if (show_on_resume !== undefined) extras.show_on_resume = show_on_resume
+  if (Object.keys(extras).length > 0) {
+    await supabase.from('work_entries').update(extras).eq('id', id).then(() => {}, () => {})
   }
 }
 
@@ -261,6 +269,19 @@ export async function updateEducationFromChronicle(id: string, fields: {
   chronicle_fuzzy_end?: boolean
   chronicle_note?: string
 }) {
-  const { error } = await supabase.from('education').update(fields).eq('id', id)
-  if (error) throw error
+  // Phase 1: base columns
+  const { chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, ...base } = fields
+  if (Object.keys(base).length > 0) {
+    const { error } = await supabase.from('education').update(base).eq('id', id)
+    if (error) throw error
+  }
+  // Phase 2: chronicle columns (silently skip if missing)
+  const extras: Record<string, unknown> = {}
+  if (chronicle_color !== undefined) extras.chronicle_color = chronicle_color
+  if (chronicle_fuzzy_start !== undefined) extras.chronicle_fuzzy_start = chronicle_fuzzy_start
+  if (chronicle_fuzzy_end !== undefined) extras.chronicle_fuzzy_end = chronicle_fuzzy_end
+  if (chronicle_note !== undefined) extras.chronicle_note = chronicle_note
+  if (Object.keys(extras).length > 0) {
+    await supabase.from('education').update(extras).eq('id', id).then(() => {}, () => {})
+  }
 }

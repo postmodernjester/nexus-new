@@ -66,6 +66,7 @@ export default function ChronicleCanvas() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDelHint, setShowDelHint] = useState(false)
   const [viewportH, setViewportH] = useState(750)
+  const viewportMeasured = useRef(false)
 
   // Tooltip
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
@@ -154,8 +155,12 @@ export default function ChronicleCanvas() {
     const sw = scrollRef.current
     if (!sw) return
     setViewportH(sw.clientHeight)
+    viewportMeasured.current = true
     const observer = new ResizeObserver(resizeEntries => {
-      if (resizeEntries[0]) setViewportH(resizeEntries[0].contentRect.height)
+      if (resizeEntries[0]) {
+        setViewportH(resizeEntries[0].contentRect.height)
+        viewportMeasured.current = true
+      }
     })
     observer.observe(sw)
     return () => observer.disconnect()
@@ -190,7 +195,7 @@ export default function ChronicleCanvas() {
   // ─── Scroll to saved center or current year on first load ──
   const initialScrollDone = useRef(false)
   useEffect(() => {
-    if (!loading && scrollRef.current && !initialScrollDone.current) {
+    if (!loading && scrollRef.current && viewportMeasured.current && !initialScrollDone.current) {
       initialScrollDone.current = true
       let centerY = CURRENT_YEAR
       let centerM = 1
@@ -809,6 +814,7 @@ export default function ChronicleCanvas() {
         const { supabase: sb } = await import('@/lib/supabase')
         const userId = (await sb.auth.getUser()).data.user?.id
         if (!userId) throw new Error('Not authenticated')
+        // Phase 1: base columns
         const { data: newWork, error } = await sb
           .from('work_entries')
           .insert({
@@ -818,14 +824,19 @@ export default function ChronicleCanvas() {
             start_date: data.start + '-01',
             end_date: data.end ? data.end + '-01' : null,
             is_current: !data.end,
-            chronicle_color: data.color,
-            chronicle_fuzzy_start: data.fuzzyStart,
-            chronicle_fuzzy_end: data.fuzzyEnd,
-            chronicle_note: data.note,
           })
           .select()
           .single()
         if (error) throw error
+        // Phase 2: chronicle display columns (silently skip if missing)
+        if (newWork) {
+          await sb.from('work_entries').update({
+            chronicle_color: data.color,
+            chronicle_fuzzy_start: data.fuzzyStart,
+            chronicle_fuzzy_end: data.fuzzyEnd,
+            chronicle_note: data.note,
+          }).eq('id', newWork.id).then(() => {}, () => {})
+        }
         setWorkEntries(prev => [...prev, newWork as ChronicleWorkEntry])
       } else {
         const result = await upsertEntry({
@@ -886,6 +897,7 @@ export default function ChronicleCanvas() {
         if (!userId) throw new Error('Not authenticated')
 
         // Create proper work_entry
+        // Phase 1: insert base columns (guaranteed to exist)
         const baseInsert = {
             user_id: userId,
             title: w.title,
@@ -895,23 +907,23 @@ export default function ChronicleCanvas() {
             is_current: w.is_current,
             engagement_type: w.engagement_type,
             location: w.location || null,
-            description: w.description || null,
-          }
-        const optionalInsert = {
             remote_type: w.location_type || null,
+            description: w.description || null,
             ai_skills_extracted: w.ai_skills_extracted || [],
+          }
+        const { data: newWork, error } = await sb
+          .from('work_entries').insert(baseInsert).select().single()
+        if (error) throw error
+
+        // Phase 2: apply chronicle display columns (may not exist, silently skip)
+        if (newWork) {
+          await sb.from('work_entries').update({
             chronicle_color: w.chronicle_color || '#4070a8',
             chronicle_fuzzy_start: w.chronicle_fuzzy_start || false,
             chronicle_fuzzy_end: w.chronicle_fuzzy_end || false,
             chronicle_note: w.chronicle_note || null,
-          }
-        let { data: newWork, error } = await sb
-          .from('work_entries').insert({ ...baseInsert, ...optionalInsert }).select().single()
-        if (error && error.message.includes('column')) {
-          ;({ data: newWork, error } = await sb
-            .from('work_entries').insert(baseInsert).select().single())
+          }).eq('id', newWork.id).then(() => {}, () => {})
         }
-        if (error) throw error
 
         // Delete the old chronicle entry
         await deleteEntry(chronicleId).catch(console.warn)
@@ -934,6 +946,7 @@ export default function ChronicleCanvas() {
           remote_type: w.location_type || null,
           description: w.description || undefined,
           ai_skills_extracted: w.ai_skills_extracted || [],
+          show_on_resume: w.show_on_resume,
           chronicle_color: w.chronicle_color,
           chronicle_fuzzy_start: w.chronicle_fuzzy_start,
           chronicle_fuzzy_end: w.chronicle_fuzzy_end,
@@ -961,6 +974,7 @@ export default function ChronicleCanvas() {
         const { supabase: sb } = await import('@/lib/supabase')
         const userId = (await sb.auth.getUser()).data.user?.id
         if (!userId) throw new Error('Not authenticated')
+        // Phase 1: insert base columns
         const newBase = {
             user_id: userId,
             title: w.title,
@@ -970,23 +984,23 @@ export default function ChronicleCanvas() {
             is_current: w.is_current,
             engagement_type: w.engagement_type,
             location: w.location || null,
-            description: w.description || null,
-          }
-        const newOptional = {
             remote_type: w.location_type || null,
+            description: w.description || null,
             ai_skills_extracted: w.ai_skills_extracted || [],
+          }
+        const { data: newWork, error } = await sb
+          .from('work_entries').insert(newBase).select().single()
+        if (error) throw error
+
+        // Phase 2: chronicle display columns (silently skip if missing)
+        if (newWork) {
+          await sb.from('work_entries').update({
             chronicle_color: w.chronicle_color || '#4070a8',
             chronicle_fuzzy_start: w.chronicle_fuzzy_start || false,
             chronicle_fuzzy_end: w.chronicle_fuzzy_end || false,
             chronicle_note: w.chronicle_note || null,
-          }
-        let { data: newWork, error } = await sb
-          .from('work_entries').insert({ ...newBase, ...newOptional }).select().single()
-        if (error && error.message.includes('column')) {
-          ;({ data: newWork, error } = await sb
-            .from('work_entries').insert(newBase).select().single())
+          }).eq('id', newWork.id).then(() => {}, () => {})
         }
-        if (error) throw error
         setWorkEntries(prev => [...prev, newWork as ChronicleWorkEntry])
       }
 
@@ -1106,6 +1120,7 @@ export default function ChronicleCanvas() {
           chronicle_fuzzy_start: work.chronicle_fuzzy_start || false,
           chronicle_fuzzy_end: work.chronicle_fuzzy_end || false,
           chronicle_note: work.chronicle_note || '',
+          show_on_resume: work.show_on_resume !== false,
         },
       })
     } else if (item.source === 'education') {

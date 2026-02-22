@@ -177,65 +177,65 @@ export default function ResumePage() {
     const isMigration = editingWork.id?.startsWith(migratePrefix)
     const chronicleId = isMigration ? editingWork.id!.slice(migratePrefix.length) : null
 
-    // Build a clean payload with only work_entries columns
+    // Phase 1 payload: columns guaranteed to exist (003_resume_tables migration)
     const basePayload: Record<string, unknown> = {
       user_id: user.id,
       title: editingWork.title,
       company: editingWork.company,
       location: editingWork.location || null,
+      remote_type: editingWork.location_type || null,
       start_date: editingWork.start_date,
       end_date: editingWork.is_current ? null : (editingWork.end_date || null),
       is_current: editingWork.is_current,
       description: editingWork.description || null,
       engagement_type: editingWork.engagement_type,
-    }
-    // Optional columns that may not exist in the table yet
-    const optionalCols: Record<string, unknown> = {
-      remote_type: editingWork.location_type || null,
       ai_skills_extracted: editingWork.ai_skills_extracted || [],
     }
-    if (editingWork.chronicle_color) optionalCols.chronicle_color = editingWork.chronicle_color
-    if (editingWork.chronicle_fuzzy_start !== undefined) optionalCols.chronicle_fuzzy_start = editingWork.chronicle_fuzzy_start
-    if (editingWork.chronicle_fuzzy_end !== undefined) optionalCols.chronicle_fuzzy_end = editingWork.chronicle_fuzzy_end
-    if (editingWork.chronicle_note !== undefined) optionalCols.chronicle_note = editingWork.chronicle_note || null
+    // Phase 2 payload: optional columns from later migrations (applied silently)
+    const extraCols: Record<string, unknown> = {}
+    if (editingWork.show_on_resume !== undefined) extraCols.show_on_resume = editingWork.show_on_resume
+    if (editingWork.chronicle_color) extraCols.chronicle_color = editingWork.chronicle_color
+    if (editingWork.chronicle_fuzzy_start !== undefined) extraCols.chronicle_fuzzy_start = editingWork.chronicle_fuzzy_start
+    if (editingWork.chronicle_fuzzy_end !== undefined) extraCols.chronicle_fuzzy_end = editingWork.chronicle_fuzzy_end
+    if (editingWork.chronicle_note !== undefined) extraCols.chronicle_note = editingWork.chronicle_note || null
 
-    // Try with all columns first, then retry with base-only if columns don't exist
-    const tryInsertOrUpdate = async (isUpdate: boolean, id?: string) => {
-      const fullPayload = { ...basePayload, ...optionalCols }
-      if (isUpdate) delete fullPayload.user_id
-
-      let result = isUpdate
-        ? await supabase.from('work_entries').update(fullPayload).eq('id', id!).select().single()
-        : await supabase.from('work_entries').insert(fullPayload).select().single()
-
-      // Retry without optional columns if they don't exist
-      if (result.error && result.error.message.includes('column')) {
-        console.warn('Retrying without optional columns:', result.error.message)
-        const fallback = isUpdate ? { ...basePayload } : { ...basePayload }
-        if (isUpdate) delete fallback.user_id
-        result = isUpdate
-          ? await supabase.from('work_entries').update(fallback).eq('id', id!).select().single()
-          : await supabase.from('work_entries').insert(fallback).select().single()
+    const doInsert = async () => {
+      const { data, error } = await supabase.from('work_entries').insert(basePayload).select().single()
+      if (error) return { data: null, error }
+      // Silently apply extras
+      if (data && Object.keys(extraCols).length > 0) {
+        await supabase.from('work_entries').update(extraCols).eq('id', data.id).then(() => {}, () => {})
       }
-      return result
+      return { data, error: null }
+    }
+    const doUpdate = async (id: string) => {
+      const { user_id, ...updateFields } = basePayload
+      const { data, error } = await supabase.from('work_entries').update(updateFields).eq('id', id).select().single()
+      if (error) return { data: null, error }
+      if (data && Object.keys(extraCols).length > 0) {
+        await supabase.from('work_entries').update(extraCols).eq('id', id).then(() => {}, () => {})
+      }
+      return { data, error: null }
     }
 
+    const mapWork = (data: any) => ({ ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] })
+
     if (isMigration) {
-      const { data, error } = await tryInsertOrUpdate(false)
+      const { data, error } = await doInsert()
       if (error) { console.error('Migration insert failed:', error.message); alert('Failed to save: ' + error.message); return }
       if (data) {
-        setWorkEntries(prev => [{ ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] }, ...prev])
+        setWorkEntries(prev => [mapWork(data), ...prev])
         await supabase.from('chronicle_entries').delete().eq('id', chronicleId!)
         setChronicleEntries(prev => prev.filter(e => e.id !== chronicleId))
       }
     } else if (editingWorkId) {
-      const { data, error } = await tryInsertOrUpdate(true, editingWorkId)
+      const { data, error } = await doUpdate(editingWorkId)
       if (error) { console.error('Update failed:', error.message); alert('Failed to save: ' + error.message); return }
-      if (data) setWorkEntries(prev => prev.map(e => e.id === editingWorkId ? { ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] } : e))
+      if (data) setWorkEntries(prev => prev.map(e => e.id === editingWorkId ? mapWork(data) : e))
     } else {
-      const { data, error } = await tryInsertOrUpdate(false)
+      const { data, error } = await doInsert()
       if (error) { console.error('Insert failed:', error.message); alert('Failed to save: ' + error.message); return }
-      if (data) setWorkEntries(prev => [{ ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] }, ...prev])
+      if (data) setWorkEntries(prev => [mapWork(data), ...prev])
     }
     // Upsert per-job skills to the global skills table
     const skillsToSync = editingWork.ai_skills_extracted || []

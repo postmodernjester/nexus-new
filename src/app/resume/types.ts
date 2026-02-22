@@ -10,6 +10,7 @@ export interface WorkEntry {
   description: string
   engagement_type: string
   ai_skills_extracted: string[]
+  show_on_resume?: boolean
   // Chronicle fields (when editing from chronicle)
   chronicle_color?: string
   chronicle_fuzzy_start?: boolean
@@ -90,6 +91,7 @@ export const LOCATION_TYPES = [
 export const EMPTY_WORK: WorkEntry = {
   title: '', company: '', location: '', location_type: '', start_date: '', end_date: '',
   is_current: false, description: '', engagement_type: 'full-time', ai_skills_extracted: [],
+  show_on_resume: true,
 }
 
 export const EMPTY_EDU: EducationEntry = {

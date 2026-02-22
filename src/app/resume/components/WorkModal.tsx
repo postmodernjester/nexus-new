@@ -232,6 +232,21 @@ export default function WorkModal({
             </p>
           </div>
 
+          {/* Show on resume toggle */}
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            color: '#94a3b8', fontSize: '13px', cursor: 'pointer',
+            borderTop: '1px solid #334155', paddingTop: '12px',
+          }}>
+            <input
+              type="checkbox"
+              checked={editingWork.show_on_resume !== false}
+              onChange={e => setEditingWork({ ...editingWork, show_on_resume: e.target.checked })}
+              style={{ width: 16, height: 16, accentColor: '#a78bfa', cursor: 'pointer' }}
+            />
+            Show on resume
+          </label>
+
           {/* Chronicle fields (only when editing from chronicle) */}
           {chronicleMode && (
             <div style={sectionDivider}>
