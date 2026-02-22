@@ -177,6 +177,10 @@ export default function ResumePage() {
 
   const openAddWork = () => { setEditingWork(EMPTY_WORK); setEditingWorkId(null); setShowWorkModal(true) }
   const openEditWork = (entry: WorkEntry) => { setEditingWork({ ...entry }); setEditingWorkId(entry.id || null); setShowWorkModal(true) }
+  const openAddProject = () => {
+    setEditingChronicle({ id: '', type: 'project', canvas_col: 'project', title: '', start_date: '', end_date: null, note: null, description: null, image_url: null, color: null, show_on_resume: true })
+    setShowChronicleModal(true)
+  }
 
   const saveWork = async () => {
     if (!user) return
@@ -650,7 +654,7 @@ export default function ResumePage() {
             <section style={{ marginTop: '24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                 <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Projects</h2>
-                <button onClick={openAddWork} style={btnPrimary}>+ Add</button>
+                <button onClick={openAddProject} style={btnPrimary}>+ Add</button>
               </div>
 
               {projectEntries.length === 0 ? (

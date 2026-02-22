@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 
 import Nav from "@/components/Nav";
+import { unlinkContact } from "@/lib/connections";
 
 import type {
   Contact,
@@ -65,6 +66,9 @@ export default function ContactDossierPage() {
   const [editNoteAction, setEditNoteAction] = useState("");
   const [editNoteActionDue, setEditNoteActionDue] = useState("");
   const [editNoteActionCompleted, setEditNoteActionCompleted] = useState(false);
+
+  // Unlink
+  const [unlinking, setUnlinking] = useState(false);
 
   // AI summary
   const [generatingSummary, setGeneratingSummary] = useState(false);
@@ -326,8 +330,39 @@ export default function ContactDossierPage() {
     touchContactUpdatedAt();
   }
 
+  async function handleUnlink() {
+    if (!contact?.linked_profile_id || !userId) return;
+    if (!confirm(`Unlink from ${contact.full_name}? The contact card and your notes will be kept, but their linked NEXUS data will no longer be visible.`)) return;
+    setUnlinking(true);
+    const result = await unlinkContact(userId, cid, contact.linked_profile_id, contact.full_name);
+    if (result.success) {
+      setContact(prev => prev ? { ...prev, linked_profile_id: null } : prev);
+      setLinkedProfile(null);
+      setLinkedWork([]);
+      setLinkedChronicle([]);
+      setLinkedEducation([]);
+      // Refresh notes to show the unlink activity entry
+      const { data: freshNotes } = await supabase
+        .from("contact_notes")
+        .select("*")
+        .eq("contact_id", cid)
+        .order("entry_date", { ascending: false });
+      if (freshNotes) setNotes(freshNotes);
+    } else {
+      alert("Failed to unlink: " + (result.error || "Unknown error"));
+    }
+    setUnlinking(false);
+  }
+
   async function deleteContact() {
     if (!confirm("Delete " + contact?.full_name + "?")) return;
+    // If linked, unlink first (cleans up both sides)
+    if (contact?.linked_profile_id && userId) {
+      await unlinkContact(userId, cid, contact.linked_profile_id, contact.full_name);
+    }
+    // Clean up any connection records referencing this contact
+    await supabase.from("connections").delete().eq("contact_id", cid);
+    // Delete notes then contact
     await supabase.from("contact_notes").delete().eq("contact_id", cid);
     await supabase.from("contacts").delete().eq("id", cid);
     router.push("/contacts");
@@ -477,7 +512,21 @@ export default function ContactDossierPage() {
             ← All Contacts
           </Link>
           <div style={{ display: "flex", gap: "8px" }}>
-            {!linkedProfile && userId && (
+            {linkedProfile ? (
+              <button
+                onClick={handleUnlink}
+                disabled={unlinking}
+                style={{
+                  ...s.btnSecondary,
+                  background: "rgba(96,165,250,0.15)",
+                  border: "1px solid rgba(96,165,250,0.3)",
+                  color: "#60a5fa",
+                  opacity: unlinking ? 0.5 : 1,
+                }}
+              >
+                {unlinking ? "Unlinking…" : "Linked"}
+              </button>
+            ) : userId ? (
               <button
                 onClick={() => {
                   const url = `${window.location.origin}/connect/${userId}?contact=${cid}`;
@@ -491,9 +540,9 @@ export default function ContactDossierPage() {
                   color: copiedLink ? "#60a5fa" : undefined,
                 }}
               >
-                {copiedLink ? "Copied!" : "Copy Invite Link"}
+                {copiedLink ? "Link Copied!" : "Link"}
               </button>
-            )}
+            ) : null}
             {!editing && (
               <button onClick={() => setEditing(true)} style={s.btnSecondary}>
                 Edit
@@ -613,21 +662,6 @@ export default function ContactDossierPage() {
             </div>
           </div>
 
-          {linkedProfile && (
-            <div
-              style={{
-                padding: "4px 10px",
-                background: "rgba(96,165,250,0.15)",
-                border: "1px solid rgba(96,165,250,0.3)",
-                borderRadius: "6px",
-                fontSize: "11px",
-                color: "#60a5fa",
-                whiteSpace: "nowrap",
-              }}
-            >
-              ● Linked
-            </div>
-          )}
         </div>
 
         {/* EDIT CONTACT FIELDS */}

@@ -465,6 +465,73 @@ export async function connectDirectly(
   return { success: true };
 }
 
+// Unlink a contact — clears linked_profile_id on both sides, preserves contact cards and notes.
+// Adds an activity note on both contact cards recording the event.
+export async function unlinkContact(
+  userId: string,
+  contactId: string,
+  linkedProfileId: string,
+  contactName: string,
+): Promise<{ success: boolean; error?: string }> {
+  const today = new Date().toISOString().split('T')[0];
+
+  // 1. Find their contact card for me (before clearing anything)
+  const { data: theirContact } = await supabase
+    .from('contacts')
+    .select('id, full_name')
+    .eq('owner_id', linkedProfileId)
+    .eq('linked_profile_id', userId)
+    .limit(1)
+    .single();
+
+  // 2. Clear linked_profile_id on MY contact card
+  const { error: clearMyErr } = await supabase
+    .from('contacts')
+    .update({ linked_profile_id: null })
+    .eq('id', contactId)
+    .eq('owner_id', userId);
+
+  if (clearMyErr) {
+    console.error('Error clearing linked_profile_id:', clearMyErr);
+    return { success: false, error: 'Failed to unlink contact' };
+  }
+
+  // 3. Clear linked_profile_id on THEIR contact card for me
+  if (theirContact) {
+    await supabase
+      .from('contacts')
+      .update({ linked_profile_id: null })
+      .eq('id', theirContact.id);
+  }
+
+  // 4. Remove accepted connection records between us
+  await supabase
+    .from('connections')
+    .delete()
+    .eq('status', 'accepted')
+    .or(`and(inviter_id.eq.${userId},invitee_id.eq.${linkedProfileId}),and(inviter_id.eq.${linkedProfileId},invitee_id.eq.${userId})`);
+
+  // 5. Add activity note on MY contact card
+  await supabase.from('contact_notes').insert({
+    contact_id: contactId,
+    owner_id: userId,
+    content: `Unlinked from ${contactName} on NEXUS.`,
+    entry_date: today,
+  });
+
+  // 6. Add activity note on THEIR contact card for me
+  if (theirContact) {
+    await supabase.from('contact_notes').insert({
+      contact_id: theirContact.id,
+      owner_id: linkedProfileId,
+      content: 'Unlinked on NEXUS.',
+      entry_date: today,
+    });
+  }
+
+  return { success: true };
+}
+
 // Get pending invites sent by a user
 export async function getPendingInvites(userId: string) {
   const { data, error } = await supabase
