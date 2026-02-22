@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
@@ -65,10 +65,45 @@ export default function ContactDossierPage() {
 
   // AI summary
   const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [autoSummaryTriggered, setAutoSummaryTriggered] = useState(false);
+
+  // Edit scroll ref
+  const editRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadAll();
   }, [cid]);
+
+  // Touch contact's updated_at so "Recent" sort reflects note activity
+  async function touchContactUpdatedAt() {
+    await supabase
+      .from("contacts")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", cid);
+  }
+
+  // Auto-generate dossier for linked contacts that don't have one yet
+  useEffect(() => {
+    if (
+      !loading &&
+      contact &&
+      contact.linked_profile_id &&
+      !contact.ai_summary &&
+      linkedProfile &&
+      !autoSummaryTriggered &&
+      !generatingSummary
+    ) {
+      setAutoSummaryTriggered(true);
+      generateAISummary();
+    }
+  }, [loading, contact, linkedProfile, autoSummaryTriggered, generatingSummary]);
+
+  // Scroll to edit form when opened
+  useEffect(() => {
+    if (editing && editRef.current) {
+      editRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [editing]);
 
   async function loadAll() {
     setLoading(true);
@@ -221,6 +256,7 @@ export default function ContactDossierPage() {
       setNoteActionDue("");
       setShowActionFields(false);
       setNoteDate(new Date().toISOString().split("T")[0]);
+      touchContactUpdatedAt();
     }
     setAddingNote(false);
   }
@@ -260,6 +296,7 @@ export default function ContactDossierPage() {
         );
       setNotes(updated);
       setEditingNoteId(null);
+      touchContactUpdatedAt();
     }
   }
 
@@ -274,12 +311,14 @@ export default function ContactDossierPage() {
         n.id === note.id ? { ...n, action_completed: newVal } : n
       )
     );
+    touchContactUpdatedAt();
   }
 
   async function deleteNote(id: string) {
     if (!confirm("Delete this note?")) return;
     await supabase.from("contact_notes").delete().eq("id", id);
     setNotes(notes.filter((n) => n.id !== id));
+    touchContactUpdatedAt();
   }
 
   async function deleteContact() {
@@ -324,13 +363,15 @@ export default function ContactDossierPage() {
       .filter(Boolean)
       .join("\n");
 
-    // Extract URLs from all notes
-    const allUrls: string[] = [];
+    // Collect URLs: key_links first (most authoritative), then note URLs
+    const keyLinkUrls = (linkedProfile?.key_links || [])
+      .filter((l) => l.url && l.visible)
+      .map((l) => l.url);
+    const noteUrls: string[] = [];
     for (const n of notes) {
-      allUrls.push(...extractUrls(n.content));
+      noteUrls.push(...extractUrls(n.content));
     }
-    // Deduplicate
-    const uniqueUrls = [...new Set(allUrls)];
+    const uniqueUrls = [...new Set([...keyLinkUrls, ...noteUrls])];
 
     try {
       const response = await fetch("/api/ai/summarize", {
@@ -567,6 +608,22 @@ export default function ContactDossierPage() {
           )}
         </div>
 
+        {/* EDIT CONTACT FIELDS */}
+        {editing && (
+          <div ref={editRef}>
+            <EditContactForm
+              editFields={editFields}
+              setField={setField}
+              saving={saving}
+              saveContact={saveContact}
+              onCancel={() => {
+                setEditing(false);
+                setEditFields(contact);
+              }}
+            />
+          </div>
+        )}
+
         {/* AI SUMMARY */}
         <div style={s.card}>
           <div
@@ -729,20 +786,6 @@ export default function ContactDossierPage() {
               </div>
             ))}
           </div>
-        )}
-
-        {/* EDIT CONTACT FIELDS */}
-        {editing && (
-          <EditContactForm
-            editFields={editFields}
-            setField={setField}
-            saving={saving}
-            saveContact={saveContact}
-            onCancel={() => {
-              setEditing(false);
-              setEditFields(contact);
-            }}
-          />
         )}
 
       </div>

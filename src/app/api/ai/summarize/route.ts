@@ -51,7 +51,9 @@ export async function POST(req: Request) {
         ? `\n\nSource material from linked pages:\n${urlContents.join("\n\n")}`
         : "";
 
-    const prompt = `You are writing two things about a person for a networking CRM, based ONLY on the linked source material below.
+    const prompt = `You are writing two things about a person for a networking CRM.
+
+CRITICAL: Use ONLY the source material provided below. Do NOT use your training data or general knowledge to fill in details about anyone, even if the name matches a public figure. If the provided sources are insufficient, write a brief summary from only what is given. Never guess or conflate this person with someone else who shares their name.
 
 TASK 1 - FULL SUMMARY:
 Write 3-5 sentences in a measured, academic tone. Be factual and specific. Include age/DOB and location if found. State their current role, organization, industry, career highlights. No promotional language. No speculation.
@@ -67,7 +69,7 @@ Contact context:
 ${contactInfo}
 ${urlSection}
 
-${urlContents.length === 0 ? "No source URLs provided. Use only the contact fields above." : ""}
+${urlContents.length === 0 ? "No source URLs were provided or could be fetched. Use ONLY the contact fields above. Do NOT look up or infer information from your training data." : ""}
 
 Respond in this exact format:
 SUMMARY: [your 3-5 sentence summary]
