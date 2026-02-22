@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
+import { useState } from "react";
 import { formatWorkDate } from "../utils";
 import type {
   Contact,
@@ -18,9 +19,9 @@ interface ResumeViewProps {
   contact: Contact;
 }
 
-/* ── Pastel palette for tiles without images ── */
+/* ── Pastel palette for project tiles ── */
 const TILE_COLORS = [
-  "#4070a8", "#508038", "#a85060", "#806840",
+  "#508038", "#4070a8", "#a85060", "#806840",
   "#7050a8", "#2a8a6a", "#c06848", "#986020",
 ];
 
@@ -28,116 +29,10 @@ function tileColor(idx: number) {
   return TILE_COLORS[idx % TILE_COLORS.length];
 }
 
-/* ── Experience tile (square card with hover expand) ── */
-function ExperienceTile({ entry, idx }: { entry: LinkedWorkEntry; idx: number }) {
-  const [hovered, setHovered] = useState(false);
-  const color = tileColor(idx);
-  const dateStr = `${formatWorkDate(entry.start_date || "")} – ${entry.is_current ? "Present" : formatWorkDate(entry.end_date || "")}`;
-
-  return (
-    <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        position: "relative",
-        width: 140,
-        minHeight: 140,
-        borderRadius: 10,
-        overflow: "hidden",
-        background: `linear-gradient(135deg, ${color}18, ${color}30)`,
-        border: `1.5px solid ${color}44`,
-        cursor: "default",
-        transition: "transform 0.2s, box-shadow 0.2s",
-        transform: hovered ? "translateY(-3px)" : "none",
-        boxShadow: hovered ? `0 6px 20px ${color}22` : "none",
-        flexShrink: 0,
-      }}
-    >
-      {/* Top accent stripe */}
-      <div style={{ height: 4, background: color, opacity: 0.6 }} />
-
-      {/* Initials / icon */}
-      <div style={{
-        width: 36, height: 36, borderRadius: "50%",
-        background: `${color}22`, border: `2px solid ${color}55`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        margin: "14px auto 8px",
-        fontSize: 15, fontWeight: 700, color,
-        fontFamily: "sans-serif",
-      }}>
-        {(entry.company || entry.title || "?").charAt(0).toUpperCase()}
-      </div>
-
-      {/* Title */}
-      <div style={{
-        fontSize: 11.5, fontWeight: 700, color: "#1a1a2e",
-        textAlign: "center", padding: "0 10px",
-        lineHeight: 1.3,
-        overflow: "hidden", textOverflow: "ellipsis",
-        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as any,
-      }}>
-        {entry.title}
-      </div>
-
-      {/* Company */}
-      {entry.company && (
-        <div style={{
-          fontSize: 10, color: "#666",
-          textAlign: "center", padding: "2px 10px 0",
-          fontStyle: "italic",
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>
-          {entry.company}
-        </div>
-      )}
-
-      {/* Date */}
-      <div style={{
-        fontSize: 9, color: "#999",
-        textAlign: "center", padding: "4px 10px 12px",
-        fontFamily: "sans-serif",
-      }}>
-        {dateStr}
-      </div>
-
-      {/* Hover overlay with full details */}
-      {hovered && (
-        <div style={{
-          position: "absolute", inset: 0,
-          background: "rgba(250,249,246,0.97)",
-          padding: "12px 14px",
-          overflowY: "auto",
-          zIndex: 5,
-          borderRadius: 10,
-        }}>
-          <div style={{ fontWeight: 700, fontSize: 12.5, color: "#1a1a2e", marginBottom: 3 }}>
-            {entry.title}
-          </div>
-          {entry.company && (
-            <div style={{ fontSize: 11, color: "#555", fontStyle: "italic", marginBottom: 2 }}>
-              {entry.company}
-              {entry.location ? ` — ${entry.location}` : ""}
-              {entry.engagement_type && entry.engagement_type !== "full-time" ? ` (${entry.engagement_type})` : ""}
-            </div>
-          )}
-          <div style={{ fontSize: 10, color: "#888", fontFamily: "sans-serif", marginBottom: 6 }}>
-            {dateStr}
-          </div>
-          {entry.description && (
-            <p style={{ fontSize: 10.5, lineHeight: 1.5, color: "#444", margin: 0, whiteSpace: "pre-wrap" }}>
-              {entry.description}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Project tile (square card with image or color) ── */
+/* ── Project tile (square card with image or color, hover for details) ── */
 function ProjectTile({ entry, idx }: { entry: LinkedChronicleEntry; idx: number }) {
   const [hovered, setHovered] = useState(false);
-  const color = tileColor(idx + 3);
+  const color = tileColor(idx);
   const dateStr = `${formatWorkDate(entry.start_date || "")}${entry.end_date ? ` – ${formatWorkDate(entry.end_date)}` : ""}`;
 
   return (
@@ -235,14 +130,20 @@ export default function ResumeView({
   linkedEducation,
   contact,
 }: ResumeViewProps) {
+  // Work-type chronicle entries belong in Experience, not Projects
+  const workChronicle = linkedChronicle.filter(
+    (e) => e.canvas_col === "work"
+  );
   const projectEntries = linkedChronicle.filter(
     (e) => e.canvas_col === "project" || e.canvas_col === "projects"
   );
   const educationChronicle = linkedChronicle.filter(
     (e) => e.canvas_col === "education"
   );
+  // "Other" means non-work, non-project, non-education chronicle entries → show as projects
   const otherEntries = linkedChronicle.filter(
     (e) =>
+      e.canvas_col !== "work" &&
       e.canvas_col !== "project" &&
       e.canvas_col !== "projects" &&
       e.canvas_col !== "education"
@@ -258,6 +159,7 @@ export default function ResumeView({
   };
 
   const allProjects = [...projectEntries, ...otherEntries];
+  const hasExperience = linkedWork.length > 0 || workChronicle.length > 0;
 
   return (
     <div
@@ -395,8 +297,8 @@ export default function ResumeView({
         </div>
       )}
 
-      {/* Experience — visual tiles */}
-      {linkedWork.length > 0 && (
+      {/* Experience — traditional resume format (work_entries + work-type chronicle) */}
+      {hasExperience && (
         <div style={{ marginBottom: "22px" }}>
           <h3
             style={{
@@ -413,15 +315,127 @@ export default function ResumeView({
           >
             Experience
           </h3>
-          <div style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "12px",
-          }}>
-            {linkedWork.map((entry, i) => (
-              <ExperienceTile key={entry.id} entry={entry} idx={i} />
-            ))}
-          </div>
+          {linkedWork.map((entry, i) => (
+            <div
+              key={entry.id}
+              style={{
+                marginBottom: i < linkedWork.length - 1 || workChronicle.length > 0 ? "14px" : 0,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: "14px",
+                    color: "#1a1a2e",
+                  }}
+                >
+                  {entry.title}
+                </div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    color: "#777",
+                    fontFamily: "sans-serif",
+                  }}
+                >
+                  {formatWorkDate(entry.start_date || "")} –{" "}
+                  {entry.is_current
+                    ? "Present"
+                    : formatWorkDate(entry.end_date || "")}
+                </div>
+              </div>
+              {(entry.company || entry.location) && (
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: "#555",
+                    fontStyle: "italic",
+                  }}
+                >
+                  {entry.company}
+                  {entry.location ? ` — ${entry.location}` : ""}
+                  {entry.engagement_type &&
+                  entry.engagement_type !== "full-time"
+                    ? ` (${entry.engagement_type})`
+                    : ""}
+                </div>
+              )}
+              {entry.description && (
+                <p
+                  style={{
+                    fontSize: "12.5px",
+                    lineHeight: "1.6",
+                    color: "#444",
+                    margin: "6px 0 0",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {entry.description}
+                </p>
+              )}
+            </div>
+          ))}
+          {/* Work-type chronicle entries also render as resume line items */}
+          {workChronicle.map((entry, i) => (
+            <div
+              key={entry.id}
+              style={{
+                marginBottom: i < workChronicle.length - 1 ? "14px" : 0,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: "14px",
+                    color: "#1a1a2e",
+                  }}
+                >
+                  {entry.title}
+                </div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    color: "#777",
+                    fontFamily: "sans-serif",
+                  }}
+                >
+                  {formatWorkDate(entry.start_date || "")}
+                  {entry.end_date
+                    ? ` – ${formatWorkDate(entry.end_date)}`
+                    : " – Present"}
+                </div>
+              </div>
+              {(entry.description || entry.note) && (
+                <p
+                  style={{
+                    fontSize: "12.5px",
+                    lineHeight: "1.6",
+                    color: "#444",
+                    margin: "6px 0 0",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {entry.description || entry.note}
+                </p>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

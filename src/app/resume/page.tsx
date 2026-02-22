@@ -173,36 +173,54 @@ export default function ResumePage() {
 
   const saveWork = async () => {
     if (!user) return
-    const { location_type, ai_skills_extracted, ...rest } = editingWork
-    const payload: Record<string, unknown> = {
-      ...rest,
-      user_id: user.id,
-      remote_type: location_type || null,
-      ai_skills_extracted: ai_skills_extracted || [],
-    }
-    delete payload.id
-
-    // Handle migration from chronicle_entry → work_entry
     const migratePrefix = 'migrate-chronicle:'
-    if (editingWork.id?.startsWith(migratePrefix)) {
-      const chronicleId = editingWork.id.slice(migratePrefix.length)
-      const { data } = await supabase.from('work_entries').insert(payload).select().single()
+    const isMigration = editingWork.id?.startsWith(migratePrefix)
+    const chronicleId = isMigration ? editingWork.id!.slice(migratePrefix.length) : null
+
+    // Build a clean payload with only work_entries columns
+    const payload: Record<string, unknown> = {
+      user_id: user.id,
+      title: editingWork.title,
+      company: editingWork.company,
+      location: editingWork.location || null,
+      remote_type: editingWork.location_type || null,
+      start_date: editingWork.start_date,
+      end_date: editingWork.is_current ? null : (editingWork.end_date || null),
+      is_current: editingWork.is_current,
+      description: editingWork.description || null,
+      engagement_type: editingWork.engagement_type,
+      ai_skills_extracted: editingWork.ai_skills_extracted || [],
+    }
+    // Include chronicle display fields if set
+    if (editingWork.chronicle_color) payload.chronicle_color = editingWork.chronicle_color
+    if (editingWork.chronicle_fuzzy_start !== undefined) payload.chronicle_fuzzy_start = editingWork.chronicle_fuzzy_start
+    if (editingWork.chronicle_fuzzy_end !== undefined) payload.chronicle_fuzzy_end = editingWork.chronicle_fuzzy_end
+    if (editingWork.chronicle_note !== undefined) payload.chronicle_note = editingWork.chronicle_note || null
+
+    if (isMigration) {
+      // Migrate from chronicle_entry → work_entry
+      const { data, error } = await supabase.from('work_entries').insert(payload).select().single()
+      if (error) { console.error('Migration insert failed:', error.message); alert('Failed to save: ' + error.message); return }
       if (data) {
         setWorkEntries(prev => [{ ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] }, ...prev])
         // Delete the old chronicle entry
-        await supabase.from('chronicle_entries').delete().eq('id', chronicleId)
+        await supabase.from('chronicle_entries').delete().eq('id', chronicleId!)
         setChronicleEntries(prev => prev.filter(e => e.id !== chronicleId))
       }
     } else if (editingWorkId) {
-      const { data } = await supabase.from('work_entries').update(payload).eq('id', editingWorkId).select().single()
+      delete payload.user_id
+      const { data, error } = await supabase.from('work_entries').update(payload).eq('id', editingWorkId).select().single()
+      if (error) { console.error('Update failed:', error.message); alert('Failed to save: ' + error.message); return }
       if (data) setWorkEntries(prev => prev.map(e => e.id === editingWorkId ? { ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] } : e))
     } else {
-      const { data } = await supabase.from('work_entries').insert(payload).select().single()
+      const { data, error } = await supabase.from('work_entries').insert(payload).select().single()
+      if (error) { console.error('Insert failed:', error.message); alert('Failed to save: ' + error.message); return }
       if (data) setWorkEntries(prev => [{ ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] }, ...prev])
     }
     // Upsert per-job skills to the global skills table
-    if (ai_skills_extracted && ai_skills_extracted.length > 0) {
-      for (const skillName of ai_skills_extracted) {
+    const skillsToSync = editingWork.ai_skills_extracted || []
+    if (skillsToSync.length > 0) {
+      for (const skillName of skillsToSync) {
         const { data: existing } = await supabase
           .from('skills')
           .select('id')
@@ -522,7 +540,9 @@ export default function ResumePage() {
                   }
                 } else {
                   const entry = item.data as ChronicleResumeEntry
-                  const catLabel = CAT_LABELS[entry.canvas_col || entry.type] || entry.type
+                  const entryCat = entry.canvas_col || entry.type
+                  const isWorkType = entryCat === 'work'
+                  const catLabel = isWorkType ? '' : (CAT_LABELS[entryCat] || entry.type)
                   const startYM = entry.start_date?.slice(0, 7) || ''
                   const endYM = entry.end_date?.slice(0, 7) || ''
                   return (
@@ -531,10 +551,12 @@ export default function ResumePage() {
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.title}</div>
-                            <span style={{
-                              fontSize: '10px', padding: '2px 7px', borderRadius: '10px',
-                              background: '#334155', color: '#94a3b8', letterSpacing: '.04em',
-                            }}>{catLabel}</span>
+                            {catLabel && (
+                              <span style={{
+                                fontSize: '10px', padding: '2px 7px', borderRadius: '10px',
+                                background: '#334155', color: '#94a3b8', letterSpacing: '.04em',
+                              }}>{catLabel}</span>
+                            )}
                           </div>
                           <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
                             {startYM}{endYM ? ` – ${endYM}` : startYM ? ' – Present' : ''}
