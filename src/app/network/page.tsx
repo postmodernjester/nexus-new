@@ -299,12 +299,12 @@ export default function NetworkPage() {
         return d.searchText ? d.searchText.includes(q) : false;
       };
       const matchedIds = new Set(graphData.nodes.filter(matchesFilter).map(n => n.id));
-      node.attr("opacity", (d) => matchedIds.has(d.id) ? 1 : 0.06);
+      node.attr("opacity", (d) => matchedIds.has(d.id) ? 1 : 0.15);
       link.attr("opacity", (d) => {
         const sId = (d.source as GraphNode).id;
         const tId = (d.target as GraphNode).id;
         if (matchedIds.has(sId) && matchedIds.has(tId)) return 1;
-        return 0.03;
+        return 0.08;
       });
     } else {
       // No filter — use recency-based opacity (self always 1.0)
