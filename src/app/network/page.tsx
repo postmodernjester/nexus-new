@@ -660,22 +660,17 @@ export default function NetworkPage() {
       });
 
     // Click/dblclick detection via drag events + timers.
-    // Single-click = pin node at center (like dragging it there); connections reorganize.
-    // Click same node again to unpin. Double-click = open connection card.
+    // Double-click = open connection card.
     let dragMoved = false;
     let totalDragDist = 0;
     let lastTapTime = 0;
     let lastTapNodeId = "";
-    let singleTapTimer: ReturnType<typeof setTimeout> | null = null;
-    let driftAnim: number | null = null;
-    let centeredRef: GraphNode | null = null;
 
     const drag = d3
       .drag<SVGGElement, GraphNode>()
       .on("start", (event, d) => {
         dragMoved = false;
         totalDragDist = 0;
-        if (driftAnim) { cancelAnimationFrame(driftAnim); driftAnim = null; }
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
@@ -688,73 +683,24 @@ export default function NetworkPage() {
       })
       .on("end", (event, d) => {
         if (!event.active) simulation.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
-
-        if (dragMoved) {
-          if (centeredRef === d) centeredRef = null;
-          return;
+        // Keep self pinned at center
+        if (d.type !== "self") {
+          d.fx = null;
+          d.fy = null;
         }
+
+        if (dragMoved) return;
         if (d.type === "self") return;
 
         const now = Date.now();
         if (now - lastTapTime < 400 && lastTapNodeId === d.id) {
           // Double-tap → open card
-          if (singleTapTimer) { clearTimeout(singleTapTimer); singleTapTimer = null; }
           lastTapTime = 0;
           lastTapNodeId = "";
           if (d.contactId) router.push(`/contacts/${d.contactId}`);
         } else {
-          // First tap — wait to see if double-tap follows
           lastTapTime = now;
           lastTapNodeId = d.id;
-          const ref = d;
-          singleTapTimer = setTimeout(() => {
-            singleTapTimer = null;
-
-            // Toggle: click same centered node → unpin it
-            if (centeredRef === ref) {
-              ref.fx = null;
-              ref.fy = null;
-              centeredRef = null;
-              simulation.alpha(0.3).restart();
-              return;
-            }
-
-            // Unpin previously centered node
-            if (centeredRef) {
-              centeredRef.fx = null;
-              centeredRef.fy = null;
-            }
-
-            // Animate to center, then keep pinned there
-            const startX = ref.x || 0;
-            const startY = ref.y || 0;
-            const cx = width / 2;
-            const cy = height / 2;
-            const dur = 600;
-            const t0 = performance.now();
-            ref.fx = startX;
-            ref.fy = startY;
-            centeredRef = ref;
-
-            const step = (ts: number) => {
-              const t = Math.min((ts - t0) / dur, 1);
-              const ease = t * (2 - t);
-              ref.fx = startX + (cx - startX) * ease;
-              ref.fy = startY + (cy - startY) * ease;
-              simulation.alpha(0.1).restart();
-              if (t < 1) {
-                driftAnim = requestAnimationFrame(step);
-              } else {
-                driftAnim = null;
-                ref.fx = cx;
-                ref.fy = cy;
-                simulation.alpha(0.5).restart();
-              }
-            };
-            driftAnim = requestAnimationFrame(step);
-          }, 300);
         }
       });
 
@@ -771,13 +717,28 @@ export default function NetworkPage() {
       node.attr("transform", (d) => `translate(${d.x || 0},${d.y || 0})`);
     });
 
-    // Filter highlight
+    // Filter highlight — search across name, company, role, relationship type
     if (filterText.trim()) {
       const q = filterText.toLowerCase();
-      node.attr("opacity", (d) =>
-        d.fullName.toLowerCase().includes(q) ? 1 : 0.15
-      );
-      link.attr("opacity", 0.05);
+      const matchesFilter = (d: GraphNode) => {
+        if (d.type === "self") return true;
+        return (
+          d.fullName.toLowerCase().includes(q) ||
+          (d.company && d.company.toLowerCase().includes(q)) ||
+          (d.role && d.role.toLowerCase().includes(q)) ||
+          (d.relationship_type && d.relationship_type.toLowerCase().includes(q)) ||
+          (d.label && d.label.toLowerCase().includes(q))
+        );
+      };
+      const matchedIds = new Set(graphData.nodes.filter(matchesFilter).map(n => n.id));
+      node.attr("opacity", (d) => matchedIds.has(d.id) ? 1 : 0.08);
+      link.attr("opacity", (d) => {
+        const sId = (d.source as GraphNode).id;
+        const tId = (d.target as GraphNode).id;
+        // Show link if both ends are matched, or if one matched end connects to self
+        if (matchedIds.has(sId) && matchedIds.has(tId)) return 1;
+        return 0.03;
+      });
     } else {
       node.attr("opacity", 1);
       link.attr("opacity", 1);
@@ -812,7 +773,7 @@ export default function NetworkPage() {
       >
         <input
           type="text"
-          placeholder="Filter by name…"
+          placeholder="Filter by name, company, role…"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
           style={{
@@ -830,7 +791,7 @@ export default function NetworkPage() {
           {graphData.nodes.length} nodes · {graphData.links.length} connections
         </span>
         <span style={{ color: "#334155", fontSize: "11px", marginLeft: "auto" }}>
-          Double-click to open · Click to drift
+          Double-click to open · Drag to reposition
         </span>
       </div>
 

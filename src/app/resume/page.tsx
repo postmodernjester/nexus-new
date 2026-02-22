@@ -49,6 +49,20 @@ interface Skill {
   proficiency: number
 }
 
+interface KeyLink {
+  type: string
+  url: string
+  visible: boolean
+}
+
+const LINK_TYPES = [
+  { type: 'linkedin', label: 'LinkedIn', placeholder: 'https://linkedin.com/in/yourname' },
+  { type: 'wikipedia', label: 'Wikipedia', placeholder: 'https://en.wikipedia.org/wiki/Your_Name' },
+  { type: 'twitter', label: 'X / Twitter', placeholder: 'https://x.com/yourhandle' },
+  { type: 'github', label: 'GitHub', placeholder: 'https://github.com/yourhandle' },
+  { type: 'website', label: 'Personal Website', placeholder: 'https://yoursite.com' },
+]
+
 const CAT_LABELS: Record<string, string> = {
   work: 'Work', project: 'Project', personal: 'Personal',
   residence: 'Residence', tech: 'Tech', people: 'People',
@@ -173,6 +187,11 @@ export default function ResumePage() {
   const [newSkillCategory, setNewSkillCategory] = useState('')
   const [newSkillProficiency, setNewSkillProficiency] = useState(3)
 
+  const [keyLinks, setKeyLinks] = useState<KeyLink[]>(
+    LINK_TYPES.map(lt => ({ type: lt.type, url: '', visible: true }))
+  )
+  const [editingLinks, setEditingLinks] = useState(false)
+
   useEffect(() => {
     const init = async () => {
       const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -182,7 +201,7 @@ export default function ResumePage() {
       // Read profile from profiles table (not user_metadata)
       const { data: profile } = await supabase
         .from('profiles')
-        .select('full_name, headline, location')
+        .select('*')
         .eq('id', authUser.id)
         .single()
 
@@ -190,6 +209,14 @@ export default function ResumePage() {
         setProfileName(profile.full_name || '')
         setProfileHeadline(profile.headline || '')
         setProfileLocation(profile.location || '')
+        if (profile.key_links && Array.isArray(profile.key_links)) {
+          // Merge saved links with defaults (in case new link types were added)
+          const saved = profile.key_links as KeyLink[]
+          setKeyLinks(LINK_TYPES.map(lt => {
+            const existing = saved.find(s => s.type === lt.type)
+            return existing || { type: lt.type, url: '', visible: true }
+          }))
+        }
       }
 
       const { data: work } = await supabase.from('work_entries').select('*').eq('user_id', authUser.id).order('start_date', { ascending: false })
@@ -201,12 +228,13 @@ export default function ResumePage() {
       const { data: sk } = await supabase.from('skills').select('*').eq('user_id', authUser.id).order('name')
       if (sk) setSkills(sk)
 
-      const { data: chron } = await supabase
+      const { data: chron, error: chronErr } = await supabase
         .from('chronicle_entries')
-        .select('id, type, title, start_date, end_date, note, canvas_col, color, show_on_resume, description, image_url')
+        .select('*')
         .eq('user_id', authUser.id)
         .eq('show_on_resume', true)
         .order('start_date', { ascending: false })
+      if (chronErr) console.warn('Chronicle query error:', chronErr.message)
       if (chron) setChronicleEntries(chron)
 
       setLoading(false)
@@ -226,6 +254,20 @@ export default function ResumePage() {
       })
       .eq('id', user.id)
     setEditingProfile(false)
+  }
+
+  const saveKeyLinks = async () => {
+    if (!user) return
+    const { error } = await supabase
+      .from('profiles')
+      .update({ key_links: keyLinks })
+      .eq('id', user.id)
+    if (error) console.warn('Failed to save key links:', error.message)
+    setEditingLinks(false)
+  }
+
+  const updateLink = (type: string, field: 'url' | 'visible', value: string | boolean) => {
+    setKeyLinks(prev => prev.map(l => l.type === type ? { ...l, [field]: value } : l))
   }
 
   const openAddWork = () => { setEditingWork(EMPTY_WORK); setEditingWorkId(null); setShowWorkModal(true) }
@@ -293,26 +335,49 @@ export default function ResumePage() {
 
   const saveChronicle = async () => {
     if (!user || !editingChronicle) return
-    const { error } = await supabase
+    // Build update payload — only include fields we know exist
+    const payload: Record<string, unknown> = {
+      title: editingChronicle.title,
+      start_date: editingChronicle.start_date,
+      end_date: editingChronicle.end_date || null,
+      note: editingChronicle.note,
+      show_on_resume: editingChronicle.show_on_resume,
+      updated_at: new Date().toISOString(),
+    }
+    // Include optional fields if they have values (columns may or may not exist)
+    if (editingChronicle.description !== undefined) payload.description = editingChronicle.description || null
+    if (editingChronicle.image_url !== undefined) payload.image_url = editingChronicle.image_url || null
+
+    let { error } = await supabase
       .from('chronicle_entries')
-      .update({
-        title: editingChronicle.title,
-        start_date: editingChronicle.start_date,
-        end_date: editingChronicle.end_date || null,
-        note: editingChronicle.note,
-        description: editingChronicle.description || null,
-        show_on_resume: editingChronicle.show_on_resume,
-        image_url: editingChronicle.image_url || null,
-        updated_at: new Date().toISOString(),
-      })
+      .update(payload)
       .eq('id', editingChronicle.id)
+
+    // If the update fails (possibly due to missing columns), retry without optional fields
+    if (error) {
+      console.warn('Chronicle save error, retrying without optional fields:', error.message)
+      const { error: err2 } = await supabase
+        .from('chronicle_entries')
+        .update({
+          title: editingChronicle.title,
+          start_date: editingChronicle.start_date,
+          end_date: editingChronicle.end_date || null,
+          note: editingChronicle.note,
+          show_on_resume: editingChronicle.show_on_resume,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingChronicle.id)
+      error = err2
+    }
+
     if (!error) {
       if (!editingChronicle.show_on_resume) {
-        // Remove from resume view if unchecked
         setChronicleEntries(prev => prev.filter(e => e.id !== editingChronicle.id))
       } else {
         setChronicleEntries(prev => prev.map(e => e.id === editingChronicle.id ? editingChronicle : e))
       }
+    } else {
+      console.error('Failed to save chronicle entry:', error.message)
     }
     setShowChronicleModal(false)
     setEditingChronicle(null)
@@ -470,6 +535,77 @@ export default function ResumePage() {
               <button onClick={() => setEditingProfile(true)} style={btnSecondary}>Edit</button>
             </div>
           )}
+        </section>
+
+        {/* KEY LINKS */}
+        <section style={{ marginTop: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Key Links</h2>
+            <button onClick={() => setEditingLinks(!editingLinks)} style={btnSecondary}>
+              {editingLinks ? 'Done' : 'Edit'}
+            </button>
+          </div>
+          <div style={cardStyle}>
+            {editingLinks ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {keyLinks.map(link => {
+                  const meta = LINK_TYPES.find(lt => lt.type === link.type)
+                  return (
+                    <div key={link.type} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', flexShrink: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={link.visible}
+                          onChange={e => updateLink(link.type, 'visible', e.target.checked)}
+                          style={{ width: 14, height: 14, accentColor: '#a78bfa' }}
+                        />
+                        <span style={{ color: '#94a3b8', fontSize: '12px', width: 120 }}>{meta?.label || link.type}</span>
+                      </label>
+                      <input
+                        value={link.url}
+                        onChange={e => updateLink(link.type, 'url', e.target.value)}
+                        placeholder={meta?.placeholder || 'https://...'}
+                        style={{ ...inputStyle, flex: 1 }}
+                      />
+                    </div>
+                  )
+                })}
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
+                  <button onClick={() => setEditingLinks(false)} style={btnSecondary}>Cancel</button>
+                  <button onClick={saveKeyLinks} style={btnPrimary}>Save Links</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                {keyLinks.filter(l => l.url && l.visible).length === 0 ? (
+                  <span style={{ color: '#475569', fontSize: '14px' }}>No links added yet. Click Edit to add your key links.</span>
+                ) : (
+                  keyLinks.filter(l => l.url && l.visible).map(link => {
+                    const meta = LINK_TYPES.find(lt => lt.type === link.type)
+                    return (
+                      <a
+                        key={link.type}
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '6px',
+                          padding: '6px 14px', borderRadius: '20px',
+                          background: '#334155', color: '#e2e8f0', fontSize: '13px',
+                          textDecoration: 'none', transition: 'background 0.15s',
+                        }}
+                      >
+                        {meta?.label || link.type}
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
+                          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                        </svg>
+                      </a>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </div>
         </section>
 
         {/* EXPERIENCE (work entries + non-project chronicle entries) */}

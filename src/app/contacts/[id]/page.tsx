@@ -31,6 +31,12 @@ interface Contact {
   created_at: string;
 }
 
+interface KeyLink {
+  type: string;
+  url: string;
+  visible: boolean;
+}
+
 interface LinkedProfile {
   full_name: string;
   headline: string | null;
@@ -38,6 +44,7 @@ interface LinkedProfile {
   location: string | null;
   website: string | null;
   avatar_url: string | null;
+  key_links: KeyLink[] | null;
 }
 
 interface LinkedWorkEntry {
@@ -325,7 +332,7 @@ export default function ContactDossierPage() {
       const [profileRes, workRes, chronRes] = await Promise.all([
         supabase
           .from("profiles")
-          .select("full_name, headline, bio, location, website, avatar_url")
+          .select("full_name, headline, bio, location, website, avatar_url, key_links")
           .eq("id", contactRes.data.linked_profile_id)
           .single(),
         supabase
@@ -336,7 +343,7 @@ export default function ContactDossierPage() {
           .order("start_date", { ascending: false }),
         supabase
           .from("chronicle_entries")
-          .select("id, type, title, start_date, end_date, canvas_col, note, description")
+          .select("*")
           .eq("user_id", contactRes.data.linked_profile_id)
           .eq("show_on_resume", true)
           .order("start_date", { ascending: false }),
@@ -510,6 +517,11 @@ export default function ContactDossierPage() {
       linkedProfile?.location &&
         `Their location: ${linkedProfile.location}`,
       linkedProfile?.website && `Their website: ${linkedProfile.website}`,
+      ...(linkedProfile?.key_links
+        ? linkedProfile.key_links
+            .filter(l => l.url && l.visible)
+            .map(l => `Their ${l.type}: ${l.url}`)
+        : []),
     ]
       .filter(Boolean)
       .join("\n");
@@ -876,6 +888,33 @@ export default function ContactDossierPage() {
                     })()}
                     <span style={{ fontSize: "10px", marginLeft: "3px" }}>↗</span>
                   </a>
+                </div>
+              )}
+              {linkedProfile.key_links && linkedProfile.key_links.filter(l => l.url && l.visible).length > 0 && (
+                <div style={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "4px" }}>
+                  {linkedProfile.key_links.filter(l => l.url && l.visible).map(link => {
+                    const labels: Record<string, string> = {
+                      linkedin: "LinkedIn", wikipedia: "Wikipedia", twitter: "X / Twitter",
+                      github: "GitHub", website: "Website",
+                    };
+                    return (
+                      <a
+                        key={link.type}
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: "4px",
+                          padding: "4px 10px", borderRadius: "14px",
+                          background: "#334155", color: "#e2e8f0", fontSize: "12px",
+                          textDecoration: "none",
+                        }}
+                      >
+                        {labels[link.type] || link.type}
+                        <span style={{ fontSize: "9px", opacity: 0.5 }}>↗</span>
+                      </a>
+                    );
+                  })}
                 </div>
               )}
             </div>

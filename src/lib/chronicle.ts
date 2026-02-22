@@ -36,7 +36,7 @@ export interface ChroniclePlace {
   fuzzy_start: boolean
   fuzzy_end: boolean
   note?: string
-  show_on_resume: boolean
+  show_on_resume?: boolean
   created_at?: string
   updated_at?: string
 }
