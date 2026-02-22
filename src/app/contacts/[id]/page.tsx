@@ -1297,7 +1297,7 @@ export default function ContactDossierPage() {
         </div>
 
         {/* ═══ RESUME VIEW ═══ */}
-        {linkedProfile && (linkedWork.length > 0 || linkedChronicle.length > 0 || linkedEducation.length > 0) && (() => {
+        {linkedProfile && (() => {
           const projectEntries = linkedChronicle.filter(e => e.canvas_col === "project" || e.canvas_col === "projects");
           const educationChronicle = linkedChronicle.filter(e => e.canvas_col === "education");
           const otherEntries = linkedChronicle.filter(e => e.canvas_col !== "project" && e.canvas_col !== "projects" && e.canvas_col !== "education");

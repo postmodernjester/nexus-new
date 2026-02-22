@@ -347,39 +347,51 @@ export default function ResumePage() {
 
   const saveChronicle = async () => {
     if (!user || !editingChronicle) return
-    // Build update payload — only include fields we know exist
-    const payload: Record<string, unknown> = {
+    const base: Record<string, unknown> = {
       title: editingChronicle.title,
       start_date: editingChronicle.start_date,
       end_date: editingChronicle.end_date || null,
       note: editingChronicle.note,
       show_on_resume: editingChronicle.show_on_resume,
-      updated_at: new Date().toISOString(),
     }
-    // Include optional fields if they have values (columns may or may not exist)
-    if (editingChronicle.description !== undefined) payload.description = editingChronicle.description || null
-    if (editingChronicle.image_url !== undefined) payload.image_url = editingChronicle.image_url || null
 
+    // Try with all optional fields first, then progressively drop them
+    const optionalFields: Record<string, unknown> = {}
+    if (editingChronicle.description !== undefined) optionalFields.description = editingChronicle.description || null
+    if (editingChronicle.image_url !== undefined) optionalFields.image_url = editingChronicle.image_url || null
+
+    // Attempt 1: all fields + updated_at
     let { error } = await supabase
       .from('chronicle_entries')
-      .update(payload)
+      .update({ ...base, ...optionalFields, updated_at: new Date().toISOString() })
       .eq('id', editingChronicle.id)
 
-    // If the update fails (possibly due to missing columns), retry without optional fields
+    // Attempt 2: all fields without updated_at
     if (error) {
-      console.warn('Chronicle save error, retrying without optional fields:', error.message)
-      const { error: err2 } = await supabase
+      console.warn('Chronicle save retry without updated_at:', error.message)
+      ;({ error } = await supabase
         .from('chronicle_entries')
-        .update({
-          title: editingChronicle.title,
-          start_date: editingChronicle.start_date,
-          end_date: editingChronicle.end_date || null,
-          note: editingChronicle.note,
-          show_on_resume: editingChronicle.show_on_resume,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', editingChronicle.id)
-      error = err2
+        .update({ ...base, ...optionalFields })
+        .eq('id', editingChronicle.id))
+    }
+
+    // Attempt 3: without image_url (column may not exist yet)
+    if (error) {
+      console.warn('Chronicle save retry without image_url:', error.message)
+      const { image_url: _drop, ...withoutImage } = optionalFields
+      ;({ error } = await supabase
+        .from('chronicle_entries')
+        .update({ ...base, ...withoutImage })
+        .eq('id', editingChronicle.id))
+    }
+
+    // Attempt 4: base fields only
+    if (error) {
+      console.warn('Chronicle save retry base fields only:', error.message)
+      ;({ error } = await supabase
+        .from('chronicle_entries')
+        .update(base)
+        .eq('id', editingChronicle.id))
     }
 
     if (!error) {
@@ -390,6 +402,7 @@ export default function ResumePage() {
       }
     } else {
       console.error('Failed to save chronicle entry:', error.message)
+      alert('Failed to save: ' + error.message)
     }
     setShowChronicleModal(false)
     setEditingChronicle(null)
