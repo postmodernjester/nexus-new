@@ -189,16 +189,16 @@ export default function ResumePage() {
       user_id: user.id,
       title: editingWork.title,
       company: editingWork.company,
-      location: editingWork.location || null,
-      remote_type: editingWork.location_type || null,
       start_date: editingWork.start_date,
       end_date: editingWork.is_current ? null : (editingWork.end_date || null),
       is_current: editingWork.is_current,
       description: editingWork.description || null,
       engagement_type: editingWork.engagement_type,
     }
-    // Phase 2 payload: optional columns from later migrations (applied silently)
+    // Phase 2 payload: optional columns that may not exist yet (applied silently)
     const extraCols: Record<string, unknown> = {}
+    extraCols.location = editingWork.location || null
+    extraCols.remote_type = editingWork.location_type || null
     if (editingWork.ai_skills_extracted !== undefined) extraCols.ai_skills_extracted = editingWork.ai_skills_extracted || []
     if (editingWork.show_on_resume !== undefined) extraCols.show_on_resume = editingWork.show_on_resume
     if (editingWork.chronicle_color) extraCols.chronicle_color = editingWork.chronicle_color

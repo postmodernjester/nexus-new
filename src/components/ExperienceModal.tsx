@@ -130,6 +130,8 @@ export default function ExperienceModal({ isOpen, onClose, onSaved, editEntry }:
         end_date: entry.is_current ? null : (entry.end_date || null),
         is_current: entry.is_current,
         description: entry.description.trim() || null,
+      }
+      const optionalCols: Record<string, unknown> = {
         location: entry.location.trim() || null,
         remote_type: entry.remote_type,
         compensation_amount: showCompensation && entry.compensation_amount ? parseFloat(entry.compensation_amount) : null,
@@ -157,9 +159,11 @@ export default function ExperienceModal({ isOpen, onClose, onSaved, editEntry }:
         savedId = inserted?.id
       }
 
-      // Phase 2: optional column (silently skip if missing)
-      if (savedId && skills.length > 0) {
-        await supabase.from('work_entries').update({ ai_skills_extracted: skills }).eq('id', savedId).then(() => {}, () => {})
+      // Phase 2: optional columns (silently skip if missing)
+      if (savedId) {
+        const phase2 = { ...optionalCols } as Record<string, unknown>
+        if (skills.length > 0) phase2.ai_skills_extracted = skills
+        await supabase.from('work_entries').update(phase2).eq('id', savedId).then(() => {}, () => {})
       }
 
       // Upsert skills to the skills table

@@ -987,8 +987,6 @@ export default function ChronicleCanvas() {
             end_date: endDate,
             is_current: w.is_current,
             engagement_type: w.engagement_type,
-            location: w.location || null,
-            remote_type: w.location_type || null,
             description: w.description || null,
           }
         const { data: newWork, error } = await sb
@@ -998,6 +996,8 @@ export default function ChronicleCanvas() {
         // Phase 2: optional columns (silently skip if missing)
         if (newWork) {
           await sb.from('work_entries').update({
+            location: w.location || null,
+            remote_type: w.location_type || null,
             ai_skills_extracted: w.ai_skills_extracted || [],
             chronicle_color: w.chronicle_color || '#4070a8',
             chronicle_fuzzy_start: w.chronicle_fuzzy_start || false,

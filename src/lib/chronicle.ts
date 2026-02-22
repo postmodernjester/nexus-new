@@ -239,12 +239,14 @@ export async function updateWorkEntryFromChronicle(id: string, fields: {
   chronicle_note?: string
 }) {
   // Phase 1: update base columns (always exist per 003_resume_tables migration)
-  const { chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, show_on_resume, ai_skills_extracted, ...base } = fields
+  const { location, remote_type, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, show_on_resume, ai_skills_extracted, ...base } = fields
   const { error } = await supabase.from('work_entries').update(base).eq('id', id)
   if (error) throw error
 
   // Phase 2: update optional columns that may not exist yet (silently skip on failure)
   const extras: Record<string, unknown> = {}
+  if (location !== undefined) extras.location = location
+  if (remote_type !== undefined) extras.remote_type = remote_type
   if (ai_skills_extracted !== undefined) extras.ai_skills_extracted = ai_skills_extracted
   if (chronicle_color !== undefined) extras.chronicle_color = chronicle_color
   if (chronicle_fuzzy_start !== undefined) extras.chronicle_fuzzy_start = chronicle_fuzzy_start
