@@ -475,6 +475,7 @@ export default function WorldPage() {
                 return (
                   <div
                     key={p.id}
+                    onClick={() => router.push(`/world/${p.id}`)}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -485,6 +486,7 @@ export default function WorldPage() {
                       border: "1px solid transparent",
                       transition: "background 0.15s",
                       opacity: isPrivate ? 0.6 : 1,
+                      cursor: "pointer",
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = "#334155";
@@ -495,9 +497,8 @@ export default function WorldPage() {
                       e.currentTarget.style.borderColor = "transparent";
                     }}
                   >
-                    {/* Avatar — clickable */}
+                    {/* Avatar */}
                     <div
-                      onClick={() => router.push(`/world/${p.id}`)}
                       style={{
                         width: "40px",
                         height: "40px",
@@ -510,7 +511,6 @@ export default function WorldPage() {
                         fontWeight: 600,
                         color: "#94a3b8",
                         flexShrink: 0,
-                        cursor: "pointer",
                         overflow: "hidden",
                       }}
                     >
@@ -521,11 +521,8 @@ export default function WorldPage() {
                       )}
                     </div>
 
-                    {/* Info — clickable */}
-                    <div
-                      onClick={() => router.push(`/world/${p.id}`)}
-                      style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
-                    >
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                         <span
                           style={{
