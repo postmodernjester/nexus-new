@@ -144,7 +144,7 @@ export default function ContactDossierPage() {
       // Fetch each independently so one failure doesn't block others
       const profileRes = await supabase
         .from("profiles")
-        .select("full_name, headline, bio, location, website, avatar_url, key_links")
+        .select("full_name, headline, bio, location, website, avatar_url, key_links, profile_photo_url")
         .eq("id", pid)
         .single();
 
@@ -160,6 +160,7 @@ export default function ContactDossierPage() {
           website: null,
           avatar_url: contactRes.data.avatar_url || null,
           key_links: null,
+          profile_photo_url: null,
         });
       }
 

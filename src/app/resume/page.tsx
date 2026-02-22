@@ -26,6 +26,8 @@ export default function ResumePage() {
   const [profileName, setProfileName] = useState('')
   const [profileHeadline, setProfileHeadline] = useState('')
   const [profileLocation, setProfileLocation] = useState('')
+  const [profileBirthday, setProfileBirthday] = useState('')
+  const [profilePhoto, setProfilePhoto] = useState('')
   const [editingProfile, setEditingProfile] = useState(false)
 
   const [workEntries, setWorkEntries] = useState<WorkEntry[]>([])
@@ -69,6 +71,8 @@ export default function ResumePage() {
         setProfileName(profile.full_name || '')
         setProfileHeadline(profile.headline || '')
         setProfileLocation(profile.location || '')
+        setProfileBirthday(profile.birthday || '')
+        setProfilePhoto(profile.profile_photo_url || '')
         // Load key links: try profiles.key_links first, then auth user_metadata
         const savedLinks = profile.key_links
           || authUser.user_metadata?.key_links
@@ -110,15 +114,33 @@ export default function ResumePage() {
   const saveProfile = async () => {
     if (!user) return
     // Save to profiles table (not user_metadata)
-    await supabase
-      .from('profiles')
-      .update({
-        full_name: profileName,
-        headline: profileHeadline,
-        location: profileLocation,
-      })
-      .eq('id', user.id)
+    const payload: Record<string, unknown> = {
+      full_name: profileName,
+      headline: profileHeadline,
+      location: profileLocation,
+    }
+    // Try with birthday + profile_photo_url (columns may not exist yet)
+    const fullPayload = {
+      ...payload,
+      birthday: profileBirthday || null,
+      profile_photo_url: profilePhoto || null,
+    }
+    const { error } = await supabase.from('profiles').update(fullPayload).eq('id', user.id)
+    if (error) {
+      // Fallback: save without new columns
+      await supabase.from('profiles').update(payload).eq('id', user.id)
+    }
     setEditingProfile(false)
+  }
+
+  const handleProfilePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) return
+    if (file.size > 1024 * 1024) { alert('Photo must be under 1 MB'); return }
+    const reader = new FileReader()
+    reader.onload = () => { setProfilePhoto(reader.result as string) }
+    reader.readAsDataURL(file)
   }
 
   const saveKeyLinks = async () => {
@@ -159,7 +181,19 @@ export default function ResumePage() {
       ai_skills_extracted: ai_skills_extracted || [],
     }
     delete payload.id
-    if (editingWorkId) {
+
+    // Handle migration from chronicle_entry → work_entry
+    const migratePrefix = 'migrate-chronicle:'
+    if (editingWork.id?.startsWith(migratePrefix)) {
+      const chronicleId = editingWork.id.slice(migratePrefix.length)
+      const { data } = await supabase.from('work_entries').insert(payload).select().single()
+      if (data) {
+        setWorkEntries(prev => [{ ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] }, ...prev])
+        // Delete the old chronicle entry
+        await supabase.from('chronicle_entries').delete().eq('id', chronicleId)
+        setChronicleEntries(prev => prev.filter(e => e.id !== chronicleId))
+      }
+    } else if (editingWorkId) {
       const { data } = await supabase.from('work_entries').update(payload).eq('id', editingWorkId).select().single()
       if (data) setWorkEntries(prev => prev.map(e => e.id === editingWorkId ? { ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] } : e))
     } else {
@@ -228,6 +262,28 @@ export default function ResumePage() {
   }
 
   const openEditChronicle = (entry: ChronicleResumeEntry) => {
+    // Work-type chronicle entries → open full WorkModal (migrate to work_entry on save)
+    const entryCat = entry.canvas_col || entry.type
+    if (entryCat === 'work') {
+      const startDate = entry.start_date ? (entry.start_date.length <= 7 ? entry.start_date + '-01' : entry.start_date) : ''
+      const endDate = entry.end_date ? (entry.end_date.length <= 7 ? entry.end_date + '-01' : entry.end_date) : ''
+      setEditingWork({
+        title: entry.title || '',
+        company: '',
+        location: '',
+        location_type: '',
+        start_date: startDate,
+        end_date: endDate,
+        is_current: !entry.end_date,
+        description: entry.note || entry.description || '',
+        engagement_type: 'full-time',
+        ai_skills_extracted: [],
+        id: `migrate-chronicle:${entry.id}`,
+      })
+      setEditingWorkId(null)
+      setShowWorkModal(true)
+      return
+    }
     setEditingChronicle(entry)
     setShowChronicleModal(true)
   }
@@ -335,9 +391,40 @@ export default function ResumePage() {
         <section style={cardStyle}>
           {editingProfile ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Profile photo upload */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{
+                  width: 64, height: 64, borderRadius: 8, overflow: 'hidden',
+                  border: '2px solid #334155', background: '#1e293b',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  {profilePhoto ? (
+                    <img src={profilePhoto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <span style={{ fontSize: 24, color: '#475569' }}>+</span>
+                  )}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '11px', color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Profile Photo</label>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <label style={{ ...btnSecondary, display: 'inline-block', fontSize: '12px', padding: '6px 12px' }}>
+                      Upload
+                      <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleProfilePhotoUpload} style={{ display: 'none' }} />
+                    </label>
+                    {profilePhoto && (
+                      <button onClick={() => setProfilePhoto('')} style={{ ...btnSecondary, fontSize: '12px', padding: '6px 12px', color: '#ef4444', borderColor: '#7f1d1d' }}>Remove</button>
+                    )}
+                  </div>
+                </div>
+              </div>
               <input value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="Full Name" style={inputStyle} />
               <input value={profileHeadline} onChange={e => setProfileHeadline(e.target.value)} placeholder="Headline (e.g. Software Engineer at Acme)" style={inputStyle} />
               <input value={profileLocation} onChange={e => setProfileLocation(e.target.value)} placeholder="Location" style={inputStyle} />
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Birthday</label>
+                <input type="date" value={profileBirthday} onChange={e => setProfileBirthday(e.target.value)} style={inputStyle} />
+              </div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={saveProfile} style={btnPrimary}>Save</button>
                 <button onClick={() => setEditingProfile(false)} style={btnSecondary}>Cancel</button>
@@ -345,10 +432,20 @@ export default function ResumePage() {
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <h1 style={{ fontSize: '24px', fontWeight: 'bold', margin: 0 }}>{profileName || 'Your Name'}</h1>
-                <p style={{ color: '#94a3b8', fontSize: '14px', margin: '4px 0 0' }}>{profileHeadline || 'Add a headline'}</p>
-                {profileLocation && <p style={{ color: '#64748b', fontSize: '13px', margin: '2px 0 0' }}>{profileLocation}</p>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                {profilePhoto && (
+                  <div style={{
+                    width: 56, height: 56, borderRadius: 8, overflow: 'hidden',
+                    border: '2px solid #334155', flexShrink: 0,
+                  }}>
+                    <img src={profilePhoto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                )}
+                <div>
+                  <h1 style={{ fontSize: '24px', fontWeight: 'bold', margin: 0 }}>{profileName || 'Your Name'}</h1>
+                  <p style={{ color: '#94a3b8', fontSize: '14px', margin: '4px 0 0' }}>{profileHeadline || 'Add a headline'}</p>
+                  {profileLocation && <p style={{ color: '#64748b', fontSize: '13px', margin: '2px 0 0' }}>{profileLocation}</p>}
+                </div>
               </div>
               <button onClick={() => setEditingProfile(true)} style={btnSecondary}>Edit</button>
             </div>

@@ -35,6 +35,7 @@ export interface LinkedProfile {
   website: string | null;
   avatar_url: string | null;
   key_links: KeyLink[] | null;
+  profile_photo_url: string | null;
 }
 
 export interface LinkedWorkEntry {
@@ -58,6 +59,7 @@ export interface LinkedChronicleEntry {
   canvas_col: string;
   note: string | null;
   description: string | null;
+  image_url: string | null;
 }
 
 export interface LinkedEducationEntry {

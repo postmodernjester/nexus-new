@@ -37,6 +37,7 @@ export default function ChronicleCanvas() {
   const [workEntries, setWorkEntries] = useState<ChronicleWorkEntry[]>([])
   const [contacts, setContacts] = useState<ChronicleContact[]>([])
   const [educationEntries, setEducationEntries] = useState<ChronicleEducationEntry[]>([])
+  const [birthday, setBirthday] = useState<string | null>(null) // "YYYY-MM-DD"
   const [loading, setLoading] = useState(true)
 
   // Zoom slider position [0, 1] — persisted
@@ -123,13 +124,18 @@ export default function ChronicleCanvas() {
       if (y) years.push(y)
     })
     educationEntries.forEach(edu => { const y = yearFromDate(edu.start_date); if (y) years.push(y) })
+    // Include birthday year in range calculation
+    if (birthday) {
+      const bYear = yearFromDate(birthday)
+      if (bYear) years.push(bYear)
+    }
 
     if (years.length === 0) {
-      return { viewStart: CURRENT_YEAR - 10, viewEnd: CURRENT_YEAR + 3 }
+      return { viewStart: CURRENT_YEAR - 20, viewEnd: CURRENT_YEAR + 10 }
     }
     const earliest = Math.min(...years)
-    return { viewStart: earliest - 2, viewEnd: CURRENT_YEAR + 3 }
-  }, [entries, places, workEntries, contacts, educationEntries])
+    return { viewStart: earliest - 10, viewEnd: CURRENT_YEAR + 10 }
+  }, [entries, places, workEntries, contacts, educationEntries, birthday])
 
   // ─── Derived zoom values ───────────────────────
   const yearsVisible = sliderToYears(sliderPos)
@@ -167,6 +173,18 @@ export default function ChronicleCanvas() {
       })
       .catch(err => console.error('Failed to load chronicle data:', err))
       .finally(() => setLoading(false))
+
+    // Load birthday from profile
+    import('@/lib/supabase').then(async ({ supabase }) => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('birthday')
+        .eq('id', user.id)
+        .single()
+      if (profile?.birthday) setBirthday(profile.birthday)
+    }).catch(() => {})
   }, [])
 
   // ─── Scroll to saved center or current year on first load ──
@@ -317,6 +335,25 @@ export default function ChronicleCanvas() {
     const now = new Date()
     return toPx({ y: now.getFullYear(), m: now.getMonth() + 1 }, pxm, viewStart)
   }, [pxm, viewStart])
+
+  // ─── Age decade markers (10, 20, 30, ...) ──────
+  const ageDecadeTicks = useMemo(() => {
+    if (!birthday) return []
+    const bParts = birthday.split('-')
+    const bYear = parseInt(bParts[0])
+    const bMonth = parseInt(bParts[1] || '1')
+    if (isNaN(bYear)) return []
+    const ticks: { age: number; top: number }[] = []
+    for (let age = 10; age <= 120; age += 10) {
+      const decadeYear = bYear + age
+      if (decadeYear < viewStart || decadeYear > viewEnd) continue
+      ticks.push({
+        age,
+        top: toPx({ y: decadeYear, m: bMonth }, pxm, viewStart),
+      })
+    }
+    return ticks
+  }, [birthday, pxm, viewStart, viewEnd])
 
   // ─── Column divider positions (collapse-aware) ─
   const colDividers = useMemo(() => {
@@ -840,6 +877,46 @@ export default function ChronicleCanvas() {
       const startDate = w.start_date || ''
       const endDate = w.is_current ? null : (w.end_date || null)
 
+      // Handle migration from chronicle_entry → work_entry
+      const migratePrefix = 'migrate-chronicle:'
+      if (w.id?.startsWith(migratePrefix)) {
+        const chronicleId = w.id.slice(migratePrefix.length)
+        const { supabase: sb } = await import('@/lib/supabase')
+        const userId = (await sb.auth.getUser()).data.user?.id
+        if (!userId) throw new Error('Not authenticated')
+
+        // Create proper work_entry
+        const { data: newWork, error } = await sb
+          .from('work_entries')
+          .insert({
+            user_id: userId,
+            title: w.title,
+            company: w.company,
+            start_date: startDate,
+            end_date: endDate,
+            is_current: w.is_current,
+            engagement_type: w.engagement_type,
+            location: w.location || null,
+            remote_type: w.location_type || null,
+            description: w.description || null,
+            ai_skills_extracted: w.ai_skills_extracted || [],
+            chronicle_color: w.chronicle_color || '#4070a8',
+            chronicle_fuzzy_start: w.chronicle_fuzzy_start || false,
+            chronicle_fuzzy_end: w.chronicle_fuzzy_end || false,
+            chronicle_note: w.chronicle_note || null,
+          })
+          .select()
+          .single()
+        if (error) throw error
+
+        // Delete the old chronicle entry
+        await deleteEntry(chronicleId).catch(console.warn)
+        setEntries(prev => prev.filter(e => e.id !== chronicleId))
+        setWorkEntries(prev => [...prev, newWork as ChronicleWorkEntry])
+        setWorkModal({ open: false, editingWork: EMPTY_WORK, editingWorkId: null })
+        return
+      }
+
       if (workModal.editingWorkId) {
         // Update existing work entry
         await updateWorkEntryFromChronicle(workModal.editingWorkId, {
@@ -950,18 +1027,50 @@ export default function ChronicleCanvas() {
     if (item.source === 'chronicle') {
       const entry = entries.find(e => e.id === item.id)
       if (!entry) return
+
+      // Work-type chronicle entries → open full WorkModal (same form as resume page)
+      const entryCat = entry.canvas_col || entry.type
+      if (entryCat === 'work') {
+        // Parse the YYYY-MM start/end into YYYY-MM-01 format for WorkModal
+        const startDate = entry.start_date ? entry.start_date + (entry.start_date.length <= 7 ? '-01' : '') : ''
+        const endDate = entry.end_date ? entry.end_date + (entry.end_date.length <= 7 ? '-01' : '') : ''
+        setWorkModal({
+          open: true,
+          editingWorkId: null, // null because it's not yet a work_entry
+          editingWork: {
+            title: entry.title || '',
+            company: '', // chronicle entries don't have company — user fills in
+            location: '',
+            location_type: '',
+            start_date: startDate,
+            end_date: endDate,
+            is_current: !entry.end_date,
+            description: entry.note || '',
+            engagement_type: 'full-time',
+            ai_skills_extracted: [],
+            chronicle_color: entry.color || '#4070a8',
+            chronicle_fuzzy_start: entry.fuzzy_start,
+            chronicle_fuzzy_end: entry.fuzzy_end,
+            chronicle_note: entry.note || '',
+            // Stash the chronicle entry ID so we can delete it after migration
+            id: `migrate-chronicle:${entry.id}`,
+          },
+        })
+        return
+      }
+
       setEntryModal({
         open: true,
         editing: {
           id: entry.id,
-          cat: entry.canvas_col || entry.type,
+          cat: entryCat,
           title: entry.title,
           start: entry.start_date,
           end: entry.end_date || '',
           fuzzyStart: entry.fuzzy_start,
           fuzzyEnd: entry.fuzzy_end,
           note: entry.note || '',
-          color: entry.color || DEFAULT_COLORS[entry.canvas_col || entry.type] || '#4070a8',
+          color: entry.color || DEFAULT_COLORS[entryCat] || '#4070a8',
           showOnResume: entry.show_on_resume || false,
           source: 'chronicle',
         },
@@ -1240,6 +1349,35 @@ export default function ChronicleCanvas() {
               </div>
             ))}
 
+            {/* Age decade markers */}
+            {ageDecadeTicks.map(t => (
+              <div key={`age-${t.age}`} style={{
+                position: 'absolute', left: 0, right: 0, top: t.top,
+                transform: 'translateY(-50%)',
+                display: 'flex', alignItems: 'center',
+                pointerEvents: 'none', zIndex: 5,
+              }}>
+                {/* Dashed line across axis */}
+                <div style={{
+                  position: 'absolute', left: 4, right: 4, top: '50%',
+                  height: 0, borderTop: '1.5px dashed rgba(168,80,96,0.35)',
+                }} />
+                {/* Age label */}
+                <div style={{
+                  position: 'absolute', left: 4, top: -9,
+                  background: 'rgba(246,241,230,0.9)',
+                  padding: '1px 5px',
+                  borderRadius: 3,
+                  fontSize: 8, fontWeight: 700,
+                  color: '#a85060',
+                  letterSpacing: '.06em',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {t.age}yo
+                </div>
+              </div>
+            ))}
+
             {/* Geo place labels in axis */}
             {placeItems.map(p => {
               const s = parseYM(p.start)
@@ -1292,6 +1430,15 @@ export default function ChronicleCanvas() {
                 position: 'absolute', top: 0, bottom: 0, left: d.left,
                 width: 1, background: 'rgba(0,0,0,.07)',
                 pointerEvents: 'none', zIndex: 2,
+              }} />
+            ))}
+
+            {/* Age decade lines across grid */}
+            {ageDecadeTicks.map(t => (
+              <div key={`age-grid-${t.age}`} style={{
+                position: 'absolute', left: 0, right: 0, top: t.top,
+                height: 0, borderTop: '1.5px dashed rgba(168,80,96,0.18)',
+                pointerEvents: 'none', zIndex: 3,
               }} />
             ))}
 
