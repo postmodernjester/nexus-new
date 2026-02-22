@@ -3,11 +3,18 @@ export interface WorkEntry {
   title: string
   company: string
   location: string
+  location_type: string
   start_date: string
   end_date: string
   is_current: boolean
   description: string
   engagement_type: string
+  ai_skills_extracted: string[]
+  // Chronicle fields (when editing from chronicle)
+  chronicle_color?: string
+  chronicle_fuzzy_start?: boolean
+  chronicle_fuzzy_end?: boolean
+  chronicle_note?: string
 }
 
 export interface EducationEntry {
@@ -61,9 +68,28 @@ export const CAT_LABELS: Record<string, string> = {
   residence: 'Residence', tech: 'Tech', people: 'People',
 }
 
+export const ENGAGEMENT_TYPES = [
+  { value: 'full-time', label: 'Full-time' },
+  { value: 'part-time', label: 'Part-time' },
+  { value: 'contract', label: 'Contract' },
+  { value: 'freelance', label: 'Freelance' },
+  { value: 'consulting', label: 'Consulting' },
+  { value: 'volunteer', label: 'Volunteer' },
+  { value: 'internship', label: 'Internship' },
+  { value: 'project-based', label: 'Project-based' },
+  { value: 'self-employed', label: 'Self-employed' },
+]
+
+export const LOCATION_TYPES = [
+  { value: '', label: 'Select...' },
+  { value: 'onsite', label: 'On-site' },
+  { value: 'remote', label: 'Remote' },
+  { value: 'hybrid', label: 'Hybrid' },
+]
+
 export const EMPTY_WORK: WorkEntry = {
-  title: '', company: '', location: '', start_date: '', end_date: '',
-  is_current: false, description: '', engagement_type: 'full-time'
+  title: '', company: '', location: '', location_type: '', start_date: '', end_date: '',
+  is_current: false, description: '', engagement_type: 'full-time', ai_skills_extracted: [],
 }
 
 export const EMPTY_EDU: EducationEntry = {

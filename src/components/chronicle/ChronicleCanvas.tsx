@@ -10,6 +10,9 @@ import {
 } from '@/lib/chronicle'
 import ChronicleModal, { type EntryFormData } from './ChronicleModal'
 import ChronicleGeoModal, { type GeoFormData } from './ChronicleGeoModal'
+import WorkModal from '@/app/resume/components/WorkModal'
+import { type WorkEntry, EMPTY_WORK } from '@/app/resume/types'
+import { parseDate, buildDate } from '@/app/resume/utils'
 
 import {
   CURRENT_YEAR, COL_W, COLLAPSED_W, AXIS_W,
@@ -89,6 +92,13 @@ export default function ChronicleCanvas() {
     defaultYM?: string
     defaultEndYM?: string
   }>({ open: false })
+
+  // Work entry modal (unified LinkedIn-style editor)
+  const [workModal, setWorkModal] = useState<{
+    open: boolean
+    editingWork: WorkEntry
+    editingWorkId: string | null
+  }>({ open: false, editingWork: EMPTY_WORK, editingWorkId: null })
 
   const [geoModal, setGeoModal] = useState<{
     open: boolean
@@ -651,13 +661,26 @@ export default function ChronicleCanvas() {
     if (collapsedCols.has(col.id) || NO_ADD_COLS.has(col.id)) return
     const ym = pxToYM(relY, pxm, viewStart)
     const startYM = ymStr(ym)
-    setEntryModal({
-      open: true,
-      editing: null,
-      defaultCat: col.id,
-      defaultYM: startYM,
-      defaultEndYM: addOneYear(startYM),
-    })
+    if (col.id === 'work') {
+      // Open the unified WorkModal for new work entries
+      setWorkModal({
+        open: true,
+        editingWorkId: null,
+        editingWork: {
+          ...EMPTY_WORK,
+          start_date: startYM ? buildDate(startYM.split('-')[0], startYM.split('-')[1]) : '',
+          chronicle_color: '#4070a8',
+        },
+      })
+    } else {
+      setEntryModal({
+        open: true,
+        editing: null,
+        defaultCat: col.id,
+        defaultYM: startYM,
+        defaultEndYM: addOneYear(startYM),
+      })
+    }
   }, [pxm, viewStart, collapsedCols])
 
   // ─── Axis double-click → geo modal ──────────────────
@@ -810,6 +833,115 @@ export default function ChronicleCanvas() {
     }
   }, [entryModal.editing])
 
+  // ─── Work modal handlers (unified editor) ──────
+  const handleWorkModalSave = useCallback(async () => {
+    try {
+      const w = workModal.editingWork
+      const startDate = w.start_date || ''
+      const endDate = w.is_current ? null : (w.end_date || null)
+
+      if (workModal.editingWorkId) {
+        // Update existing work entry
+        await updateWorkEntryFromChronicle(workModal.editingWorkId, {
+          title: w.title,
+          company: w.company,
+          start_date: startDate,
+          end_date: endDate,
+          is_current: w.is_current,
+          engagement_type: w.engagement_type,
+          location: w.location || undefined,
+          remote_type: w.location_type || null,
+          description: w.description || undefined,
+          ai_skills_extracted: w.ai_skills_extracted || [],
+          chronicle_color: w.chronicle_color,
+          chronicle_fuzzy_start: w.chronicle_fuzzy_start,
+          chronicle_fuzzy_end: w.chronicle_fuzzy_end,
+          chronicle_note: w.chronicle_note,
+        })
+        setWorkEntries(prev => prev.map(we => we.id === workModal.editingWorkId ? {
+          ...we,
+          title: w.title,
+          company: w.company,
+          start_date: startDate,
+          end_date: endDate || undefined,
+          is_current: w.is_current,
+          engagement_type: w.engagement_type,
+          location: w.location,
+          remote_type: w.location_type,
+          description: w.description,
+          ai_skills_extracted: w.ai_skills_extracted || [],
+          chronicle_color: w.chronicle_color,
+          chronicle_fuzzy_start: w.chronicle_fuzzy_start,
+          chronicle_fuzzy_end: w.chronicle_fuzzy_end,
+          chronicle_note: w.chronicle_note,
+        } : we))
+      } else {
+        // Create new work entry
+        const { supabase: sb } = await import('@/lib/supabase')
+        const userId = (await sb.auth.getUser()).data.user?.id
+        if (!userId) throw new Error('Not authenticated')
+        const { data: newWork, error } = await sb
+          .from('work_entries')
+          .insert({
+            user_id: userId,
+            title: w.title,
+            company: w.company,
+            start_date: startDate,
+            end_date: endDate,
+            is_current: w.is_current,
+            engagement_type: w.engagement_type,
+            location: w.location || null,
+            remote_type: w.location_type || null,
+            description: w.description || null,
+            ai_skills_extracted: w.ai_skills_extracted || [],
+            chronicle_color: w.chronicle_color || '#4070a8',
+            chronicle_fuzzy_start: w.chronicle_fuzzy_start || false,
+            chronicle_fuzzy_end: w.chronicle_fuzzy_end || false,
+            chronicle_note: w.chronicle_note || null,
+          })
+          .select()
+          .single()
+        if (error) throw error
+        setWorkEntries(prev => [...prev, newWork as ChronicleWorkEntry])
+      }
+
+      // Upsert per-job skills to global skills table
+      if (w.ai_skills_extracted && w.ai_skills_extracted.length > 0) {
+        const { supabase: sb } = await import('@/lib/supabase')
+        const userId = (await sb.auth.getUser()).data.user?.id
+        if (userId) {
+          for (const skillName of w.ai_skills_extracted) {
+            const { data: existing } = await sb
+              .from('skills')
+              .select('id')
+              .eq('user_id', userId)
+              .eq('name', skillName)
+              .single()
+            if (!existing) {
+              await sb.from('skills').insert({ user_id: userId, name: skillName })
+            }
+          }
+        }
+      }
+
+      setWorkModal({ open: false, editingWork: EMPTY_WORK, editingWorkId: null })
+    } catch (err) {
+      console.error('Failed to save work entry:', err)
+      alert('Failed to save work entry.')
+    }
+  }, [workModal])
+
+  const handleWorkModalDelete = useCallback(async (id: string) => {
+    try {
+      await deleteWorkEntry(id)
+      setWorkEntries(prev => prev.filter(w => w.id !== id))
+      setSelectedId(null)
+      setWorkModal({ open: false, editingWork: EMPTY_WORK, editingWorkId: null })
+    } catch (err) {
+      console.error('Failed to delete work entry:', err)
+    }
+  }, [])
+
   const openEditModal = useCallback((item: TimelineItem) => {
     // Cancel any active drag to prevent interference with the modal
     dragRef.current = null
@@ -838,23 +970,25 @@ export default function ChronicleCanvas() {
       const realId = item.id.replace('work-', '')
       const work = workEntries.find(w => w.id === realId)
       if (!work) return
-      const startYM = work.start_date?.slice(0, 7) || ''
-      const endYM = work.is_current ? '' : (work.end_date?.slice(0, 7) || '')
-      setEntryModal({
+      setWorkModal({
         open: true,
-        editing: {
+        editingWorkId: realId,
+        editingWork: {
           id: realId,
-          cat: 'work',
           title: work.title || '',
           company: work.company || '',
-          start: startYM,
-          end: endYM,
-          fuzzyStart: work.chronicle_fuzzy_start || false,
-          fuzzyEnd: work.chronicle_fuzzy_end || false,
-          note: work.chronicle_note || '',
-          color: work.chronicle_color || '#4070a8',
-          showOnResume: true,
-          source: 'work',
+          location: work.location || '',
+          location_type: work.remote_type || '',
+          start_date: work.start_date || '',
+          end_date: work.is_current ? '' : (work.end_date || ''),
+          is_current: work.is_current,
+          description: work.description || '',
+          engagement_type: work.engagement_type || 'full-time',
+          ai_skills_extracted: work.ai_skills_extracted || [],
+          chronicle_color: work.chronicle_color || '#4070a8',
+          chronicle_fuzzy_start: work.chronicle_fuzzy_start || false,
+          chronicle_fuzzy_end: work.chronicle_fuzzy_end || false,
+          chronicle_note: work.chronicle_note || '',
         },
       })
     } else if (item.source === 'education') {
@@ -1019,7 +1153,11 @@ export default function ChronicleCanvas() {
                   key={col.id}
                   onDoubleClick={() => {
                     if (!isCollapsed && canAdd) {
-                      setEntryModal({ open: true, editing: null, defaultCat: col.id })
+                      if (col.id === 'work') {
+                        setWorkModal({ open: true, editingWorkId: null, editingWork: { ...EMPTY_WORK, chronicle_color: '#4070a8' } })
+                      } else {
+                        setEntryModal({ open: true, editing: null, defaultCat: col.id })
+                      }
                     }
                   }}
                   style={{
@@ -1463,6 +1601,16 @@ export default function ChronicleCanvas() {
         onSave={handleGeoSave}
         onDelete={handleGeoDelete}
         onClose={() => setGeoModal({ open: false })}
+      />
+      <WorkModal
+        show={workModal.open}
+        editingWork={workModal.editingWork}
+        editingWorkId={workModal.editingWorkId}
+        setEditingWork={(w) => setWorkModal(prev => ({ ...prev, editingWork: w }))}
+        onSave={handleWorkModalSave}
+        onDelete={handleWorkModalDelete}
+        onClose={() => setWorkModal({ open: false, editingWork: EMPTY_WORK, editingWorkId: null })}
+        chronicleMode
       />
     </div>
   )

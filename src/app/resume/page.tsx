@@ -7,7 +7,7 @@ import Nav from '@/components/Nav'
 
 import {
   WorkEntry, EducationEntry, ChronicleResumeEntry, Skill, KeyLink,
-  LINK_TYPES, CAT_LABELS, EMPTY_WORK, EMPTY_EDU,
+  LINK_TYPES, CAT_LABELS, EMPTY_WORK, EMPTY_EDU, LOCATION_TYPES,
 } from './types'
 import {
   inputStyle, btnPrimary, btnSecondary, iconBtn, iconBtnDanger, cardStyle,
@@ -81,7 +81,11 @@ export default function ResumePage() {
       }
 
       const { data: work } = await supabase.from('work_entries').select('*').eq('user_id', authUser.id).order('start_date', { ascending: false })
-      if (work) setWorkEntries(work)
+      if (work) setWorkEntries(work.map((w: any) => ({
+        ...w,
+        location_type: w.remote_type || '',
+        ai_skills_extracted: w.ai_skills_extracted || [],
+      })))
 
       const { data: edu } = await supabase.from('education').select('*').eq('user_id', authUser.id).order('start_date', { ascending: false })
       if (edu) setEduEntries(edu)
@@ -147,14 +151,37 @@ export default function ResumePage() {
 
   const saveWork = async () => {
     if (!user) return
-    const payload = { ...editingWork, user_id: user.id }
-    delete (payload as any).id
+    const { location_type, ai_skills_extracted, ...rest } = editingWork
+    const payload: Record<string, unknown> = {
+      ...rest,
+      user_id: user.id,
+      remote_type: location_type || null,
+      ai_skills_extracted: ai_skills_extracted || [],
+    }
+    delete payload.id
     if (editingWorkId) {
       const { data } = await supabase.from('work_entries').update(payload).eq('id', editingWorkId).select().single()
-      if (data) setWorkEntries(prev => prev.map(e => e.id === editingWorkId ? data : e))
+      if (data) setWorkEntries(prev => prev.map(e => e.id === editingWorkId ? { ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] } : e))
     } else {
       const { data } = await supabase.from('work_entries').insert(payload).select().single()
-      if (data) setWorkEntries(prev => [data, ...prev])
+      if (data) setWorkEntries(prev => [{ ...data, location_type: data.remote_type || '', ai_skills_extracted: data.ai_skills_extracted || [] }, ...prev])
+    }
+    // Upsert per-job skills to the global skills table
+    if (ai_skills_extracted && ai_skills_extracted.length > 0) {
+      for (const skillName of ai_skills_extracted) {
+        const { data: existing } = await supabase
+          .from('skills')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('name', skillName)
+          .single()
+        if (!existing) {
+          await supabase.from('skills').insert({ user_id: user.id, name: skillName })
+        }
+      }
+      // Refresh skills list
+      const { data: sk } = await supabase.from('skills').select('*').eq('user_id', user.id).order('name')
+      if (sk) setSkills(sk)
     }
     setShowWorkModal(false)
   }
@@ -352,33 +379,50 @@ export default function ResumePage() {
               .map(item => {
                 if (item.kind === 'work') {
                   const entry = item.data as WorkEntry
-                  return (
-                    <div key={`w-${entry.id}`} style={cardStyle}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.title}</div>
-                          <div style={{ color: '#94a3b8', fontSize: '14px' }}>
-                            {entry.company}{entry.engagement_type && entry.engagement_type !== 'full-time' ? ` · ${entry.engagement_type}` : ''}
+                  {
+                    const locLabel = LOCATION_TYPES.find(l => l.value === entry.location_type)?.label
+                    const entrySkills = entry.ai_skills_extracted || []
+                    return (
+                      <div key={`w-${entry.id}`} style={cardStyle}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.title}</div>
+                            <div style={{ color: '#94a3b8', fontSize: '14px' }}>
+                              {entry.company}
+                              {entry.engagement_type && entry.engagement_type !== 'full-time' ? ` · ${entry.engagement_type.charAt(0).toUpperCase() + entry.engagement_type.slice(1)}` : ''}
+                            </div>
+                            <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
+                              {formatDate(entry.start_date)} – {entry.is_current ? 'Present' : formatDate(entry.end_date)}
+                              {entry.location ? ` · ${entry.location}` : ''}
+                              {locLabel ? ` · ${locLabel}` : ''}
+                            </div>
+                            {entry.description && (
+                              <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.description}</p>
+                            )}
+                            {entrySkills.length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '10px' }}>
+                                {entrySkills.map(sk => (
+                                  <span key={sk} style={{
+                                    padding: '2px 10px', fontSize: '11px', borderRadius: '12px',
+                                    background: 'rgba(167,139,250,0.1)', color: '#c4b5fd',
+                                    border: '1px solid rgba(167,139,250,0.2)',
+                                  }}>{sk}</span>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                          <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
-                            {formatDate(entry.start_date)} – {entry.is_current ? 'Present' : formatDate(entry.end_date)}
-                            {entry.location ? ` · ${entry.location}` : ''}
+                          <div style={{ display: 'flex', gap: '6px', flexShrink: 0, marginLeft: '12px' }}>
+                            <button onClick={() => openEditWork(entry)} style={iconBtn} title="Edit">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </button>
+                            <button onClick={() => entry.id && deleteWork(entry.id)} style={iconBtnDanger} title="Delete">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            </button>
                           </div>
-                          {entry.description && (
-                            <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.description}</p>
-                          )}
-                        </div>
-                        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                          <button onClick={() => openEditWork(entry)} style={iconBtn} title="Edit">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          </button>
-                          <button onClick={() => entry.id && deleteWork(entry.id)} style={iconBtnDanger} title="Delete">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                          </button>
                         </div>
                       </div>
-                    </div>
-                  )
+                    )
+                  }
                 } else {
                   const entry = item.data as ChronicleResumeEntry
                   const catLabel = CAT_LABELS[entry.canvas_col || entry.type] || entry.type

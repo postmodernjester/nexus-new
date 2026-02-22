@@ -50,6 +50,11 @@ export interface ChronicleWorkEntry {
   start_date: string
   end_date?: string
   is_current: boolean
+  engagement_type?: string
+  location?: string
+  remote_type?: string
+  description?: string
+  ai_skills_extracted?: string[]
   chronicle_color?: string
   chronicle_fuzzy_start?: boolean
   chronicle_fuzzy_end?: boolean
@@ -95,7 +100,7 @@ export async function loadChronicleData() {
   const [entries, places, workEntries, contacts, education] = await Promise.all([
     supabase.from('chronicle_entries').select('*').eq('user_id', userId).order('start_date'),
     supabase.from('chronicle_places').select('*').eq('user_id', userId).order('start_date'),
-    supabase.from('work_entries').select('id, user_id, title, company, start_date, end_date, is_current, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').eq('user_id', userId).order('start_date'),
+    supabase.from('work_entries').select('id, user_id, title, company, start_date, end_date, is_current, engagement_type, location, remote_type, description, ai_skills_extracted, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').eq('user_id', userId).order('start_date'),
     supabase.from('contacts').select('id, owner_id, full_name, company, role, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, show_on_chronicle, met_date, created_at').eq('owner_id', userId).eq('show_on_chronicle', true).order('full_name'),
     supabase.from('education').select('id, user_id, institution, degree, field_of_study, start_date, end_date, is_current, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note').eq('user_id', userId).order('start_date'),
   ])
@@ -220,6 +225,11 @@ export async function updateWorkEntryFromChronicle(id: string, fields: {
   start_date?: string
   end_date?: string | null
   is_current?: boolean
+  engagement_type?: string
+  location?: string
+  remote_type?: string | null
+  description?: string
+  ai_skills_extracted?: string[]
   chronicle_color?: string
   chronicle_fuzzy_start?: boolean
   chronicle_fuzzy_end?: boolean
