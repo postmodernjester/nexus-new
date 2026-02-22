@@ -449,8 +449,8 @@ export async function connectDirectly(
 
   // 6. Create the accepted connection record
   const { error: insertError } = await supabase.from('connections').insert({
-    inviter_id: targetUserId,
-    invitee_id: currentUserId,
+    inviter_id: currentUserId,
+    invitee_id: targetUserId,
     contact_id: targetContactId,
     invite_code: generateInviteCode(), // connections table requires a unique code
     status: 'accepted',
