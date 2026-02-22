@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { supabase } from "@/lib/supabase";
 
 interface Company {
   id: string;
@@ -19,7 +19,6 @@ export default function CompaniesPage() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const supabase = createClientComponentClient();
 
   useEffect(() => {
     async function fetch() {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { supabase } from '@/lib/supabase'
 
 interface WorkEntry {
   id?: string
@@ -79,8 +79,6 @@ export default function ExperienceModal({ isOpen, onClose, onSaved, editEntry }:
   const [showCompensation, setShowCompensation] = useState(false)
   const [skillInput, setSkillInput] = useState('')
   const [skills, setSkills] = useState<string[]>([])
-  const supabase = createClientComponentClient()
-
   useEffect(() => {
     if (editEntry) {
       setEntry(editEntry)

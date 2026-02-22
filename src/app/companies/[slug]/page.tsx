@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { supabase } from "@/lib/supabase";
 import Nav from "@/components/Nav";
 
 interface Company {
@@ -35,7 +35,6 @@ export default function CompanyProfilePage() {
   const [saving, setSaving] = useState(false);
   const router = useRouter();
   const params = useParams();
-  const supabase = createClientComponentClient();
   const slug = params.slug as string;
 
   useEffect(() => {

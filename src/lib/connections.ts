@@ -1,6 +1,4 @@
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-
-const supabase = createClientComponentClient();
+import { supabase } from './supabase';
 
 // Generate a unique invite code like NEXUS-A7K3X2
 export function generateInviteCode(): string {

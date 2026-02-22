@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { supabase } from "@/lib/supabase";
 
 export default function NewCompanyPage() {
   const [name, setName] = useState("");
@@ -12,7 +12,6 @@ export default function NewCompanyPage() {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const router = useRouter();
-  const supabase = createClientComponentClient();
 
   function toSlug(str: string): string {
     return str
