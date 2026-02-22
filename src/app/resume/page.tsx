@@ -209,13 +209,25 @@ export default function ResumePage() {
         setProfileName(profile.full_name || '')
         setProfileHeadline(profile.headline || '')
         setProfileLocation(profile.location || '')
+        // Load key links from profiles.key_links (JSONB) or fallback table
         if (profile.key_links && Array.isArray(profile.key_links)) {
-          // Merge saved links with defaults (in case new link types were added)
           const saved = profile.key_links as KeyLink[]
           setKeyLinks(LINK_TYPES.map(lt => {
             const existing = saved.find(s => s.type === lt.type)
             return existing || { type: lt.type, url: '', visible: true }
           }))
+        } else {
+          // Try loading from user_key_links table
+          const { data: linkRows } = await supabase
+            .from('user_key_links')
+            .select('link_type, url, visible')
+            .eq('user_id', authUser.id)
+          if (linkRows && linkRows.length > 0) {
+            setKeyLinks(LINK_TYPES.map(lt => {
+              const existing = linkRows.find((r: any) => r.link_type === lt.type)
+              return existing ? { type: lt.type, url: existing.url, visible: existing.visible } : { type: lt.type, url: '', visible: true }
+            }))
+          }
         }
       }
 
@@ -258,14 +270,30 @@ export default function ResumePage() {
 
   const saveKeyLinks = async () => {
     if (!user) return
+    // Try saving to profiles.key_links (JSONB column)
     const { error } = await supabase
       .from('profiles')
       .update({ key_links: keyLinks })
       .eq('id', user.id)
     if (error) {
-      console.warn('Failed to save key links:', error.message)
-      alert('Could not save links. The "key_links" column may need to be added to the profiles table as JSONB.')
-      return
+      // key_links column may not exist — fall back to user_key_links table
+      console.warn('profiles.key_links save failed, trying user_key_links table:', error.message)
+      // Delete existing links for this user, then insert fresh
+      await supabase.from('user_key_links').delete().eq('user_id', user.id)
+      const rows = keyLinks.filter(l => l.url).map(l => ({
+        user_id: user.id,
+        link_type: l.type,
+        url: l.url,
+        visible: l.visible,
+      }))
+      if (rows.length > 0) {
+        const { error: err2 } = await supabase.from('user_key_links').insert(rows)
+        if (err2) {
+          console.warn('user_key_links save also failed:', err2.message)
+          alert('Could not save links. Please add a "key_links" column (type: jsonb) to the profiles table in Supabase.')
+          return
+        }
+      }
     }
     setEditingLinks(false)
   }
@@ -541,77 +569,6 @@ export default function ResumePage() {
           )}
         </section>
 
-        {/* KEY LINKS */}
-        <section style={{ marginTop: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Key Links</h2>
-            <button onClick={() => setEditingLinks(!editingLinks)} style={btnSecondary}>
-              {editingLinks ? 'Done' : 'Edit'}
-            </button>
-          </div>
-          <div style={cardStyle}>
-            {editingLinks ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {keyLinks.map(link => {
-                  const meta = LINK_TYPES.find(lt => lt.type === link.type)
-                  return (
-                    <div key={link.type} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', flexShrink: 0 }}>
-                        <input
-                          type="checkbox"
-                          checked={link.visible}
-                          onChange={e => updateLink(link.type, 'visible', e.target.checked)}
-                          style={{ width: 14, height: 14, accentColor: '#a78bfa' }}
-                        />
-                        <span style={{ color: '#94a3b8', fontSize: '12px', width: 120 }}>{meta?.label || link.type}</span>
-                      </label>
-                      <input
-                        value={link.url}
-                        onChange={e => updateLink(link.type, 'url', e.target.value)}
-                        placeholder={meta?.placeholder || 'https://...'}
-                        style={{ ...inputStyle, flex: 1 }}
-                      />
-                    </div>
-                  )
-                })}
-                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
-                  <button onClick={() => setEditingLinks(false)} style={btnSecondary}>Cancel</button>
-                  <button onClick={saveKeyLinks} style={btnPrimary}>Save Links</button>
-                </div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                {keyLinks.filter(l => l.url && l.visible).length === 0 ? (
-                  <span style={{ color: '#475569', fontSize: '14px' }}>No links added yet. Click Edit to add your key links.</span>
-                ) : (
-                  keyLinks.filter(l => l.url && l.visible).map(link => {
-                    const meta = LINK_TYPES.find(lt => lt.type === link.type)
-                    return (
-                      <a
-                        key={link.type}
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: '6px',
-                          padding: '6px 14px', borderRadius: '20px',
-                          background: '#334155', color: '#e2e8f0', fontSize: '13px',
-                          textDecoration: 'none', transition: 'background 0.15s',
-                        }}
-                      >
-                        {meta?.label || link.type}
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
-                          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-                        </svg>
-                      </a>
-                    )
-                  })
-                )}
-              </div>
-            )}
-          </div>
-        </section>
-
         {/* EXPERIENCE (work entries + non-project chronicle entries) */}
         <section style={{ marginTop: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
@@ -872,6 +829,77 @@ export default function ResumePage() {
           )
         })()}
 
+        {/* KEY LINKS */}
+        <section style={{ marginTop: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Key Links</h2>
+            <button onClick={() => setEditingLinks(!editingLinks)} style={btnSecondary}>
+              {editingLinks ? 'Done' : 'Edit'}
+            </button>
+          </div>
+          <div style={cardStyle}>
+            {editingLinks ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {keyLinks.map(link => {
+                  const meta = LINK_TYPES.find(lt => lt.type === link.type)
+                  return (
+                    <div key={link.type} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', flexShrink: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={link.visible}
+                          onChange={e => updateLink(link.type, 'visible', e.target.checked)}
+                          style={{ width: 14, height: 14, accentColor: '#a78bfa' }}
+                        />
+                        <span style={{ color: '#94a3b8', fontSize: '12px', width: 120 }}>{meta?.label || link.type}</span>
+                      </label>
+                      <input
+                        value={link.url}
+                        onChange={e => updateLink(link.type, 'url', e.target.value)}
+                        placeholder={meta?.placeholder || 'https://...'}
+                        style={{ ...inputStyle, flex: 1 }}
+                      />
+                    </div>
+                  )
+                })}
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
+                  <button onClick={() => setEditingLinks(false)} style={btnSecondary}>Cancel</button>
+                  <button onClick={saveKeyLinks} style={btnPrimary}>Save Links</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                {keyLinks.filter(l => l.url && l.visible).length === 0 ? (
+                  <span style={{ color: '#475569', fontSize: '14px' }}>No links added yet. Click Edit to add your key links.</span>
+                ) : (
+                  keyLinks.filter(l => l.url && l.visible).map(link => {
+                    const meta = LINK_TYPES.find(lt => lt.type === link.type)
+                    return (
+                      <a
+                        key={link.type}
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '6px',
+                          padding: '6px 14px', borderRadius: '20px',
+                          background: '#334155', color: '#e2e8f0', fontSize: '13px',
+                          textDecoration: 'none', transition: 'background 0.15s',
+                        }}
+                      >
+                        {meta?.label || link.type}
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
+                          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                        </svg>
+                      </a>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
         {/* SKILLS — hidden for now */}
       </main>
 
@@ -972,16 +1000,13 @@ export default function ResumePage() {
                       if (!file) return
                       if (file.size > 1 * 1024 * 1024) { alert('Image must be under 1 MB'); e.target.value = ''; return }
                       if (!file.type.startsWith('image/')) { alert('Only image files allowed'); e.target.value = ''; return }
-                      const path = `projects/${user!.id}/${Date.now()}-${file.name}`
-                      // Ensure bucket exists
-                      const { data: buckets } = await supabase.storage.listBuckets()
-                      if (!buckets?.find(b => b.name === 'chronicle-images')) {
-                        await supabase.storage.createBucket('chronicle-images', { public: true, fileSizeLimit: 1024 * 1024 })
+                      // Convert to base64 data URL (avoids storage bucket dependency)
+                      const reader = new FileReader()
+                      reader.onload = () => {
+                        setEditingChronicle({ ...editingChronicle, image_url: reader.result as string })
                       }
-                      const { error: upErr } = await supabase.storage.from('chronicle-images').upload(path, file)
-                      if (upErr) { alert('Upload failed: ' + upErr.message); return }
-                      const { data: urlData } = supabase.storage.from('chronicle-images').getPublicUrl(path)
-                      setEditingChronicle({ ...editingChronicle, image_url: urlData.publicUrl })
+                      reader.onerror = () => alert('Failed to read file')
+                      reader.readAsDataURL(file)
                     }}
                     style={{ fontSize: '12px', color: '#94a3b8' }}
                   />

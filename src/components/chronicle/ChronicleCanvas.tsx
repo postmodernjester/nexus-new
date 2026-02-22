@@ -557,7 +557,8 @@ export default function ChronicleCanvas() {
   // ─── Drag handlers ──────────────────────────
   const startDrag = useCallback((ev: React.MouseEvent, item: TimelineItem, type: 'move' | 'top' | 'bot') => {
     if (ev.button !== 0) return
-    selectEntry(item.id)
+    // Don't call selectEntry here — onClick will handle selection.
+    // This avoids double-firing which breaks the click-through cycle.
     const s = parseYM(item.start)
     const e = item.end ? parseYM(item.end) : null
     if (!s) return
@@ -566,12 +567,11 @@ export default function ChronicleCanvas() {
     dragRef.current = { type, id: item.id, source: item.source, startY: ev.clientY, origTop: top, origH: h }
     ev.preventDefault()
     ev.stopPropagation()
-  }, [pxm, viewStart, selectEntry])
+  }, [pxm, viewStart])
 
   // ─── Start fuzzy drag ─────────────────────────
   const startFuzzyDrag = useCallback((ev: React.MouseEvent, item: TimelineItem, type: 'fuzzy_top' | 'fuzzy_bot') => {
     if (ev.button !== 0) return
-    selectEntry(item.id)
     const fm = fuzzyMonths[item.id] || { startMonths: 6, endMonths: 6 }
     const fuzzyH = (type === 'fuzzy_top' ? fm.startMonths : fm.endMonths) * pxm
     dragRef.current = { type, id: item.id, source: item.source, startY: ev.clientY, origTop: 0, origH: 0, origFuzzyH: fuzzyH }
@@ -1238,14 +1238,14 @@ export default function ChronicleCanvas() {
                 <div key={`geo-bg-${p.id}`}>
                   <div style={{
                     position: 'absolute', left: 0, right: 0, top, height: h,
-                    background: hex2rgba(p.color, 0.22),
+                    background: hex2rgba(p.color, 0.08),
                     pointerEvents: 'none',
                   }}>
                     {p.fuzzyStart && (
-                      <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 24, background: `linear-gradient(to bottom, transparent, ${hex2rgba(p.color, 0.22)})`, pointerEvents: 'none' }} />
+                      <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 24, background: `linear-gradient(to bottom, transparent, ${hex2rgba(p.color, 0.08)})`, pointerEvents: 'none' }} />
                     )}
                     {p.fuzzyEnd && (
-                      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 24, background: `linear-gradient(to top, transparent, ${hex2rgba(p.color, 0.22)})`, pointerEvents: 'none' }} />
+                      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 24, background: `linear-gradient(to top, transparent, ${hex2rgba(p.color, 0.08)})`, pointerEvents: 'none' }} />
                     )}
                   </div>
                 </div>
@@ -1283,7 +1283,7 @@ export default function ChronicleCanvas() {
                   position: 'absolute', left: 4, top: top + 4,
                   fontSize: Math.max(5.5, Math.min(7, pxm * 0.25)), letterSpacing: '.10em',
                   textTransform: 'uppercase', fontStyle: 'italic', color: p.color,
-                  pointerEvents: 'none', zIndex: 3, opacity: 0.55, maxWidth: AXIS_W - 12,
+                  pointerEvents: 'none', zIndex: 3, opacity: 0.35, maxWidth: AXIS_W - 12,
                   overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
                 }}>
                   {p.title}
@@ -1350,17 +1350,17 @@ export default function ChronicleCanvas() {
                     })}
                     style={{
                       position: 'absolute', left: 0, right: 0, top, height: h,
-                      background: hex2rgba(p.color, 0.25),
-                      borderTop: !p.fuzzyStart ? `1.5px solid ${hex2rgba(p.color, 0.45)}` : undefined,
-                      borderBottom: !p.fuzzyEnd ? `1.5px solid ${hex2rgba(p.color, 0.45)}` : undefined,
+                      background: hex2rgba(p.color, 0.12),
+                      borderTop: !p.fuzzyStart ? `1.5px solid ${hex2rgba(p.color, 0.25)}` : undefined,
+                      borderBottom: !p.fuzzyEnd ? `1.5px solid ${hex2rgba(p.color, 0.25)}` : undefined,
                       pointerEvents: 'auto', zIndex: 1, cursor: 'pointer',
                     }}
                   >
                     {p.fuzzyStart && (
-                      <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 24, background: `linear-gradient(to bottom, transparent, ${hex2rgba(p.color, 0.25)})`, pointerEvents: 'none' }} />
+                      <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 24, background: `linear-gradient(to bottom, transparent, ${hex2rgba(p.color, 0.12)})`, pointerEvents: 'none' }} />
                     )}
                     {p.fuzzyEnd && (
-                      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 24, background: `linear-gradient(to top, transparent, ${hex2rgba(p.color, 0.25)})`, pointerEvents: 'none' }} />
+                      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 24, background: `linear-gradient(to top, transparent, ${hex2rgba(p.color, 0.12)})`, pointerEvents: 'none' }} />
                     )}
                   </div>
                 </div>
