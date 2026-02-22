@@ -373,6 +373,7 @@ export default function ResumePage() {
 
   const saveChronicle = async () => {
     if (!user || !editingChronicle) return
+    const isNew = !editingChronicle.id
     const base: Record<string, unknown> = {
       title: editingChronicle.title,
       start_date: editingChronicle.start_date,
@@ -386,49 +387,71 @@ export default function ResumePage() {
     if (editingChronicle.description !== undefined) optionalFields.description = editingChronicle.description || null
     if (editingChronicle.image_url !== undefined) optionalFields.image_url = editingChronicle.image_url || null
 
-    // Attempt 1: all fields + updated_at
-    let { error } = await supabase
-      .from('chronicle_entries')
-      .update({ ...base, ...optionalFields, updated_at: new Date().toISOString() })
-      .eq('id', editingChronicle.id)
-
-    // Attempt 2: all fields without updated_at
-    if (error) {
-      console.warn('Chronicle save retry without updated_at:', error.message)
-      ;({ error } = await supabase
-        .from('chronicle_entries')
-        .update({ ...base, ...optionalFields })
-        .eq('id', editingChronicle.id))
-    }
-
-    // Attempt 3: without image_url (column may not exist yet)
-    if (error) {
-      console.warn('Chronicle save retry without image_url:', error.message)
-      const { image_url: _drop, ...withoutImage } = optionalFields
-      ;({ error } = await supabase
-        .from('chronicle_entries')
-        .update({ ...base, ...withoutImage })
-        .eq('id', editingChronicle.id))
-    }
-
-    // Attempt 4: base fields only
-    if (error) {
-      console.warn('Chronicle save retry base fields only:', error.message)
-      ;({ error } = await supabase
-        .from('chronicle_entries')
-        .update(base)
-        .eq('id', editingChronicle.id))
-    }
-
-    if (!error) {
-      if (!editingChronicle.show_on_resume) {
-        setChronicleEntries(prev => prev.filter(e => e.id !== editingChronicle.id))
-      } else {
-        setChronicleEntries(prev => prev.map(e => e.id === editingChronicle.id ? editingChronicle : e))
+    if (isNew) {
+      // INSERT path for new chronicle entries (e.g. adding a project)
+      const insertPayload = {
+        user_id: user.id,
+        type: editingChronicle.type,
+        canvas_col: editingChronicle.canvas_col,
+        ...base,
+        ...optionalFields,
+      }
+      if (editingChronicle.color) (insertPayload as any).color = editingChronicle.color
+      const { data, error } = await supabase.from('chronicle_entries').insert(insertPayload).select().single()
+      if (error) {
+        console.error('Failed to insert chronicle entry:', error.message)
+        alert('Failed to save: ' + error.message)
+      } else if (data) {
+        if (data.show_on_resume) {
+          setChronicleEntries(prev => [data, ...prev])
+        }
       }
     } else {
-      console.error('Failed to save chronicle entry:', error.message)
-      alert('Failed to save: ' + error.message)
+      // UPDATE path for existing entries
+      // Attempt 1: all fields + updated_at
+      let { error } = await supabase
+        .from('chronicle_entries')
+        .update({ ...base, ...optionalFields, updated_at: new Date().toISOString() })
+        .eq('id', editingChronicle.id)
+
+      // Attempt 2: all fields without updated_at
+      if (error) {
+        console.warn('Chronicle save retry without updated_at:', error.message)
+        ;({ error } = await supabase
+          .from('chronicle_entries')
+          .update({ ...base, ...optionalFields })
+          .eq('id', editingChronicle.id))
+      }
+
+      // Attempt 3: without image_url (column may not exist yet)
+      if (error) {
+        console.warn('Chronicle save retry without image_url:', error.message)
+        const { image_url: _drop, ...withoutImage } = optionalFields
+        ;({ error } = await supabase
+          .from('chronicle_entries')
+          .update({ ...base, ...withoutImage })
+          .eq('id', editingChronicle.id))
+      }
+
+      // Attempt 4: base fields only
+      if (error) {
+        console.warn('Chronicle save retry base fields only:', error.message)
+        ;({ error } = await supabase
+          .from('chronicle_entries')
+          .update(base)
+          .eq('id', editingChronicle.id))
+      }
+
+      if (!error) {
+        if (!editingChronicle.show_on_resume) {
+          setChronicleEntries(prev => prev.filter(e => e.id !== editingChronicle.id))
+        } else {
+          setChronicleEntries(prev => prev.map(e => e.id === editingChronicle.id ? editingChronicle : e))
+        }
+      } else {
+        console.error('Failed to save chronicle entry:', error.message)
+        alert('Failed to save: ' + error.message)
+      }
     }
     setShowChronicleModal(false)
     setEditingChronicle(null)

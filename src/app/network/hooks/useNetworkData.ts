@@ -60,11 +60,26 @@ export function useNetworkData() {
         }
       }
 
-      const mutualUserIds = new Set<string>();
+      const rawMutualUserIds = new Set<string>();
       for (const conn of connections) {
-        if (conn.inviter_id === user.id) mutualUserIds.add(conn.invitee_id);
+        if (conn.inviter_id === user.id) rawMutualUserIds.add(conn.invitee_id);
         else if (conn.invitee_id === user.id)
-          mutualUserIds.add(conn.inviter_id);
+          rawMutualUserIds.add(conn.inviter_id);
+      }
+
+      // Filter out stale connections: if a connection exists but my contact
+      // for that user was unlinked (linked_profile_id cleared) or deleted,
+      // the connection record is a ghost from a failed DELETE (missing RLS policy).
+      const linkedToUserIds = new Set(
+        myContacts
+          .filter(c => c.linked_profile_id)
+          .map(c => c.linked_profile_id!)
+      );
+      const mutualUserIds = new Set<string>();
+      for (const uid of rawMutualUserIds) {
+        if (linkedToUserIds.has(uid)) {
+          mutualUserIds.add(uid);
+        }
       }
 
       const connectedProfiles: Record<
