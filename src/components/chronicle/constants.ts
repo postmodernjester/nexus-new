@@ -6,8 +6,8 @@ export const COL_W = 148
 export const COLLAPSED_W = 24
 export const AXIS_W = 72
 
-// Zoom: slider 0 → 40yr visible, 0.5 → ~4yr, 1 → 2yr
-export const ZOOM_YEARS_MAX = 40
+// Zoom: slider 0 → 60yr visible, 0.5 → ~4yr, 1 → 2yr
+export const ZOOM_YEARS_MAX = 60
 export const ZOOM_YEARS_MIN = 2
 export const ZOOM_GAMMA = 0.38
 

@@ -1652,15 +1652,17 @@ export default function ChronicleCanvas() {
                       ...(isSelected ? { outline: '2px solid #1a1812', outlineOffset: 1 } : {}),
                     }}
                   >
-                    <div style={{
-                      fontSize: Math.max(6, Math.min(8.5, pxm * 0.35)),
-                      fontWeight: 500, letterSpacing: '.03em', lineHeight: 1.3,
-                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                      color: item.color,
-                    }}>
-                      {item.title}
-                    </div>
-                    {showDate && (
+                    {h >= 14 && (
+                      <div style={{
+                        fontSize: Math.max(6, Math.min(8.5, pxm * 0.35)),
+                        fontWeight: 500, letterSpacing: '.03em', lineHeight: 1.3,
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        color: item.color,
+                      }}>
+                        {item.title}
+                      </div>
+                    )}
+                    {showDate && h >= 26 && (
                       <div style={{ fontSize: '6.5px', opacity: 0.55, letterSpacing: '.05em', marginTop: 2 }}>
                         {item.start}{item.end ? ' – ' + item.end : ''}
                       </div>
