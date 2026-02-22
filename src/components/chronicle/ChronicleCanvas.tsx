@@ -254,8 +254,8 @@ export default function ChronicleCanvas() {
         id: `edu-${edu.id}`,
         cat: 'education',
         title: edu.institution + (edu.degree ? ` — ${edu.degree}` : ''),
-        start: edu.start_date,
-        end: edu.is_current ? null : (edu.end_date || null),
+        start: edu.start_date?.slice(0, 7),
+        end: edu.is_current ? null : (edu.end_date?.slice(0, 7) || null),
         color: edu.chronicle_color || '#2a8a6a',
         fuzzyStart: edu.chronicle_fuzzy_start || false,
         fuzzyEnd: edu.chronicle_fuzzy_end || false,
@@ -895,10 +895,10 @@ export default function ChronicleCanvas() {
             is_current: w.is_current,
             engagement_type: w.engagement_type,
             location: w.location || null,
-            remote_type: w.location_type || null,
             description: w.description || null,
           }
         const optionalInsert = {
+            remote_type: w.location_type || null,
             ai_skills_extracted: w.ai_skills_extracted || [],
             chronicle_color: w.chronicle_color || '#4070a8',
             chronicle_fuzzy_start: w.chronicle_fuzzy_start || false,
@@ -970,10 +970,10 @@ export default function ChronicleCanvas() {
             is_current: w.is_current,
             engagement_type: w.engagement_type,
             location: w.location || null,
-            remote_type: w.location_type || null,
             description: w.description || null,
           }
         const newOptional = {
+            remote_type: w.location_type || null,
             ai_skills_extracted: w.ai_skills_extracted || [],
             chronicle_color: w.chronicle_color || '#4070a8',
             chronicle_fuzzy_start: w.chronicle_fuzzy_start || false,

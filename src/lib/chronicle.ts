@@ -238,7 +238,7 @@ export async function updateWorkEntryFromChronicle(id: string, fields: {
   const { error } = await supabase.from('work_entries').update(fields).eq('id', id)
   if (error && error.message.includes('column')) {
     // Retry without optional columns that may not exist yet
-    const { ai_skills_extracted, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, ...base } = fields
+    const { remote_type, ai_skills_extracted, chronicle_color, chronicle_fuzzy_start, chronicle_fuzzy_end, chronicle_note, ...base } = fields
     const { error: err2 } = await supabase.from('work_entries').update(base).eq('id', id)
     if (err2) throw err2
   } else if (error) {

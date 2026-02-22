@@ -183,7 +183,6 @@ export default function ResumePage() {
       title: editingWork.title,
       company: editingWork.company,
       location: editingWork.location || null,
-      remote_type: editingWork.location_type || null,
       start_date: editingWork.start_date,
       end_date: editingWork.is_current ? null : (editingWork.end_date || null),
       is_current: editingWork.is_current,
@@ -192,6 +191,7 @@ export default function ResumePage() {
     }
     // Optional columns that may not exist in the table yet
     const optionalCols: Record<string, unknown> = {
+      remote_type: editingWork.location_type || null,
       ai_skills_extracted: editingWork.ai_skills_extracted || [],
     }
     if (editingWork.chronicle_color) optionalCols.chronicle_color = editingWork.chronicle_color
