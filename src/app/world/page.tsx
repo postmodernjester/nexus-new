@@ -102,7 +102,7 @@ export default function WorldPage() {
     }
     setUserId(user.id);
 
-    const [profilesRes, workRes, connectionsRes, myContactsRes, invSentRes, invReceivedRes] =
+    const [profilesRes, workRes, myContactsRes, invSentRes, invReceivedRes] =
       await Promise.all([
         supabase
           .from("profiles")
@@ -111,11 +111,6 @@ export default function WorldPage() {
           .from("work_entries")
           .select("user_id, company")
           .not("company", "is", null),
-        supabase
-          .from("connections")
-          .select("inviter_id, invitee_id")
-          .eq("status", "accepted")
-          .or(`inviter_id.eq.${user.id},invitee_id.eq.${user.id}`),
         supabase
           .from("contacts")
           .select("linked_profile_id")
@@ -153,15 +148,10 @@ export default function WorldPage() {
       .sort((a, b) => a.company.localeCompare(b.company));
     setCompanies(companyList);
 
-    // Connections — validate against contact cards with linked_profile_id
-    const linkedProfileIds = new Set(
+    // Linked = any contact card with linked_profile_id set
+    const connIds = new Set(
       (myContactsRes.data || []).map((c: { linked_profile_id: string }) => c.linked_profile_id)
     );
-    const connIds = new Set<string>();
-    for (const c of connectionsRes.data || []) {
-      const otherId = c.inviter_id === user.id ? c.invitee_id : c.inviter_id;
-      if (linkedProfileIds.has(otherId)) connIds.add(otherId);
-    }
     setConnectedUserIds(connIds);
 
     // Invitations
