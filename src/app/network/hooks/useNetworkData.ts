@@ -27,7 +27,11 @@ export function useNetworkData() {
       const [myContactsRes, connectionsRes, notesRes, profileRes] =
         await Promise.all([
           supabase.from("contacts").select("*").eq("owner_id", user.id),
-          supabase.from("connections").select("*").eq("status", "accepted"),
+          supabase
+            .from("connections")
+            .select("*")
+            .eq("status", "accepted")
+            .or(`inviter_id.eq.${user.id},invitee_id.eq.${user.id}`),
           supabase.from("contact_notes").select("contact_id, entry_date, content"),
           supabase
             .from("profiles")
@@ -160,10 +164,14 @@ export function useNetworkData() {
       // (bypasses RLS so we don't depend on the contacts SELECT policy)
       let theirContacts: Contact[] = [];
       if (mutualUserIds.size > 0) {
-        const { data: rpcContacts } = await supabase.rpc(
+        const { data: rpcContacts, error: rpcError } = await supabase.rpc(
           "get_connected_users_contacts",
           { p_user_id: user.id }
         );
+        if (rpcError) {
+          console.warn("get_connected_users_contacts RPC failed:", rpcError.message,
+            "— 2nd degree contacts will not appear. Ensure the SQL function exists.");
+        }
         theirContacts = (rpcContacts || []).filter(
           (c: Contact) => mutualUserIds.has(c.owner_id)
         );

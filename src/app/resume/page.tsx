@@ -29,6 +29,7 @@ export default function ResumePage() {
   const [profileBirthday, setProfileBirthday] = useState('')
   const [profilePhoto, setProfilePhoto] = useState('')
   const [editingProfile, setEditingProfile] = useState(false)
+  const [isPublic, setIsPublic] = useState(true)
 
   const [workEntries, setWorkEntries] = useState<WorkEntry[]>([])
   const [showWorkModal, setShowWorkModal] = useState(false)
@@ -73,6 +74,7 @@ export default function ResumePage() {
         setProfileLocation(profile.location || '')
         setProfileBirthday(profile.birthday || '')
         setProfilePhoto(profile.profile_photo_url || '')
+        setIsPublic(profile.is_public !== false) // default true
         // Load key links: try profiles.key_links first, then auth user_metadata
         const savedLinks = profile.key_links
           || authUser.user_metadata?.key_links
@@ -138,6 +140,12 @@ export default function ResumePage() {
       await supabase.from('profiles').update(payload).eq('id', user.id)
     }
     setEditingProfile(false)
+  }
+
+  const toggleVisibility = async (checked: boolean) => {
+    if (!user) return
+    setIsPublic(checked)
+    await supabase.from('profiles').update({ is_public: checked }).eq('id', user.id)
   }
 
   const handleProfilePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -556,6 +564,30 @@ export default function ResumePage() {
               <button onClick={() => setEditingProfile(true)} style={btnSecondary}>Edit</button>
             </div>
           )}
+
+          {/* Visibility toggle */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            marginTop: '12px', paddingTop: '12px',
+            borderTop: '1px solid #334155',
+          }}>
+            <input
+              type="checkbox"
+              id="world-visible"
+              checked={isPublic}
+              onChange={(e) => toggleVisibility(e.target.checked)}
+              style={{ accentColor: '#a78bfa', width: '16px', height: '16px', cursor: 'pointer' }}
+            />
+            <label
+              htmlFor="world-visible"
+              style={{ fontSize: '13px', color: '#94a3b8', cursor: 'pointer', userSelect: 'none' }}
+            >
+              Visible in the World listing
+            </label>
+            <span style={{ fontSize: '11px', color: '#475569', marginLeft: '4px' }}>
+              {isPublic ? '— others can see your profile' : '— your profile is hidden'}
+            </span>
+          </div>
         </section>
 
         {/* EXPERIENCE (work entries + non-project chronicle entries) */}

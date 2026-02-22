@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { unlinkContact } from "@/lib/connections";
 import Nav from "@/components/Nav";
 
 interface ProfileRow {
@@ -12,12 +13,12 @@ interface ProfileRow {
   location: string | null;
   profile_photo_url: string | null;
   avatar_url: string | null;
+  is_public: boolean;
 }
 
 interface CompanyRow {
   company: string;
   user_count: number;
-  users: { id: string; full_name: string; title: string }[];
 }
 
 interface InvitationRow {
@@ -48,6 +49,14 @@ function getLastName(fullName: string): string {
     : fullName.toLowerCase();
 }
 
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 export default function WorldPage() {
   const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
@@ -75,6 +84,10 @@ export default function WorldPage() {
   const [inviteSending, setInviteSending] = useState<string | null>(null);
   const [respondingTo, setRespondingTo] = useState<string | null>(null);
 
+  // Unlink
+  const [unlinkConfirmId, setUnlinkConfirmId] = useState<string | null>(null);
+  const [unlinking, setUnlinking] = useState(false);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -93,16 +106,16 @@ export default function WorldPage() {
       await Promise.all([
         supabase
           .from("profiles")
-          .select("id, full_name, headline, location, profile_photo_url, avatar_url")
-          .eq("is_public", true),
+          .select("id, full_name, headline, location, profile_photo_url, avatar_url, is_public"),
         supabase
           .from("work_entries")
-          .select("user_id, title, company")
+          .select("user_id, company")
           .not("company", "is", null),
         supabase
           .from("connections")
           .select("inviter_id, invitee_id")
-          .eq("status", "accepted"),
+          .eq("status", "accepted")
+          .or(`inviter_id.eq.${user.id},invitee_id.eq.${user.id}`),
         supabase
           .from("link_invitations")
           .select("id, from_user_id, to_user_id, status, message, created_at")
@@ -119,29 +132,20 @@ export default function WorldPage() {
     );
     setProfiles(allProfiles);
 
-    // Companies: group work entries by company
-    const companyMap = new Map<string, { users: Map<string, { id: string; full_name: string; title: string }> }>();
+    // Companies: group work entries by company (just names and counts)
+    const companyMap = new Map<string, Set<string>>();
     for (const w of workRes.data || []) {
       if (!w.company) continue;
       const key = w.company.trim();
-      if (!companyMap.has(key)) companyMap.set(key, { users: new Map() });
-      const entry = companyMap.get(key)!;
-      if (!entry.users.has(w.user_id)) {
-        const profile = allProfiles.find((p: ProfileRow) => p.id === w.user_id);
-        entry.users.set(w.user_id, {
-          id: w.user_id,
-          full_name: profile?.full_name || "Unknown",
-          title: w.title || "",
-        });
-      }
+      if (!companyMap.has(key)) companyMap.set(key, new Set());
+      companyMap.get(key)!.add(w.user_id);
     }
     const companyList: CompanyRow[] = Array.from(companyMap.entries())
-      .map(([company, data]) => ({
+      .map(([company, userIds]) => ({
         company,
-        user_count: data.users.size,
-        users: Array.from(data.users.values()),
+        user_count: userIds.size,
       }))
-      .sort((a, b) => b.user_count - a.user_count);
+      .sort((a, b) => a.company.localeCompare(b.company));
     setCompanies(companyList);
 
     // Connections
@@ -199,7 +203,6 @@ export default function WorldPage() {
         p_invitation_id: invitationId,
       });
       if (data?.success) {
-        // Refresh
         await loadData();
       }
     } else {
@@ -212,6 +215,34 @@ export default function WorldPage() {
       );
     }
     setRespondingTo(null);
+  }
+
+  async function handleUnlink(profileId: string, fullName: string) {
+    if (!userId) return;
+    setUnlinking(true);
+
+    // Find my contact card for this person
+    const { data: contact } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("owner_id", userId)
+      .eq("linked_profile_id", profileId)
+      .limit(1)
+      .single();
+
+    if (contact) {
+      const result = await unlinkContact(userId, contact.id, profileId, fullName);
+      if (result.success) {
+        setConnectedUserIds((prev) => {
+          const next = new Set(prev);
+          next.delete(profileId);
+          return next;
+        });
+      }
+    }
+
+    setUnlinkConfirmId(null);
+    setUnlinking(false);
   }
 
   function getLinkStatus(profileId: string): "connected" | "sent" | "received" | "none" {
@@ -436,12 +467,13 @@ export default function WorldPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               {filtered.length === 0 && (
                 <div style={{ textAlign: "center", color: "#475569", padding: "40px 0", fontSize: "14px" }}>
-                  {search || alphaFilter ? "No people match your filter." : "No public profiles yet."}
+                  {search || alphaFilter ? "No people match your filter." : "No profiles yet."}
                 </div>
               )}
               {filtered.map((p) => {
                 const status = getLinkStatus(p.id);
-                const photo = p.profile_photo_url || p.avatar_url;
+                const isPrivate = !p.is_public;
+                const photo = !isPrivate ? (p.profile_photo_url || p.avatar_url) : null;
                 return (
                   <div
                     key={p.id}
@@ -454,6 +486,7 @@ export default function WorldPage() {
                       borderRadius: "10px",
                       border: "1px solid transparent",
                       transition: "background 0.15s",
+                      opacity: isPrivate ? 0.6 : 1,
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = "#334155";
@@ -521,8 +554,23 @@ export default function WorldPage() {
                             Linked
                           </span>
                         )}
+                        {isPrivate && (
+                          <span
+                            style={{
+                              fontSize: "10px",
+                              color: "#64748b",
+                              background: "#1e293b",
+                              padding: "1px 6px",
+                              borderRadius: "4px",
+                              fontWeight: 500,
+                              border: "1px solid #334155",
+                            }}
+                          >
+                            Private
+                          </span>
+                        )}
                       </div>
-                      {p.headline && (
+                      {!isPrivate && p.headline && (
                         <div
                           style={{
                             fontSize: "12px",
@@ -536,7 +584,7 @@ export default function WorldPage() {
                           {p.headline}
                         </div>
                       )}
-                      {p.location && (
+                      {!isPrivate && p.location && (
                         <div style={{ fontSize: "11px", color: "#475569", marginTop: "1px" }}>
                           {p.location}
                         </div>
@@ -545,8 +593,73 @@ export default function WorldPage() {
 
                     {/* Action button */}
                     <div style={{ flexShrink: 0 }}>
-                      {status === "connected" ? (
-                        <span style={{ fontSize: "11px", color: "#64748b" }}>Linked</span>
+                      {isPrivate ? (
+                        // Private profiles — no link button
+                        <span style={{ fontSize: "11px", color: "#475569" }}></span>
+                      ) : status === "connected" ? (
+                        // Connected — show Unlink button with confirmation
+                        unlinkConfirmId === p.id ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span style={{ fontSize: "11px", color: "#94a3b8" }}>Unlink?</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUnlink(p.id, p.full_name);
+                              }}
+                              disabled={unlinking}
+                              style={{
+                                padding: "4px 10px",
+                                background: "#ef4444",
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: "5px",
+                                fontWeight: 600,
+                                fontSize: "11px",
+                                cursor: "pointer",
+                                opacity: unlinking ? 0.5 : 1,
+                              }}
+                            >
+                              {unlinking ? "…" : "Yes"}
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setUnlinkConfirmId(null);
+                              }}
+                              style={{
+                                padding: "4px 10px",
+                                background: "transparent",
+                                color: "#64748b",
+                                border: "1px solid #334155",
+                                borderRadius: "5px",
+                                fontWeight: 500,
+                                fontSize: "11px",
+                                cursor: "pointer",
+                              }}
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setUnlinkConfirmId(p.id);
+                            }}
+                            style={{
+                              padding: "5px 12px",
+                              background: "transparent",
+                              color: "#a78bfa",
+                              border: "1px solid #334155",
+                              borderRadius: "6px",
+                              fontWeight: 500,
+                              fontSize: "11px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Unlink
+                          </button>
+                        )
                       ) : status === "sent" ? (
                         <span style={{ fontSize: "11px", color: "#f59e0b" }}>Invited</span>
                       ) : status === "received" ? (
@@ -612,12 +725,17 @@ export default function WorldPage() {
               {filteredCompanies.map((c) => (
                 <div
                   key={c.company}
+                  onClick={() => router.push(`/companies/${slugify(c.company)}`)}
                   style={{
                     padding: "14px 16px",
                     background: "#1e293b",
                     borderRadius: "10px",
                     border: "1px solid transparent",
                     transition: "background 0.15s",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = "#334155";
@@ -628,30 +746,12 @@ export default function WorldPage() {
                     e.currentTarget.style.borderColor = "transparent";
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontWeight: 600, fontSize: "14px" }}>{c.company}</span>
+                  <span style={{ fontWeight: 600, fontSize: "14px" }}>{c.company}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                     <span style={{ fontSize: "11px", color: "#64748b" }}>
                       {c.user_count} {c.user_count === 1 ? "person" : "people"}
                     </span>
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "8px" }}>
-                    {c.users.map((u) => (
-                      <span
-                        key={u.id}
-                        onClick={() => router.push(`/world/${u.id}`)}
-                        style={{
-                          fontSize: "11px",
-                          color: "#a78bfa",
-                          cursor: "pointer",
-                          padding: "2px 8px",
-                          background: "#1e1b4b",
-                          borderRadius: "4px",
-                        }}
-                      >
-                        {u.full_name}
-                        {u.title ? ` · ${u.title}` : ""}
-                      </span>
-                    ))}
+                    <span style={{ color: "#475569", fontSize: "12px" }}>→</span>
                   </div>
                 </div>
               ))}

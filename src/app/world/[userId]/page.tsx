@@ -15,6 +15,7 @@ interface Profile {
   avatar_url: string | null;
   profile_photo_url: string | null;
   key_links: { type: string; url: string; visible: boolean }[] | null;
+  is_public: boolean;
 }
 
 interface WorkEntry {
@@ -113,7 +114,7 @@ export default function PublicProfilePage() {
       await Promise.all([
         supabase
           .from("profiles")
-          .select("id, full_name, headline, bio, location, website, avatar_url, profile_photo_url, key_links")
+          .select("id, full_name, headline, bio, location, website, avatar_url, profile_photo_url, key_links, is_public")
           .eq("id", targetUserId)
           .single(),
         supabase
@@ -245,7 +246,40 @@ export default function PublicProfilePage() {
         <Nav />
         <div style={{ maxWidth: "800px", margin: "0 auto", padding: "60px 20px", textAlign: "center" }}>
           <h2 style={{ fontSize: "18px", marginBottom: "8px" }}>Profile not found</h2>
-          <p style={{ color: "#64748b", fontSize: "14px" }}>This user may have set their profile to private.</p>
+          <p style={{ color: "#64748b", fontSize: "14px" }}>This user doesn't exist or their profile is unavailable.</p>
+          <button
+            onClick={() => router.push("/world")}
+            style={{
+              marginTop: "16px",
+              padding: "8px 20px",
+              background: "#a78bfa",
+              color: "#0f172a",
+              border: "none",
+              borderRadius: "6px",
+              fontWeight: 600,
+              fontSize: "13px",
+              cursor: "pointer",
+            }}
+          >
+            Back to World
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile.is_public && linkStatus !== "self") {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0f172a", color: "#e2e8f0" }}>
+        <Nav />
+        <div style={{ maxWidth: "800px", margin: "0 auto", padding: "60px 20px", textAlign: "center" }}>
+          <h2 style={{ fontSize: "18px", marginBottom: "8px" }}>{profile.full_name}</h2>
+          <p style={{ color: "#64748b", fontSize: "14px", marginBottom: "8px" }}>
+            This profile is private. You cannot view their details.
+          </p>
+          <p style={{ color: "#475569", fontSize: "13px" }}>
+            This person has chosen to keep their profile hidden from the world.
+          </p>
           <button
             onClick={() => router.push("/world")}
             style={{
