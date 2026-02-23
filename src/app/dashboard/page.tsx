@@ -36,6 +36,14 @@ interface RecentNote {
   created_at: string;
 }
 
+interface PendingInvitation {
+  id: string;
+  from_user_id: string;
+  from_name: string;
+  from_headline: string | null;
+  created_at: string;
+}
+
 interface LinkedConnection {
   contact_id: string;
   contact_name: string;
@@ -139,9 +147,10 @@ export default function DashboardPage() {
   const [recentNotes, setRecentNotes] = useState<RecentNote[]>([]);
   const [totalContacts, setTotalContacts] = useState(0);
   const [connectionCount, setConnectionCount] = useState(0);
-  const [totalNotes, setTotalNotes] = useState(0);
   const [networkSize, setNetworkSize] = useState(0); // total including 2nd degree
   const [linkedConnections, setLinkedConnections] = useState<LinkedConnection[]>([]);
+  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
+  const [respondingTo, setRespondingTo] = useState<string | null>(null);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -161,7 +170,7 @@ export default function DashboardPage() {
       setUserId(user.id);
 
       // Fetch all data in parallel
-      const [profileRes, contactsRes, connectionsRes, notesRes, noteCountRes] =
+      const [profileRes, contactsRes, connectionsRes, notesRes, invitationsRes] =
         await Promise.all([
           supabase
             .from("profiles")
@@ -184,10 +193,12 @@ export default function DashboardPage() {
             .eq("owner_id", user.id)
             .order("created_at", { ascending: false })
             .limit(200),
+          // Pending link invitations received
           supabase
-            .from("contact_notes")
-            .select("id", { count: "exact", head: true })
-            .eq("owner_id", user.id),
+            .from("link_invitations")
+            .select("id, from_user_id, created_at")
+            .eq("to_user_id", user.id)
+            .eq("status", "pending"),
         ]);
 
       setProfile(profileRes.data as Profile);
@@ -195,7 +206,6 @@ export default function DashboardPage() {
       setTotalContacts(contactsList.length);
       const connectionsList = (connectionsRes.data || []) as { id: string; inviter_id: string; invitee_id: string }[];
       setConnectionCount(connectionsList.length);
-      setTotalNotes(noteCountRes.count || 0);
 
       // Get connected user IDs for 2nd-degree network
       const connectedUserIds = connectionsList.map((c) =>
@@ -293,6 +303,27 @@ export default function DashboardPage() {
       }));
       setRecentNotes(recent);
 
+      // Process pending invitations — look up sender profiles
+      const rawInvitations = (invitationsRes.data || []) as { id: string; from_user_id: string; created_at: string }[];
+      if (rawInvitations.length > 0) {
+        const senderIds = rawInvitations.map((i) => i.from_user_id);
+        const { data: senderProfiles } = await supabase
+          .from("profiles")
+          .select("id, full_name, headline")
+          .in("id", senderIds);
+        const senderMap = new Map<string, { full_name: string; headline: string | null }>();
+        (senderProfiles || []).forEach((p: any) => senderMap.set(p.id, p));
+        setPendingInvitations(
+          rawInvitations.map((i) => ({
+            id: i.id,
+            from_user_id: i.from_user_id,
+            from_name: senderMap.get(i.from_user_id)?.full_name || "Unknown",
+            from_headline: senderMap.get(i.from_user_id)?.headline || null,
+            created_at: i.created_at,
+          }))
+        );
+      }
+
       try {
         const code = await getOrCreateInviteCode(user.id);
         setInviteCode(code);
@@ -312,6 +343,22 @@ export default function DashboardPage() {
       .update({ action_completed: true })
       .eq("id", noteId);
     setActionItems((prev) => prev.filter((a) => a.id !== noteId));
+  }
+
+  async function respondToInvitation(invitationId: string, accept: boolean) {
+    setRespondingTo(invitationId);
+    if (accept) {
+      await supabase.rpc("accept_link_invitation", {
+        p_invitation_id: invitationId,
+      });
+    } else {
+      await supabase
+        .from("link_invitations")
+        .update({ status: "declined", responded_at: new Date().toISOString() })
+        .eq("id", invitationId);
+    }
+    setPendingInvitations((prev) => prev.filter((i) => i.id !== invitationId));
+    setRespondingTo(null);
   }
 
   function getInviteUrl(): string {
@@ -494,25 +541,20 @@ export default function DashboardPage() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Network Size</span>
+              <span style={{ fontSize: "20px", fontWeight: "bold" }}>{networkSize}</span>
+            </div>
+            <MiniBar value={networkSize} max={Math.max(networkSize, 50)} color="#f59e0b" />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Contacts</span>
               <span style={{ fontSize: "20px", fontWeight: "bold" }}>{totalContacts}</span>
             </div>
             <MiniBar value={totalContacts} max={Math.max(totalContacts, 20)} color="#a78bfa" />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Linked</span>
+              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Links</span>
               <span style={{ fontSize: "20px", fontWeight: "bold" }}>{connectionCount}</span>
             </div>
             <MiniBar value={connectionCount} max={Math.max(totalContacts, 1)} color="#60a5fa" />
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Network</span>
-              <span style={{ fontSize: "20px", fontWeight: "bold" }}>{networkSize}</span>
-            </div>
-            <MiniBar value={networkSize} max={Math.max(networkSize, 50)} color="#f59e0b" />
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Notes</span>
-              <span style={{ fontSize: "20px", fontWeight: "bold" }}>{totalNotes}</span>
-            </div>
-            <MiniBar value={totalNotes} max={Math.max(totalNotes, 50)} color="#22c55e" />
           </div>
         </div>
 
@@ -553,12 +595,81 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          {actionItems.length === 0 ? (
+          {actionItems.length === 0 && pendingInvitations.length === 0 ? (
             <div style={{ color: "#475569", fontSize: "13px", padding: "8px 0" }}>
               No pending action items. You're all caught up.
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column" }}>
+              {/* Pending invitations as action items */}
+              {pendingInvitations.map((inv) => (
+                <div
+                  key={inv.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    padding: "8px 0",
+                    borderBottom: "1px solid rgba(30,41,59,0.8)",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      background: "#a78bfa",
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "13px", color: "#e2e8f0" }}>
+                      <span style={{ fontWeight: 500 }}>{inv.from_name}</span>
+                      <span style={{ color: "#94a3b8" }}> wants to connect</span>
+                    </div>
+                    {inv.from_headline && (
+                      <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+                        {inv.from_headline}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => respondToInvitation(inv.id, true)}
+                    disabled={respondingTo === inv.id}
+                    style={{
+                      padding: "4px 12px",
+                      background: "#a78bfa",
+                      color: "#0f172a",
+                      border: "none",
+                      borderRadius: "5px",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      opacity: respondingTo === inv.id ? 0.5 : 1,
+                    }}
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() => respondToInvitation(inv.id, false)}
+                    disabled={respondingTo === inv.id}
+                    style={{
+                      padding: "4px 10px",
+                      background: "transparent",
+                      color: "#64748b",
+                      border: "1px solid #334155",
+                      borderRadius: "5px",
+                      fontSize: "11px",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      opacity: respondingTo === inv.id ? 0.5 : 1,
+                    }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              ))}
               {actionItems.map((item) => {
                 const isOverdue =
                   item.action_due_date &&

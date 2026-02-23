@@ -28,12 +28,17 @@ export async function GET(request: Request) {
           })
         }
 
-        // If they signed up from /connect/[userId], redirect there
-        // The connect page will handle creating the bidirectional connection
+        // If they signed up from /connect/[userId], create the connection server-side
+        // so it works even if the redirect fails or the user navigates away
         if (connectUserId) {
-          // Clear the metadata so it doesn't fire again
           await supabase.auth.updateUser({
             data: { connect_user_id: null }
+          })
+          // Process connection server-side (same RPC the client page uses)
+          await supabase.rpc('connect_users', {
+            p_current_user_id: user.id,
+            p_target_user_id: connectUserId,
+            p_existing_contact_id: null,
           })
           return NextResponse.redirect(`${origin}/connect/${connectUserId}`)
         }
