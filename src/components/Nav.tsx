@@ -33,7 +33,7 @@ export default function Nav() {
     }
   }, [pathname]);
 
-  // Fetch pending invitation count
+  // Fetch pending invitation count + activity heartbeat
   useEffect(() => {
     async function fetchPending() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -44,6 +44,18 @@ export default function Nav() {
         .eq('to_user_id', user.id)
         .eq('status', 'pending');
       setPendingCount(count || 0);
+
+      // Update last_active_at (throttled to once every 5 minutes)
+      const now = Date.now();
+      const lastHeartbeat = parseInt(localStorage.getItem('nexus_last_heartbeat') || '0', 10);
+      if (now - lastHeartbeat > 5 * 60 * 1000) {
+        localStorage.setItem('nexus_last_heartbeat', String(now));
+        supabase
+          .from('profiles')
+          .update({ last_active_at: new Date().toISOString() })
+          .eq('id', user.id)
+          .then();
+      }
     }
     fetchPending();
   }, [pathname]);

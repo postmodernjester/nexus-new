@@ -25,7 +25,8 @@ CREATE TABLE public.profiles (
   ai_career_themes TEXT[],
   is_public BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  last_active_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================

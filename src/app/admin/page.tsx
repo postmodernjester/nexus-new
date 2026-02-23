@@ -14,6 +14,7 @@ interface AdminUser {
   photo: string | null;
   createdAt: string;
   lastSignIn: string | null;
+  lastActive: string | null;
   contactCount: number;
   noteCount: number;
   workCount: number;
@@ -410,9 +411,9 @@ export default function AdminPage() {
                     <div style={{ fontSize: "11px", color: "#64748b" }}>
                       Joined {formatDate(u.createdAt)}
                     </div>
-                    {u.lastSignIn && (
+                    {(u.lastActive || u.lastSignIn) && (
                       <div style={{ fontSize: "10px", color: "#475569", marginTop: "1px" }}>
-                        Last seen {daysSince(u.lastSignIn)}
+                        Last seen {daysSince(u.lastActive || u.lastSignIn)}
                       </div>
                     )}
                   </div>

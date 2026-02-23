@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const [authRes, profilesRes, contactsRes, connectionsRes, invitationsRes, notesRes, workRes] =
     await Promise.all([
       supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
-      supabaseAdmin.from("profiles").select("id, full_name, is_public, profile_photo_url, avatar_url, created_at"),
+      supabaseAdmin.from("profiles").select("id, full_name, is_public, profile_photo_url, avatar_url, created_at, last_active_at"),
       supabaseAdmin.from("contacts").select("id, owner_id"),
       supabaseAdmin.from("connections").select("inviter_id, invitee_id, status"),
       supabaseAdmin.from("link_invitations").select("from_user_id, to_user_id, status"),
@@ -67,6 +67,7 @@ export async function GET(req: Request) {
       photo: profile?.profile_photo_url || profile?.avatar_url || null,
       createdAt: u.created_at,
       lastSignIn: u.last_sign_in_at || null,
+      lastActive: profile?.last_active_at || null,
       contactCount,
       noteCount,
       workCount,
