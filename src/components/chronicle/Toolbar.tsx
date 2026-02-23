@@ -26,13 +26,14 @@ export default function Toolbar({ sliderPos, zoomLabel, zoomDragRef, zoomFromTra
         <div
           id="chr-zoom-track"
           onMouseDown={(e) => { zoomDragRef.current = true; zoomFromTrack(e.clientX); e.preventDefault() }}
-          style={{ position: 'relative', width: 110, height: 3, background: '#d8d0c0', borderRadius: 2, cursor: 'pointer' }}
+          style={{ position: 'relative', width: 170, height: 3, background: '#d8d0c0', borderRadius: 2, cursor: 'pointer' }}
         >
           <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${sliderPos * 100}%`, background: '#9a8e78', borderRadius: 2, pointerEvents: 'none' }} />
           <div style={{
             position: 'absolute', top: '50%', left: `${sliderPos * 100}%`,
-            transform: 'translate(-50%,-50%)', width: 12, height: 12, borderRadius: '50%',
+            transform: 'translate(-50%,-50%)', width: 14, height: 14, borderRadius: '50%',
             background: '#1a1812', cursor: 'grab', boxShadow: '0 1px 4px rgba(0,0,0,.25)',
+            transition: zoomDragRef.current ? 'none' : 'left 0.08s ease-out',
           }} />
         </div>
         <span style={{ fontSize: 9, color: '#9a8e78', minWidth: 34 }}>{zoomLabel}</span>

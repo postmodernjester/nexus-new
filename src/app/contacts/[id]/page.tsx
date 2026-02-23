@@ -231,7 +231,7 @@ export default function ContactDossierPage() {
   }
 
   async function addNote() {
-    if (!noteText.trim()) return;
+    if (!noteText.trim() && !noteAction.trim()) return;
     setAddingNote(true);
     const {
       data: { user },
@@ -243,11 +243,11 @@ export default function ContactDossierPage() {
       .insert({
         contact_id: cid,
         owner_id: user.id,
-        content: noteText.trim(),
+        content: noteText.trim() || noteAction.trim(),
         context: noteContext.trim() || null,
         entry_date: noteDate,
         action_text: noteAction.trim() || null,
-        action_due_date: noteActionDue || null,
+        action_due_date: noteAction.trim() ? (noteActionDue || null) : null,
         action_completed: false,
       })
       .select()
@@ -256,8 +256,8 @@ export default function ContactDossierPage() {
     if (error) {
       alert("Failed: " + error.message);
     } else if (data) {
-      setNotes(
-        [data, ...notes].sort(
+      setNotes((prev) =>
+        [data, ...prev].sort(
           (a, b) =>
             new Date(b.entry_date).getTime() - new Date(a.entry_date).getTime()
         )
@@ -315,37 +315,48 @@ export default function ContactDossierPage() {
 
   async function toggleAction(note: NoteEntry) {
     const newVal = !note.action_completed;
-    await supabase
-      .from("contact_notes")
-      .update({ action_completed: newVal })
-      .eq("id", note.id);
-    setNotes(
-      notes.map((n) =>
+    // Optimistically update local state first
+    setNotes((prev) =>
+      prev.map((n) =>
         n.id === note.id ? { ...n, action_completed: newVal } : n
       )
     );
-    touchContactUpdatedAt();
+    const { error } = await supabase
+      .from("contact_notes")
+      .update({ action_completed: newVal })
+      .eq("id", note.id);
+    if (error) {
+      // Revert on failure
+      setNotes((prev) =>
+        prev.map((n) =>
+          n.id === note.id ? { ...n, action_completed: !newVal } : n
+        )
+      );
+      console.error("Failed to toggle action:", error);
+    } else {
+      touchContactUpdatedAt();
+    }
   }
 
   async function toggleImportance(note: NoteEntry) {
     const cycle = [null, "green", "yellow", "red"] as const;
     const idx = cycle.indexOf(note.importance as any);
     const next = cycle[(idx + 1) % cycle.length];
+    setNotes((prev) =>
+      prev.map((n) =>
+        n.id === note.id ? { ...n, importance: next } : n
+      )
+    );
     await supabase
       .from("contact_notes")
       .update({ importance: next })
       .eq("id", note.id);
-    setNotes(
-      notes.map((n) =>
-        n.id === note.id ? { ...n, importance: next } : n
-      )
-    );
   }
 
   async function deleteNote(id: string) {
     if (!confirm("Delete this note?")) return;
     await supabase.from("contact_notes").delete().eq("id", id);
-    setNotes(notes.filter((n) => n.id !== id));
+    setNotes((prev) => prev.filter((n) => n.id !== id));
     touchContactUpdatedAt();
   }
 
@@ -827,7 +838,7 @@ export default function ContactDossierPage() {
               >
                 <input
                   type="checkbox"
-                  checked={false}
+                  checked={n.action_completed}
                   onChange={() => toggleAction(n)}
                   style={{ marginTop: "3px", cursor: "pointer", accentColor: "#a78bfa" }}
                 />

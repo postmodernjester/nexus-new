@@ -338,11 +338,18 @@ export default function DashboardPage() {
   }, [router]);
 
   async function completeAction(noteId: string) {
-    await supabase
+    // Optimistically remove from list
+    const removed = actionItems.find((a) => a.id === noteId);
+    setActionItems((prev) => prev.filter((a) => a.id !== noteId));
+    const { error } = await supabase
       .from("contact_notes")
       .update({ action_completed: true })
       .eq("id", noteId);
-    setActionItems((prev) => prev.filter((a) => a.id !== noteId));
+    if (error) {
+      // Revert on failure
+      if (removed) setActionItems((prev) => [...prev, removed]);
+      console.error("Failed to complete action:", error);
+    }
   }
 
   async function respondToInvitation(invitationId: string, accept: boolean) {

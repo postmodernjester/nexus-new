@@ -117,38 +117,15 @@ export default function NotesSection({
           overflow: "hidden",
         }}
       >
-        <textarea
-          value={noteText}
-          onChange={(e) => setNoteText(e.target.value)}
-          placeholder="Add a note, paste a URL, meeting notes, research..."
-          rows={2}
-          style={{
-            ...s.textarea,
-            border: "none",
-            borderRadius: "8px 8px 0 0",
-            background: "transparent",
-            fontSize: "13px",
-            padding: "10px 12px",
-          }}
-        />
-
-        {/* All fields in one row: date, context, action, due, Add */}
-        <div
-          style={{
-            padding: "6px 12px 8px",
-            borderTop: "1px solid #1e293b",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-          }}
-        >
+        {/* Date first */}
+        <div style={{ padding: "8px 12px 0", display: "flex", alignItems: "center", gap: "8px" }}>
           <input
             type="date"
             value={noteDate}
             onChange={(e) => setNoteDate(e.target.value)}
             style={{
               ...s.input,
-              width: "120px",
+              width: "130px",
               fontSize: "11px",
               padding: "4px 6px",
               background: "transparent",
@@ -157,65 +134,86 @@ export default function NotesSection({
               flexShrink: 0,
             }}
           />
-          <input
-            value={noteContext}
-            onChange={(e) => setNoteContext(e.target.value)}
-            placeholder="context"
-            style={{
-              ...s.input,
-              width: "90px",
-              fontSize: "11px",
-              padding: "4px 6px",
-              background: "transparent",
-              border: "1px solid #1e293b",
-              color: "#94a3b8",
-              flexShrink: 0,
-            }}
-          />
-          <input
-            value={noteAction}
-            onChange={(e) => setNoteAction(e.target.value)}
-            placeholder="action item"
-            style={{
-              ...s.input,
-              flex: 1,
-              fontSize: "11px",
-              padding: "4px 8px",
-              background: "transparent",
-              border: "1px solid #1e293b",
-              color: "#e2e8f0",
-              minWidth: 0,
-            }}
-          />
-          <span style={{ fontSize: "10px", color: "#475569", flexShrink: 0 }}>due</span>
-          <input
-            type="date"
-            value={noteActionDue}
-            onChange={(e) => setNoteActionDue(e.target.value)}
-            style={{
-              ...s.input,
-              width: "120px",
-              fontSize: "11px",
-              padding: "4px 6px",
-              background: "transparent",
-              border: "1px solid #1e293b",
-              color: "#64748b",
-              flexShrink: 0,
-            }}
-          />
-          <button
-            onClick={addNote}
-            disabled={addingNote || !noteText.trim()}
-            style={{
-              ...s.btnPrimary,
-              fontSize: "11px",
-              padding: "4px 14px",
-              opacity: addingNote || !noteText.trim() ? 0.3 : 1,
-              flexShrink: 0,
-            }}
-          >
-            {addingNote ? "..." : "Add"}
-          </button>
+        </div>
+
+        {/* Note textarea */}
+        <textarea
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          placeholder="Add a note, paste a URL, meeting notes, research..."
+          rows={2}
+          className="note-form-placeholder"
+          style={{
+            ...s.textarea,
+            border: "none",
+            borderRadius: 0,
+            background: "transparent",
+            fontSize: "13px",
+            padding: "8px 12px",
+          }}
+        />
+
+        {/* ACTION ITEMS section */}
+        <div style={{ padding: "0 12px 8px" }}>
+          <div style={{
+            fontSize: "9px",
+            letterSpacing: "0.1em",
+            color: "#475569",
+            textTransform: "uppercase",
+            marginBottom: "6px",
+            borderTop: "1px solid #1e293b",
+            paddingTop: "8px",
+          }}>
+            Action Items
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <input
+              value={noteAction}
+              onChange={(e) => setNoteAction(e.target.value)}
+              placeholder="e.g. Call Bill about the project"
+              className="note-form-placeholder"
+              style={{
+                ...s.input,
+                flex: 1,
+                fontSize: "12px",
+                padding: "5px 8px",
+                background: "transparent",
+                border: "1px solid #1e293b",
+                color: "#e2e8f0",
+                minWidth: 0,
+              }}
+            />
+            <span style={{ fontSize: "10px", color: "#475569", flexShrink: 0 }}>due</span>
+            <input
+              type="date"
+              value={noteActionDue}
+              onChange={(e) => setNoteActionDue(e.target.value)}
+              style={{
+                ...s.input,
+                width: "120px",
+                fontSize: "11px",
+                padding: "4px 6px",
+                background: "transparent",
+                border: "1px solid #1e293b",
+                color: "#64748b",
+                flexShrink: 0,
+              }}
+            />
+            <button
+              onClick={addNote}
+              disabled={addingNote}
+              style={{
+                ...s.btnPrimary,
+                fontSize: "11px",
+                padding: "4px 14px",
+                opacity: addingNote ? 0.3 : (noteText.trim() || noteAction.trim()) ? 1 : 0.35,
+                transition: "opacity 0.15s",
+                flexShrink: 0,
+              }}
+            >
+              {addingNote ? "..." : "Add"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -439,11 +437,19 @@ export default function NotesSection({
         )}
       </div>
 
-      {/* Hover CSS for note actions */}
+      {/* Hover CSS for note actions + placeholder styling */}
       <style>{`
         .note-actions { transition: opacity 0.15s; }
         div:hover > div > .note-actions,
         div:hover > .note-actions { opacity: 1 !important; }
+        .note-form-placeholder::placeholder {
+          color: #475569;
+          font-style: italic;
+          opacity: 1;
+        }
+        .note-form-placeholder:focus::placeholder {
+          opacity: 0;
+        }
       `}</style>
     </div>
   );

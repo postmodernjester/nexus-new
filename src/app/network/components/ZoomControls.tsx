@@ -1,4 +1,4 @@
-import { RefObject } from "react";
+import { RefObject, useRef, useEffect, useState, useCallback } from "react";
 import * as d3 from "d3";
 
 interface ZoomControlsProps {
@@ -6,7 +6,76 @@ interface ZoomControlsProps {
   zoomRef: RefObject<d3.ZoomBehavior<SVGSVGElement, unknown> | null>;
 }
 
+const TRACK_W = 170;
+const MIN_SCALE = 0.2;
+const MAX_SCALE = 4;
+
+function scaleToSlider(scale: number): number {
+  return (Math.log(scale) - Math.log(MIN_SCALE)) / (Math.log(MAX_SCALE) - Math.log(MIN_SCALE));
+}
+
+function sliderToScale(pos: number): number {
+  return Math.exp(Math.log(MIN_SCALE) + pos * (Math.log(MAX_SCALE) - Math.log(MIN_SCALE)));
+}
+
+function formatZoomLabel(scale: number): string {
+  return Math.round(scale * 100) + "%";
+}
+
 export default function ZoomControls({ svgRef, zoomRef }: ZoomControlsProps) {
+  const [sliderPos, setSliderPos] = useState(() => scaleToSlider(1));
+  const draggingRef = useRef(false);
+
+  // Listen to D3 zoom events to keep slider in sync
+  useEffect(() => {
+    if (!svgRef.current || !zoomRef.current) return;
+    const svg = d3.select(svgRef.current);
+    const handler = () => {
+      const transform = d3.zoomTransform(svgRef.current!);
+      setSliderPos(scaleToSlider(transform.k));
+    };
+    svg.on("zoom.slider", handler);
+    return () => { svg.on("zoom.slider", null); };
+  }, [svgRef, zoomRef]);
+
+  const applyZoom = useCallback((pos: number) => {
+    if (!svgRef.current || !zoomRef.current) return;
+    const clamped = Math.max(0, Math.min(1, pos));
+    const newScale = sliderToScale(clamped);
+    const svg = d3.select(svgRef.current);
+    const currentTransform = d3.zoomTransform(svgRef.current);
+    const newTransform = currentTransform.scale(newScale / currentTransform.k);
+    (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>)
+      .call(zoomRef.current.transform, newTransform);
+  }, [svgRef, zoomRef]);
+
+  const handleTrackClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    draggingRef.current = true;
+    applyZoom(pos);
+  }, [applyZoom]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const track = document.getElementById("net-zoom-track");
+      if (!track) return;
+      const rect = track.getBoundingClientRect();
+      const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      applyZoom(pos);
+    };
+    const handleMouseUp = () => { draggingRef.current = false; };
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [applyZoom]);
+
+  const scale = sliderToScale(sliderPos);
+
   return (
     <div
       style={{
@@ -14,43 +83,64 @@ export default function ZoomControls({ svgRef, zoomRef }: ZoomControlsProps) {
         bottom: "16px",
         right: "16px",
         display: "flex",
-        flexDirection: "column",
-        gap: "4px",
+        alignItems: "center",
+        gap: "9px",
         zIndex: 20,
+        background: "rgba(15, 23, 42, 0.85)",
+        backdropFilter: "blur(8px)",
+        padding: "8px 14px",
+        borderRadius: "10px",
+        border: "1px solid #334155",
       }}
     >
-      {[
-        { label: "+", delta: 1.4 },
-        { label: "\u2013", delta: 1 / 1.4 },
-      ].map(({ label, delta }) => (
-        <button
-          key={label}
-          onClick={() => {
-            if (!svgRef.current || !zoomRef.current) return;
-            const svg = d3.select(svgRef.current);
-            (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>)
-              .transition()
-              .duration(250)
-              .call(zoomRef.current.scaleBy, delta);
-          }}
+      <span style={{ fontSize: "7.5px", letterSpacing: ".15em", color: "#64748b", textTransform: "uppercase" }}>
+        SCALE
+      </span>
+      <div
+        id="net-zoom-track"
+        onMouseDown={handleTrackClick}
+        style={{
+          position: "relative",
+          width: TRACK_W,
+          height: 3,
+          background: "#334155",
+          borderRadius: 2,
+          cursor: "pointer",
+        }}
+      >
+        {/* Fill */}
+        <div
           style={{
-            width: "36px",
-            height: "36px",
-            background: "#1e293b",
-            border: "1px solid #334155",
-            borderRadius: "8px",
-            color: "#94a3b8",
-            fontSize: "18px",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            lineHeight: 1,
+            position: "absolute",
+            left: 0,
+            top: 0,
+            height: "100%",
+            width: `${sliderPos * 100}%`,
+            background: "#64748b",
+            borderRadius: 2,
+            pointerEvents: "none",
           }}
-        >
-          {label}
-        </button>
-      ))}
+        />
+        {/* Thumb */}
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: `${sliderPos * 100}%`,
+            transform: "translate(-50%,-50%)",
+            width: 14,
+            height: 14,
+            borderRadius: "50%",
+            background: "#94a3b8",
+            cursor: "grab",
+            boxShadow: "0 1px 4px rgba(0,0,0,.4)",
+            transition: draggingRef.current ? "none" : "left 0.08s ease-out",
+          }}
+        />
+      </div>
+      <span style={{ fontSize: 9, color: "#64748b", minWidth: 34 }}>
+        {formatZoomLabel(scale)}
+      </span>
     </div>
   );
 }

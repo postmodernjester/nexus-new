@@ -4,7 +4,7 @@
 export const CURRENT_YEAR = new Date().getFullYear()
 export const COL_W = 148
 export const COLLAPSED_W = 24
-export const AXIS_W = 72
+export const AXIS_W = 100
 
 // Zoom: slider 0 → 60yr visible, 0.5 → ~4yr, 1 → 2yr
 export const ZOOM_YEARS_MAX = 60
