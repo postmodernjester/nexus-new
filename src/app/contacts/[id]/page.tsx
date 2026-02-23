@@ -468,13 +468,6 @@ export default function ContactDossierPage() {
     setGeneratingSummary(false);
   }
 
-  function handleNoteKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      addNote();
-    }
-  }
-
   const setField = (k: string, v: string | boolean) =>
     setEditFields({ ...editFields, [k]: v });
 
@@ -761,7 +754,6 @@ export default function ContactDossierPage() {
           setNoteActionDue={setNoteActionDue}
           addingNote={addingNote}
           addNote={addNote}
-          handleNoteKeyDown={handleNoteKeyDown}
           editingNoteId={editingNoteId}
           setEditingNoteId={setEditingNoteId}
           editNoteContent={editNoteContent}

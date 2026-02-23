@@ -27,7 +27,6 @@ interface NotesSectionProps {
   setNoteActionDue: (v: string) => void;
   addingNote: boolean;
   addNote: () => void;
-  handleNoteKeyDown: (e: React.KeyboardEvent) => void;
   // Edit note state
   editingNoteId: string | null;
   setEditingNoteId: (v: string | null) => void;
@@ -85,7 +84,6 @@ export default function NotesSection({
   setNoteActionDue,
   addingNote,
   addNote,
-  handleNoteKeyDown,
   editingNoteId,
   setEditingNoteId,
   editNoteContent,
@@ -122,7 +120,6 @@ export default function NotesSection({
         <textarea
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
-          onKeyDown={handleNoteKeyDown}
           placeholder="Add a note, paste a URL, meeting notes, research..."
           rows={2}
           style={{
@@ -135,14 +132,14 @@ export default function NotesSection({
           }}
         />
 
-        {/* Date + Context row */}
+        {/* All fields in one row: date, context, action, due, Add */}
         <div
           style={{
-            padding: "6px 12px",
+            padding: "6px 12px 8px",
             borderTop: "1px solid #1e293b",
             display: "flex",
             alignItems: "center",
-            gap: "8px",
+            gap: "6px",
           }}
         >
           <input
@@ -151,43 +148,34 @@ export default function NotesSection({
             onChange={(e) => setNoteDate(e.target.value)}
             style={{
               ...s.input,
-              width: "130px",
+              width: "120px",
               fontSize: "11px",
               padding: "4px 6px",
               background: "transparent",
               border: "1px solid #1e293b",
               color: "#64748b",
+              flexShrink: 0,
             }}
           />
           <input
             value={noteContext}
             onChange={(e) => setNoteContext(e.target.value)}
-            placeholder="context (meeting, call, research...)"
+            placeholder="context"
             style={{
               ...s.input,
-              flex: 1,
+              width: "90px",
               fontSize: "11px",
-              padding: "4px 8px",
+              padding: "4px 6px",
               background: "transparent",
               border: "1px solid #1e293b",
               color: "#94a3b8",
+              flexShrink: 0,
             }}
           />
-        </div>
-
-        {/* Action row */}
-        <div
-          style={{
-            padding: "6px 12px 8px",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-          }}
-        >
           <input
             value={noteAction}
             onChange={(e) => setNoteAction(e.target.value)}
-            placeholder="next step: follow up, send proposal..."
+            placeholder="action item"
             style={{
               ...s.input,
               flex: 1,
@@ -196,41 +184,38 @@ export default function NotesSection({
               background: "transparent",
               border: "1px solid #1e293b",
               color: "#e2e8f0",
+              minWidth: 0,
             }}
           />
-          <span style={{ fontSize: "10px", color: "#475569" }}>due</span>
+          <span style={{ fontSize: "10px", color: "#475569", flexShrink: 0 }}>due</span>
           <input
             type="date"
             value={noteActionDue}
             onChange={(e) => setNoteActionDue(e.target.value)}
             style={{
               ...s.input,
-              width: "130px",
+              width: "120px",
               fontSize: "11px",
               padding: "4px 6px",
               background: "transparent",
               border: "1px solid #1e293b",
               color: "#64748b",
+              flexShrink: 0,
             }}
           />
-
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "9px", color: "#334155" }}>
-              Cmd+Enter
-            </span>
-            <button
-              onClick={addNote}
-              disabled={addingNote || !noteText.trim()}
-              style={{
-                ...s.btnPrimary,
-                fontSize: "11px",
-                padding: "4px 14px",
-                opacity: addingNote || !noteText.trim() ? 0.3 : 1,
-              }}
-            >
-              {addingNote ? "..." : "Add"}
-            </button>
-          </div>
+          <button
+            onClick={addNote}
+            disabled={addingNote || !noteText.trim()}
+            style={{
+              ...s.btnPrimary,
+              fontSize: "11px",
+              padding: "4px 14px",
+              opacity: addingNote || !noteText.trim() ? 0.3 : 1,
+              flexShrink: 0,
+            }}
+          >
+            {addingNote ? "..." : "Add"}
+          </button>
         </div>
       </div>
 
