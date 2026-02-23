@@ -34,7 +34,7 @@ export interface GraphNode extends d3.SimulationNodeDatum {
   id: string;
   label: string;
   fullName: string;
-  type: "self" | "contact" | "connected_user" | "their_contact" | "world";
+  type: "self" | "contact" | "connected_user" | "their_contact" | "world" | "third_degree";
   radius: number;
   connectionCount: number;
   relationship_type?: string;
@@ -47,6 +47,7 @@ export interface GraphNode extends d3.SimulationNodeDatum {
   isAnonymous?: boolean;
   recency?: number;
   searchText?: string;
+  anchorNodeId?: string;
 }
 
 export interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {

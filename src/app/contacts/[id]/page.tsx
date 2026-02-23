@@ -285,7 +285,7 @@ export default function ContactDossierPage() {
   }
 
   async function updateNote(id: string) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("contact_notes")
       .update({
         content: editNoteContent,
@@ -295,9 +295,11 @@ export default function ContactDossierPage() {
         action_due_date: editNoteActionDue || null,
         action_completed: editNoteActionCompleted,
       })
-      .eq("id", id);
-    if (error) {
-      alert("Failed: " + error.message);
+      .eq("id", id)
+      .select()
+      .single();
+    if (error || !data) {
+      alert("Failed: " + (error?.message || "Update not applied — check permissions"));
     } else {
       const updated = notes
         .map((n) =>
@@ -331,18 +333,20 @@ export default function ContactDossierPage() {
         n.id === note.id ? { ...n, action_completed: newVal } : n
       )
     );
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("contact_notes")
       .update({ action_completed: newVal })
-      .eq("id", note.id);
-    if (error) {
-      // Revert on failure
+      .eq("id", note.id)
+      .select()
+      .single();
+    if (error || !data) {
+      // Revert on failure (includes RLS silent denial)
       setNotes((prev) =>
         prev.map((n) =>
           n.id === note.id ? { ...n, action_completed: !newVal } : n
         )
       );
-      console.error("Failed to toggle action:", error);
+      console.error("Failed to toggle action:", error || "No rows updated");
     } else {
       touchContactUpdatedAt();
     }
@@ -352,15 +356,27 @@ export default function ContactDossierPage() {
     const cycle = [null, "green", "yellow", "red"] as const;
     const idx = cycle.indexOf(note.importance as any);
     const next = cycle[(idx + 1) % cycle.length];
-    setNotes((prev) =>
-      prev.map((n) =>
+    const prev = note.importance;
+    setNotes((prevNotes) =>
+      prevNotes.map((n) =>
         n.id === note.id ? { ...n, importance: next } : n
       )
     );
-    await supabase
+    const { data, error } = await supabase
       .from("contact_notes")
       .update({ importance: next })
-      .eq("id", note.id);
+      .eq("id", note.id)
+      .select()
+      .single();
+    if (error || !data) {
+      // Revert on failure
+      setNotes((prevNotes) =>
+        prevNotes.map((n) =>
+          n.id === note.id ? { ...n, importance: prev } : n
+        )
+      );
+      console.error("Failed to toggle importance:", error || "No rows updated");
+    }
   }
 
   async function deleteNote(id: string) {

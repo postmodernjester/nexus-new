@@ -25,7 +25,7 @@ export default function NetworkPage() {
   const [filterText, setFilterText] = useState("");
   const router = useRouter();
 
-  const { graphData, nodeProfiles, loading, fetchWorldData } = useNetworkData();
+  const { graphData, nodeProfiles, loading, fetchWorldData, fetchThirdDegreeData } = useNetworkData();
 
   // ─── World toggle ───
   const [showWorld, setShowWorld] = useState(false);
@@ -48,11 +48,32 @@ export default function NetworkPage() {
     setShowWorld(true);
   }, [showWorld, worldNodes.length, fetchWorldData]);
 
-  // Merge graph + world data
+  // ─── 3rds toggle ───
+  const [showThirds, setShowThirds] = useState(false);
+  const [thirdsNodes, setThirdsNodes] = useState<GraphNode[]>([]);
+  const [thirdsLoading, setThirdsLoading] = useState(false);
+
+  const toggleThirds = useCallback(async () => {
+    if (showThirds) {
+      setShowThirds(false);
+      return;
+    }
+    if (thirdsNodes.length === 0) {
+      setThirdsLoading(true);
+      const data = await fetchThirdDegreeData();
+      setThirdsNodes(data.nodes);
+      setThirdsLoading(false);
+    }
+    setShowThirds(true);
+  }, [showThirds, thirdsNodes.length, fetchThirdDegreeData]);
+
+  // Merge graph + world + 3rds data
   const allNodes = useMemo(() => {
-    if (showWorld) return [...graphData.nodes, ...worldNodes];
-    return graphData.nodes;
-  }, [graphData.nodes, worldNodes, showWorld]);
+    let nodes = graphData.nodes;
+    if (showThirds) nodes = [...nodes, ...thirdsNodes];
+    if (showWorld) nodes = [...nodes, ...worldNodes];
+    return nodes;
+  }, [graphData.nodes, worldNodes, showWorld, thirdsNodes, showThirds]);
 
   const allProfiles = useMemo(() => {
     if (showWorld) return { ...nodeProfiles, ...worldProfiles };
@@ -199,7 +220,24 @@ export default function NetworkPage() {
       }
     }
 
-    const allLinks = [...graphData.links, ...clusterLinks];
+    // ── 3rd-degree attraction links (invisible, physics only) ──
+    // Each 3rd-degree node gets a soft spring to its anchor (2nd-degree) node
+    const thirdDegreeLinks: (GraphLink & { _simStrength?: number })[] = [];
+    for (const n of allNodes) {
+      if (n.type !== "third_degree" || !n.anchorNodeId) continue;
+      thirdDegreeLinks.push({
+        source: n.id,
+        target: n.anchorNodeId,
+        distance: 80 + Math.random() * 60,
+        thickness: 0,
+        recency: 0,
+        isMutual: false,
+        isLinkedUser: false,
+        _simStrength: 0.05,
+      });
+    }
+
+    const allLinks = [...graphData.links, ...clusterLinks, ...thirdDegreeLinks];
 
     const simulation = d3
       .forceSimulation<GraphNode>(allNodes)
@@ -253,6 +291,7 @@ export default function NetworkPage() {
       .attr("r", (d) => d.radius)
       .attr("fill", (d) => {
         if (d.type === "self") return "#a08040";
+        if (d.type === "third_degree") return "#334155";
         if (d.type === "their_contact") return "#4a5568";
         if (d.type === "world") return "#2d6a5a";
         return "#6b7f99";
@@ -268,11 +307,16 @@ export default function NetworkPage() {
       .attr("dy", (d) => d.radius + 14)
       .attr("fill", (d) => {
         if (d.type === "self") return "#c9a050";
+        if (d.type === "third_degree") return "#475569";
         if (d.type === "their_contact") return "#64748b";
         if (d.type === "world") return "#3d8a7a";
         return "#94a3b8";
       })
-      .attr("font-size", (d) => (d.type === "their_contact" || d.type === "world" ? "8px" : "11px"))
+      .attr("font-size", (d) => {
+        if (d.type === "third_degree") return "7px";
+        if (d.type === "their_contact" || d.type === "world") return "8px";
+        return "11px";
+      })
       .attr("font-weight", (d) =>
         d.type === "self" ? "bold" : "normal"
       );
@@ -374,8 +418,9 @@ export default function NetworkPage() {
 
   // Count stats
   const networkNodeCount = graphData.nodes.length;
+  const thirdsNodeCount = showThirds ? thirdsNodes.length : 0;
   const worldNodeCount = showWorld ? worldNodes.length : 0;
-  const totalNodes = networkNodeCount + worldNodeCount;
+  const totalNodes = networkNodeCount + thirdsNodeCount + worldNodeCount;
 
   return (
     <div
@@ -418,6 +463,24 @@ export default function NetworkPage() {
         <span style={{ color: "#475569", fontSize: "12px" }}>
           {totalNodes} nodes · {graphData.links.length} connections
         </span>
+
+        {/* 3rds toggle */}
+        <button
+          onClick={toggleThirds}
+          disabled={thirdsLoading}
+          style={{
+            padding: "4px 12px",
+            fontSize: "12px",
+            borderRadius: "12px",
+            border: showThirds ? "1px solid #4a5568" : "1px solid #334155",
+            background: showThirds ? "rgba(74, 85, 104, 0.25)" : "transparent",
+            color: showThirds ? "#94a3b8" : "#64748b",
+            cursor: thirdsLoading ? "wait" : "pointer",
+            transition: "all 0.2s",
+          }}
+        >
+          {thirdsLoading ? "Loading…" : showThirds ? `3rds (${thirdsNodes.length})` : "3rds"}
+        </button>
 
         {/* World toggle */}
         <button

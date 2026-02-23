@@ -353,14 +353,16 @@ export default function DashboardPage() {
     // Optimistically remove from list
     const removed = actionItems.find((a) => a.id === noteId);
     setActionItems((prev) => prev.filter((a) => a.id !== noteId));
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("contact_notes")
       .update({ action_completed: true })
-      .eq("id", noteId);
-    if (error) {
-      // Revert on failure
+      .eq("id", noteId)
+      .select()
+      .single();
+    if (error || !data) {
+      // Revert on failure (includes RLS silent denial)
       if (removed) setActionItems((prev) => [...prev, removed]);
-      console.error("Failed to complete action:", error);
+      console.error("Failed to complete action:", error || "No rows updated");
     }
   }
 

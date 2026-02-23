@@ -101,6 +101,7 @@ export function useNetworkData() {
   }>({ nodes: [], links: [] });
   const [nodeProfiles, setNodeProfiles] = useState<Record<string, NodeProfile>>({});
   const [networkProfileIds, setNetworkProfileIds] = useState<Set<string>>(new Set());
+  const [profileNodeMap, setProfileNodeMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
     async function fetchAll() {
@@ -563,6 +564,7 @@ export function useNetworkData() {
       setGraphData({ nodes, links });
       setNodeProfiles(profiles);
       setNetworkProfileIds(inNetwork);
+      setProfileNodeMap(profileToNodeId);
       setLoading(false);
     }
 
@@ -671,5 +673,69 @@ export function useNetworkData() {
     return { nodes: worldNodes, profiles: worldProfs };
   }, [networkProfileIds]);
 
-  return { graphData, nodeProfiles, loading, fetchWorldData };
+  // ── 3rd-degree fetcher (called on toggle) ──────────────────
+  const fetchThirdDegreeData = useCallback(async (): Promise<{
+    nodes: GraphNode[];
+  }> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { nodes: [] };
+
+    const { data: thirdDegreeContacts, error } = await supabase.rpc(
+      "get_third_degree_contacts",
+      { p_user_id: user.id }
+    );
+
+    if (error) {
+      console.warn("get_third_degree_contacts RPC failed:", error.message,
+        "— 3rd degree contacts will not appear. Ensure the SQL function exists.");
+      return { nodes: [] };
+    }
+
+    // Build set of existing identifiers for dedup
+    const existingNames = new Set(graphData.nodes.map(n => n.fullName.toLowerCase()));
+    const existingProfileIds = new Set<string>();
+    for (const n of graphData.nodes) {
+      if (n.profileId) existingProfileIds.add(n.profileId);
+      if (n.user_id) existingProfileIds.add(n.user_id);
+    }
+
+    const nodes: GraphNode[] = [];
+    const seen = new Set<string>();
+
+    for (const c of (thirdDegreeContacts || []) as Contact[]) {
+      // Skip if already in graph
+      if (c.linked_profile_id && existingProfileIds.has(c.linked_profile_id)) continue;
+      if (existingNames.has(c.full_name.toLowerCase())) continue;
+
+      const dedupKey = c.linked_profile_id || `name:${c.full_name.toLowerCase()}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+
+      // Find anchor: the 2nd-degree node whose linked profile owns this contact
+      const anchorNodeId = profileNodeMap[c.owner_id];
+      if (!anchorNodeId) continue; // can't place without an anchor
+
+      const nameParts = c.full_name.split(" ");
+      const lastName = nameParts.length > 1 ? nameParts.slice(-1)[0] : c.full_name;
+
+      nodes.push({
+        id: `third-${c.id}`,
+        label: lastName,
+        fullName: c.full_name,
+        type: "third_degree",
+        radius: 4,
+        connectionCount: 0,
+        company: c.company ?? undefined,
+        role: c.role ?? undefined,
+        owner_id: c.owner_id,
+        anchorNodeId,
+        recency: 0.18,
+        searchText: [c.full_name, c.company, c.role].filter(Boolean).join(" ").toLowerCase(),
+      });
+    }
+
+    return { nodes };
+  }, [graphData.nodes, profileNodeMap]);
+
+  return { graphData, nodeProfiles, loading, fetchWorldData, fetchThirdDegreeData };
 }

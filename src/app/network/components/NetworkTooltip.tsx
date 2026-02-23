@@ -24,7 +24,23 @@ export default function NetworkTooltip({ hoveredNode, tooltipPos }: NetworkToolt
         boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
       }}
     >
-      {hoveredNode.type === "world" ? (
+      {hoveredNode.type === "third_degree" ? (
+        <>
+          {hoveredNode.role && (
+            <div style={{ fontWeight: 600, fontSize: "13px", color: "#94a3b8" }}>
+              {hoveredNode.role}
+            </div>
+          )}
+          {hoveredNode.company && (
+            <div style={{ color: "#64748b", fontSize: "11px", marginTop: "2px" }}>
+              {hoveredNode.company}
+            </div>
+          )}
+          <div style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}>
+            3rd degree
+          </div>
+        </>
+      ) : hoveredNode.type === "world" ? (
         <>
           <div style={{ fontWeight: 600, fontSize: "13px", color: "#e2e8f0" }}>
             {hoveredNode.fullName}
