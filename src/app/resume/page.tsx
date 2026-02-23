@@ -12,7 +12,7 @@ import {
 import {
   inputStyle, btnPrimary, btnSecondary, iconBtn, iconBtnDanger, cardStyle,
 } from './styles'
-import { formatDate } from './utils'
+import { formatDate, computeDuration } from './utils'
 
 import WorkModal from './components/WorkModal'
 import EducationModal from './components/EducationModal'
@@ -678,68 +678,165 @@ export default function ResumePage() {
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {[
-              ...workEntries.map(e => ({ kind: 'work' as const, sortDate: e.start_date || '', data: e })),
-              ...chronicleEntries
-                .filter(e => e.canvas_col !== 'project' && e.type !== 'project' && e.canvas_col !== 'education' && e.type !== 'education')
-                .map(e => ({ kind: 'chronicle' as const, sortDate: e.start_date || '', data: e })),
-            ]
-              .sort((a, b) => b.sortDate.localeCompare(a.sortDate))
-              .map(item => {
-                if (item.kind === 'work') {
-                  const entry = item.data as WorkEntry
-                  {
-                    const locLabel = LOCATION_TYPES.find(l => l.value === entry.location_type)?.label
-                    const entrySkills = entry.ai_skills_extracted || []
+            {(() => {
+              // Group work entries by company
+              const companyMap = new Map<string, WorkEntry[]>()
+              for (const e of workEntries) {
+                const key = e.company.toLowerCase().trim()
+                if (!companyMap.has(key)) companyMap.set(key, [])
+                companyMap.get(key)!.push(e)
+              }
+              for (const [, entries] of companyMap) {
+                entries.sort((a, b) => (b.start_date || '').localeCompare(a.start_date || ''))
+              }
+
+              type DisplayItem =
+                | { kind: 'company_group'; sortDate: string; entries: WorkEntry[] }
+                | { kind: 'chronicle'; sortDate: string; data: ChronicleResumeEntry }
+
+              const items: DisplayItem[] = []
+              for (const [, entries] of companyMap) {
+                items.push({ kind: 'company_group', sortDate: entries[0].start_date || '', entries })
+              }
+              for (const e of chronicleEntries.filter(e => e.canvas_col !== 'project' && e.type !== 'project' && e.canvas_col !== 'education' && e.type !== 'education')) {
+                items.push({ kind: 'chronicle', sortDate: e.start_date || '', data: e })
+              }
+              items.sort((a, b) => b.sortDate.localeCompare(a.sortDate))
+
+              // Shared role action buttons
+              const roleActions = (entry: WorkEntry) => {
+                const isHidden = entry.show_on_resume === false
+                return (
+                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0, marginLeft: '12px' }}>
+                    <button onClick={() => toggleWorkVisibility(entry)} style={{ ...iconBtn, color: isHidden ? '#475569' : '#a78bfa', borderColor: isHidden ? '#334155' : 'rgba(167,139,250,0.3)' }} title={isHidden ? 'Hidden from public resume' : 'Visible on public resume'}>
+                      {isHidden ? (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      )}
+                    </button>
+                    <button onClick={() => openEditWork(entry)} style={iconBtn} title="Edit">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
+                    <button onClick={() => entry.id && deleteWork(entry.id)} style={iconBtnDanger} title="Delete">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
+                  </div>
+                )
+              }
+
+              // Shared role detail renderer
+              const roleDetail = (entry: WorkEntry, showCompany: boolean) => {
+                const locLabel = LOCATION_TYPES.find(l => l.value === entry.location_type)?.label
+                const entrySkills = entry.ai_skills_extracted || []
+                const duration = computeDuration(entry.start_date, entry.end_date, entry.is_current)
+                const engLabel = entry.engagement_type ? entry.engagement_type.charAt(0).toUpperCase() + entry.engagement_type.slice(1) : ''
+                return (
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: showCompany ? '16px' : '15px' }}>{entry.title}</div>
+                    {showCompany ? (
+                      <div style={{ color: '#94a3b8', fontSize: '14px' }}>
+                        {entry.company}
+                        {engLabel && engLabel !== 'Full-time' ? ` · ${engLabel}` : ''}
+                      </div>
+                    ) : (
+                      engLabel && <div style={{ color: '#94a3b8', fontSize: '13px' }}>{engLabel}</div>
+                    )}
+                    <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
+                      {formatDate(entry.start_date)} – {entry.is_current ? 'Present' : formatDate(entry.end_date)}
+                      {duration ? ` · ${duration}` : ''}
+                    </div>
+                    {(entry.location || locLabel) && (
+                      <div style={{ color: '#64748b', fontSize: '13px' }}>
+                        {entry.location}{entry.location && locLabel ? ` · ${locLabel}` : locLabel || ''}
+                      </div>
+                    )}
+                    {entry.description && (
+                      <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.description}</p>
+                    )}
+                    {entrySkills.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '10px' }}>
+                        {entrySkills.map(sk => (
+                          <span key={sk} style={{
+                            padding: '2px 10px', fontSize: '11px', borderRadius: '12px',
+                            background: 'rgba(167,139,250,0.1)', color: '#c4b5fd',
+                            border: '1px solid rgba(167,139,250,0.2)',
+                          }}>{sk}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+
+              return items.map(item => {
+                if (item.kind === 'company_group') {
+                  const entries = item.entries
+
+                  // ─ Single role: flat card ─
+                  if (entries.length === 1) {
+                    const entry = entries[0]
                     const isHidden = entry.show_on_resume === false
                     return (
                       <div key={`w-${entry.id}`} style={{ ...cardStyle, opacity: isHidden ? 0.45 : 1, transition: 'opacity 0.2s' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.title}</div>
-                            <div style={{ color: '#94a3b8', fontSize: '14px' }}>
-                              {entry.company}
-                              {entry.engagement_type && entry.engagement_type !== 'full-time' ? ` · ${entry.engagement_type.charAt(0).toUpperCase() + entry.engagement_type.slice(1)}` : ''}
-                            </div>
-                            <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
-                              {formatDate(entry.start_date)} – {entry.is_current ? 'Present' : formatDate(entry.end_date)}
-                              {entry.location ? ` · ${entry.location}` : ''}
-                              {locLabel ? ` · ${locLabel}` : ''}
-                            </div>
-                            {entry.description && (
-                              <p style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '8px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.description}</p>
-                            )}
-                            {entrySkills.length > 0 && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '10px' }}>
-                                {entrySkills.map(sk => (
-                                  <span key={sk} style={{
-                                    padding: '2px 10px', fontSize: '11px', borderRadius: '12px',
-                                    background: 'rgba(167,139,250,0.1)', color: '#c4b5fd',
-                                    border: '1px solid rgba(167,139,250,0.2)',
-                                  }}>{sk}</span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                          <div style={{ display: 'flex', gap: '6px', flexShrink: 0, marginLeft: '12px' }}>
-                            <button onClick={() => toggleWorkVisibility(entry)} style={{ ...iconBtn, color: isHidden ? '#475569' : '#a78bfa', borderColor: isHidden ? '#334155' : 'rgba(167,139,250,0.3)' }} title={isHidden ? 'Hidden from public resume' : 'Visible on public resume'}>
-                              {isHidden ? (
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                              ) : (
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                              )}
-                            </button>
-                            <button onClick={() => openEditWork(entry)} style={iconBtn} title="Edit">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                            </button>
-                            <button onClick={() => entry.id && deleteWork(entry.id)} style={iconBtnDanger} title="Delete">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                            </button>
-                          </div>
+                          {roleDetail(entry, true)}
+                          {roleActions(entry)}
                         </div>
                       </div>
                     )
                   }
+
+                  // ─ Multi-role: grouped card with timeline ─
+                  const companyName = entries[0].company
+                  const allHidden = entries.every(e => e.show_on_resume === false)
+
+                  // Compute total company duration
+                  let earliestStart = entries[0].start_date
+                  let latestEnd = entries[0].end_date
+                  let hasCurrent = false
+                  for (const e of entries) {
+                    if (e.start_date && (!earliestStart || e.start_date < earliestStart)) earliestStart = e.start_date
+                    if (e.is_current) hasCurrent = true
+                    else if (e.end_date && (!latestEnd || e.end_date > latestEnd)) latestEnd = e.end_date
+                  }
+                  const totalDuration = computeDuration(earliestStart, latestEnd, hasCurrent)
+
+                  return (
+                    <div key={`group-${entries[0].id}`} style={{ ...cardStyle, opacity: allHidden ? 0.45 : 1, transition: 'opacity 0.2s' }}>
+                      {/* Company header */}
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '16px' }}>{companyName}</div>
+                        {totalDuration && (
+                          <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>{totalDuration}</div>
+                        )}
+                      </div>
+
+                      {/* Roles timeline */}
+                      <div style={{ marginTop: '16px' }}>
+                        {entries.map((entry, idx) => {
+                          const isLast = idx === entries.length - 1
+                          const isHidden = entry.show_on_resume === false
+                          return (
+                            <div key={`w-${entry.id}`} style={{ display: 'flex', gap: '12px', opacity: isHidden ? 0.45 : 1, transition: 'opacity 0.2s' }}>
+                              {/* Timeline column */}
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '16px', flexShrink: 0 }}>
+                                <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#64748b', border: '2px solid #1e293b', flexShrink: 0, marginTop: 6 }} />
+                                {!isLast && <div style={{ width: 2, flex: 1, background: '#334155' }} />}
+                              </div>
+                              {/* Role content */}
+                              <div style={{ flex: 1, paddingBottom: isLast ? 0 : 20 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                  {roleDetail(entry, false)}
+                                  {roleActions(entry)}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
                 } else {
                   const entry = item.data as ChronicleResumeEntry
                   const entryCat = entry.canvas_col || entry.type
@@ -788,7 +885,7 @@ export default function ResumePage() {
                   )
                 }
               })
-            }
+            })()}
           </div>
         </section>
 
