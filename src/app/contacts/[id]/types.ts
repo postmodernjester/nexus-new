@@ -82,5 +82,6 @@ export interface NoteEntry {
   action_text: string | null;
   action_due_date: string | null;
   action_completed: boolean;
+  importance: string | null; // 'green' | 'yellow' | 'red' | null
   created_at: string;
 }

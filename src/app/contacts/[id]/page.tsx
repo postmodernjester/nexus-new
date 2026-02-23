@@ -53,7 +53,11 @@ export default function ContactDossierPage() {
   );
   const [noteContext, setNoteContext] = useState("");
   const [noteAction, setNoteAction] = useState("");
-  const [noteActionDue, setNoteActionDue] = useState("");
+  const [noteActionDue, setNoteActionDue] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split("T")[0];
+  });
   const [addingNote, setAddingNote] = useState(false);
   const [showActionFields, setShowActionFields] = useState(false);
 
@@ -262,7 +266,9 @@ export default function ContactDossierPage() {
       setNoteText("");
       setNoteContext("");
       setNoteAction("");
-      setNoteActionDue("");
+      const nextWeek = new Date();
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      setNoteActionDue(nextWeek.toISOString().split("T")[0]);
       setShowActionFields(false);
       setNoteDate(new Date().toISOString().split("T")[0]);
       touchContactUpdatedAt();
@@ -321,6 +327,21 @@ export default function ContactDossierPage() {
       )
     );
     touchContactUpdatedAt();
+  }
+
+  async function toggleImportance(note: NoteEntry) {
+    const cycle = [null, "green", "yellow", "red"] as const;
+    const idx = cycle.indexOf(note.importance as any);
+    const next = cycle[(idx + 1) % cycle.length];
+    await supabase
+      .from("contact_notes")
+      .update({ importance: next })
+      .eq("id", note.id);
+    setNotes(
+      notes.map((n) =>
+        n.id === note.id ? { ...n, importance: next } : n
+      )
+    );
   }
 
   async function deleteNote(id: string) {
@@ -762,6 +783,7 @@ export default function ContactDossierPage() {
           updateNote={updateNote}
           toggleAction={toggleAction}
           deleteNote={deleteNote}
+          toggleImportance={toggleImportance}
         />
 
         {/* SYNERGY */}
