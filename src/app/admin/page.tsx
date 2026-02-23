@@ -64,8 +64,13 @@ export default function AdminPage() {
   const [deleteTyped, setDeleteTyped] = useState("");
   const [deleting, setDeleting] = useState(false);
 
+  // Services
+  const [services, setServices] = useState<any[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(true);
+
   useEffect(() => {
     loadUsers();
+    loadServices();
   }, []);
 
   async function getToken() {
@@ -100,6 +105,23 @@ export default function AdminPage() {
     setUsers(data.users);
     setAdminId(data.adminId);
     setLoading(false);
+  }
+
+  async function loadServices() {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const res = await fetch("/api/admin/services", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setServices(data.services);
+      }
+    } catch {
+      // silently fail — services section just stays empty
+    }
+    setServicesLoading(false);
   }
 
   async function handleEmailSave(userId: string) {
@@ -239,6 +261,102 @@ export default function AdminPage() {
         <div style={{ fontSize: "12px", color: "#475569", marginBottom: "20px" }}>
           {totalContacts} contacts across all users · {Math.round(totalLinked)} active links
         </div>
+
+        {/* Services */}
+        {!servicesLoading && services.length > 0 && (
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
+            gap: "10px",
+            marginBottom: "20px",
+          }}>
+            {services.map((svc: any) => {
+              const isGreen = svc.status === "connected";
+              const isYellow = svc.status === "configured";
+              const isRed = svc.status === "error";
+              const dotColor = isGreen ? "#22c55e" : isYellow ? "#eab308" : isRed ? "#ef4444" : "#64748b";
+              const statusLabel = isGreen ? "Connected" : isYellow ? "Configured" : isRed ? "Error" : "Not set";
+
+              return (
+                <div key={svc.name} style={{
+                  background: "#1e293b",
+                  border: `1px solid ${isGreen ? "#1a3a2a" : isRed ? "#3b1a1a" : "#334155"}`,
+                  borderRadius: "10px",
+                  padding: "14px 16px",
+                }}>
+                  {/* Header: dot + name + plan */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                    <div style={{
+                      width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0,
+                      boxShadow: isGreen ? "0 0 6px rgba(34,197,94,0.4)" : isRed ? "0 0 6px rgba(239,68,68,0.4)" : "none",
+                    }} />
+                    <span style={{ fontWeight: 600, fontSize: "13px", flex: 1 }}>{svc.name}</span>
+                    {svc.plan && (
+                      <span style={{
+                        fontSize: "10px", padding: "1px 6px", borderRadius: "8px",
+                        background: "#0f172a", color: "#64748b", border: "1px solid #334155",
+                      }}>{svc.plan}</span>
+                    )}
+                  </div>
+
+                  <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "6px" }}>{statusLabel}</div>
+
+                  {/* Metrics */}
+                  {svc.metrics && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 8px", marginBottom: "6px" }}>
+                      {Object.entries(svc.metrics).map(([key, val]) => (
+                        <span key={key} style={{ fontSize: "11px", color: "#94a3b8" }}>
+                          {typeof val === "number" ? val.toLocaleString() : String(val)}{" "}
+                          <span style={{ color: "#475569" }}>{key.replace(/([A-Z])/g, " $1").toLowerCase()}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Key preview */}
+                  {svc.keyPreview && (
+                    <div style={{ fontSize: "10px", color: "#475569", fontFamily: "monospace", marginBottom: "4px" }}>
+                      {svc.keyPreview}
+                    </div>
+                  )}
+
+                  {/* Limits */}
+                  {svc.limits && (
+                    <div style={{ borderTop: "1px solid #283040", paddingTop: "6px", marginTop: "4px" }}>
+                      {Object.entries(svc.limits).map(([key, val]) => (
+                        <div key={key} style={{ fontSize: "10px", color: "#475569", lineHeight: "1.6" }}>
+                          {String(val)} <span style={{ color: "#3f4a5a" }}>{key.replace(/([A-Z])/g, " $1").toLowerCase()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Dashboard link */}
+                  {svc.dashboardUrl && (
+                    <a
+                      href={svc.dashboardUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: "10px", color: "#64748b", textDecoration: "underline", display: "inline-block", marginTop: "4px" }}
+                    >
+                      Open dashboard
+                    </a>
+                  )}
+
+                  {/* Error */}
+                  {svc.error && (
+                    <div style={{ fontSize: "10px", color: "#ef4444", marginTop: "4px" }}>{svc.error}</div>
+                  )}
+
+                  {/* Notes */}
+                  {svc.notes && typeof svc.notes === "string" && (
+                    <div style={{ fontSize: "10px", color: "#475569", marginTop: "4px" }}>{svc.notes}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Search */}
         <input
