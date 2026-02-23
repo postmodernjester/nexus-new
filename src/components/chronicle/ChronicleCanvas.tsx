@@ -1236,21 +1236,10 @@ export default function ChronicleCanvas() {
     return h
   }, [fuzzyMonths, pxm, dragDelta])
 
-  // ─── RENDER ──────────────────────────────────
-  if (loading) {
-    return (
-      <div style={{
-        height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#f0ead8', color: '#9a8e78', fontFamily: "'DM Mono', monospace", fontSize: 12,
-      }}>
-        Loading chronicle…
-      </div>
-    )
-  }
-
-  const regularItems = timelineItems.filter(i => i.cat !== 'people' && i.cat !== 'gatherings')
-  const gatheringItems = timelineItems.filter(i => i.cat === 'gatherings')
-  const peopleItems = timelineItems.filter(i => i.cat === 'people')
+  // ─── Split items by column type ─────────────
+  const regularItems = useMemo(() => timelineItems.filter(i => i.cat !== 'people' && i.cat !== 'gatherings'), [timelineItems])
+  const gatheringItems = useMemo(() => timelineItems.filter(i => i.cat === 'gatherings'), [timelineItems])
+  const peopleItems = useMemo(() => timelineItems.filter(i => i.cat === 'people'), [timelineItems])
 
   // Compute horizontal slot for each gathering (up to 4 side by side)
   const gatheringSlots = useMemo(() => {
@@ -1283,6 +1272,18 @@ export default function ChronicleCanvas() {
 
     return slots
   }, [gatheringItems, viewStart])
+
+  // ─── RENDER ──────────────────────────────────
+  if (loading) {
+    return (
+      <div style={{
+        height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: '#f0ead8', color: '#9a8e78', fontFamily: "'DM Mono', monospace", fontSize: 12,
+      }}>
+        Loading chronicle…
+      </div>
+    )
+  }
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f0ead8', color: '#1a1812', fontFamily: "'DM Mono', monospace", userSelect: 'none' }}>
