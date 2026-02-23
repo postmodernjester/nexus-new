@@ -27,7 +27,7 @@ export default function EditContactForm({
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
-          gap: "12px",
+          gap: "14px 12px",
         }}
       >
         <div style={{ gridColumn: "1 / -1" }}>
@@ -71,7 +71,7 @@ export default function EditContactForm({
             onChange={(e) => setField("phone", e.target.value)}
           />
         </div>
-        <div style={{ gridColumn: "1 / -1" }}>
+        <div>
           <label style={s.label}>Location</label>
           <input
             style={s.input}
@@ -95,23 +95,12 @@ export default function EditContactForm({
             ))}
           </select>
         </div>
-        <div>
-          <label style={s.label}>Last Contact</label>
-          <input
-            style={s.input}
-            type="date"
-            value={editFields.last_contact_date || ""}
-            onChange={(e) =>
-              setField("last_contact_date", e.target.value)
-            }
-          />
-        </div>
         <div
           style={{
             gridColumn: "1 / -1",
             borderTop: "1px solid #334155",
             paddingTop: "12px",
-            marginTop: "4px",
+            marginTop: "2px",
           }}
         >
           <label

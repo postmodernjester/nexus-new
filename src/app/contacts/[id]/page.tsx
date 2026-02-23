@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import Link from "next/link";
 
 import Nav from "@/components/Nav";
 import { unlinkContact } from "@/lib/connections";
@@ -502,16 +501,8 @@ export default function ContactDossierPage() {
             marginBottom: "20px",
           }}
         >
-          <Link
-            href="/contacts"
-            style={{
-              color: "#64748b",
-              textDecoration: "none",
-              fontSize: "14px",
-            }}
-          >
-            ← All Contacts
-          </Link>
+          <div />
+
           <div style={{ display: "flex", gap: "8px" }}>
             {linkedProfile ? (
               <button

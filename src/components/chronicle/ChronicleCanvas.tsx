@@ -1555,8 +1555,6 @@ export default function ChronicleCanvas() {
               const top = toPx(s, pxm, viewStart)
               const dotH = Math.max(14, pxm * 0.9)
               const left = getColLeft('people', collapsedCols)
-              const tailEnd = { y: viewEnd, m: 1 }
-              const tailH = toPx(tailEnd, pxm, viewStart) - top - dotH / 2
 
               return (
                 <div
@@ -1572,22 +1570,18 @@ export default function ChronicleCanvas() {
                     zIndex: 12, cursor: 'default', display: 'flex', alignItems: 'center',
                   }}
                 >
+                  {/* Left-pointing arrowhead */}
                   <div style={{
-                    width: 8, height: 8, flexShrink: 0, marginLeft: 6, borderRadius: 2,
-                    ...(item.fuzzyStart
-                      ? { background: 'transparent', border: `2px dashed ${item.color}`, boxSizing: 'border-box' as const }
-                      : { background: item.color }),
-                    ...(selectedId === item.id ? { outline: '2px solid #1a1812', outlineOffset: 2 } : {}),
+                    width: 0, height: 0, flexShrink: 0, marginLeft: 4,
+                    borderTop: '5px solid transparent',
+                    borderBottom: '5px solid transparent',
+                    borderRight: `8px solid ${item.color}`,
+                    ...(item.fuzzyStart ? { opacity: 0.4 } : {}),
+                    ...(selectedId === item.id ? { filter: `drop-shadow(0 0 2px #1a1812) drop-shadow(0 0 2px ${item.color})` } : {}),
                   }} />
-                  <div style={{ fontSize: 8, marginLeft: 7, whiteSpace: 'nowrap', letterSpacing: '.02em', color: item.color }}>
+                  <div style={{ fontSize: 8, marginLeft: 5, whiteSpace: 'nowrap', letterSpacing: '.02em', color: item.color }}>
                     {item.title}
                   </div>
-                  {!item.end && tailH > 0 && (
-                    <div style={{
-                      position: 'absolute', left: 10, top: dotH / 2, width: 2,
-                      height: tailH, background: item.color, opacity: 0.18, pointerEvents: 'none',
-                    }} />
-                  )}
                 </div>
               )
             })}
