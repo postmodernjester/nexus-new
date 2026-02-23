@@ -477,6 +477,31 @@ export default function ResumePage() {
     setEditingChronicle(null)
   }
 
+  const toggleWorkVisibility = async (entry: WorkEntry) => {
+    const newVal = entry.show_on_resume === false ? true : false
+    setWorkEntries(prev => prev.map(e => e.id === entry.id ? { ...e, show_on_resume: newVal } : e))
+    await supabase.from('work_entries').update({ show_on_resume: newVal }).eq('id', entry.id)
+  }
+
+  const toggleEduVisibility = async (entry: EducationEntry) => {
+    const newVal = (entry as any).show_on_resume === false ? true : false
+    setEduEntries(prev => prev.map(e => e.id === entry.id ? { ...e, show_on_resume: newVal } : e))
+    await supabase.from('education').update({ show_on_resume: newVal }).eq('id', entry.id)
+  }
+
+  const toggleChronicleVisibility = async (entry: ChronicleResumeEntry) => {
+    const newVal = !entry.show_on_resume
+    if (newVal) {
+      // Toggling ON: update DB then add to local list
+      await supabase.from('chronicle_entries').update({ show_on_resume: true }).eq('id', entry.id)
+      setChronicleEntries(prev => prev.map(e => e.id === entry.id ? { ...e, show_on_resume: true } : e))
+    } else {
+      // Toggling OFF: update DB and mark as hidden locally
+      setChronicleEntries(prev => prev.map(e => e.id === entry.id ? { ...e, show_on_resume: false } : e))
+      await supabase.from('chronicle_entries').update({ show_on_resume: false }).eq('id', entry.id)
+    }
+  }
+
   const deleteAccount = async () => {
     if (!user || deleteConfirmText !== 'DELETE') return
     setDeleting(true)
@@ -654,7 +679,7 @@ export default function ResumePage() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {[
-              ...workEntries.filter(e => (e as any).show_on_resume !== false).map(e => ({ kind: 'work' as const, sortDate: e.start_date || '', data: e })),
+              ...workEntries.map(e => ({ kind: 'work' as const, sortDate: e.start_date || '', data: e })),
               ...chronicleEntries
                 .filter(e => e.canvas_col !== 'project' && e.type !== 'project' && e.canvas_col !== 'education' && e.type !== 'education')
                 .map(e => ({ kind: 'chronicle' as const, sortDate: e.start_date || '', data: e })),
@@ -666,8 +691,9 @@ export default function ResumePage() {
                   {
                     const locLabel = LOCATION_TYPES.find(l => l.value === entry.location_type)?.label
                     const entrySkills = entry.ai_skills_extracted || []
+                    const isHidden = entry.show_on_resume === false
                     return (
-                      <div key={`w-${entry.id}`} style={cardStyle}>
+                      <div key={`w-${entry.id}`} style={{ ...cardStyle, opacity: isHidden ? 0.45 : 1, transition: 'opacity 0.2s' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.title}</div>
@@ -696,6 +722,13 @@ export default function ResumePage() {
                             )}
                           </div>
                           <div style={{ display: 'flex', gap: '6px', flexShrink: 0, marginLeft: '12px' }}>
+                            <button onClick={() => toggleWorkVisibility(entry)} style={{ ...iconBtn, color: isHidden ? '#475569' : '#a78bfa', borderColor: isHidden ? '#334155' : 'rgba(167,139,250,0.3)' }} title={isHidden ? 'Hidden from public resume' : 'Visible on public resume'}>
+                              {isHidden ? (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                              ) : (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                              )}
+                            </button>
                             <button onClick={() => openEditWork(entry)} style={iconBtn} title="Edit">
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             </button>
@@ -714,8 +747,9 @@ export default function ResumePage() {
                   const catLabel = isWorkType ? '' : (CAT_LABELS[entryCat] || entry.type)
                   const startYM = entry.start_date?.slice(0, 7) || ''
                   const endYM = entry.end_date?.slice(0, 7) || ''
+                  const isChronHidden = !entry.show_on_resume
                   return (
-                    <div key={`c-${entry.id}`} style={cardStyle}>
+                    <div key={`c-${entry.id}`} style={{ ...cardStyle, opacity: isChronHidden ? 0.45 : 1, transition: 'opacity 0.2s' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -735,6 +769,13 @@ export default function ResumePage() {
                           )}
                         </div>
                         <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                          <button onClick={() => toggleChronicleVisibility(entry)} style={{ ...iconBtn, color: isChronHidden ? '#475569' : '#a78bfa', borderColor: isChronHidden ? '#334155' : 'rgba(167,139,250,0.3)' }} title={isChronHidden ? 'Hidden from public resume' : 'Visible on public resume'}>
+                            {isChronHidden ? (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            ) : (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            )}
+                          </button>
                           <button onClick={() => openEditChronicle(entry)} style={iconBtn} title="Edit">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                           </button>
@@ -776,6 +817,7 @@ export default function ResumePage() {
                         background: '#1e293b',
                         border: '1px solid #334155',
                         borderRadius: '12px',
+                        opacity: !project.show_on_resume ? 0.45 : 1,
                         overflow: 'hidden',
                         transition: 'border-color 0.2s',
                       }}>
@@ -817,6 +859,13 @@ export default function ResumePage() {
                             </p>
                           )}
                           <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                            <button onClick={() => toggleChronicleVisibility(project)} style={{ ...iconBtn, color: !project.show_on_resume ? '#475569' : '#a78bfa', borderColor: !project.show_on_resume ? '#334155' : 'rgba(167,139,250,0.3)' }} title={!project.show_on_resume ? 'Hidden from public resume' : 'Visible on public resume'}>
+                              {!project.show_on_resume ? (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                              ) : (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                              )}
+                            </button>
                             <button onClick={() => openEditChronicle(project)} style={iconBtn} title="Edit">
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             </button>
@@ -852,15 +901,16 @@ export default function ResumePage() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {[
-                  ...eduEntries.filter(e => (e as any).show_on_resume !== false).map(e => ({ kind: 'edu' as const, sortDate: e.start_date || '', data: e })),
+                  ...eduEntries.map(e => ({ kind: 'edu' as const, sortDate: e.start_date || '', data: e })),
                   ...eduChronicle.map(e => ({ kind: 'chronicle' as const, sortDate: e.start_date || '', data: e })),
                 ]
                   .sort((a, b) => b.sortDate.localeCompare(a.sortDate))
                   .map(item => {
                     if (item.kind === 'edu') {
                       const entry = item.data as EducationEntry
+                      const isEduHidden = (entry as any).show_on_resume === false
                       return (
-                        <div key={entry.id} style={cardStyle}>
+                        <div key={entry.id} style={{ ...cardStyle, opacity: isEduHidden ? 0.45 : 1, transition: 'opacity 0.2s' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <div>
                               <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.institution}</div>
@@ -875,6 +925,13 @@ export default function ResumePage() {
                               )}
                             </div>
                             <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                              <button onClick={() => toggleEduVisibility(entry)} style={{ ...iconBtn, color: isEduHidden ? '#475569' : '#a78bfa', borderColor: isEduHidden ? '#334155' : 'rgba(167,139,250,0.3)' }} title={isEduHidden ? 'Hidden from public resume' : 'Visible on public resume'}>
+                                {isEduHidden ? (
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                ) : (
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                )}
+                              </button>
                               <button onClick={() => openEditEdu(entry)} style={iconBtn} title="Edit">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                               </button>
@@ -887,10 +944,11 @@ export default function ResumePage() {
                       )
                     } else {
                       const entry = item.data as ChronicleResumeEntry
+                      const isEduChronHidden = !entry.show_on_resume
                       const startYM = entry.start_date?.slice(0, 7) || ''
                       const endYM = entry.end_date?.slice(0, 7) || ''
                       return (
-                        <div key={`c-${entry.id}`} style={cardStyle}>
+                        <div key={`c-${entry.id}`} style={{ ...cardStyle, opacity: isEduChronHidden ? 0.45 : 1, transition: 'opacity 0.2s' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <div>
                               <div style={{ fontWeight: 600, fontSize: '16px' }}>{entry.title}</div>
@@ -902,6 +960,13 @@ export default function ResumePage() {
                               )}
                             </div>
                             <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                              <button onClick={() => toggleChronicleVisibility(entry)} style={{ ...iconBtn, color: isEduChronHidden ? '#475569' : '#a78bfa', borderColor: isEduChronHidden ? '#334155' : 'rgba(167,139,250,0.3)' }} title={isEduChronHidden ? 'Hidden from public resume' : 'Visible on public resume'}>
+                                {isEduChronHidden ? (
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                ) : (
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                )}
+                              </button>
                               <button onClick={() => openEditChronicle(entry)} style={iconBtn} title="Edit">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                               </button>

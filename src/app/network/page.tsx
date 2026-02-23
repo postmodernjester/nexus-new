@@ -86,6 +86,14 @@ export default function NetworkPage() {
     svg.on("dblclick.zoom", null);
     zoomRef.current = zoom;
 
+    // Set initial view centered on the self node position
+    const initialTransform = d3.zoomIdentity
+      .translate(width / 2, height / 2)
+      .scale(1)
+      .translate(-width / 2, -height / 2);
+    (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>)
+      .call(zoom.transform, initialTransform);
+
     // Custom wiggle force for gentle continuous drift
     const wiggleForce = () => {
       let wNodes: GraphNode[] = [];

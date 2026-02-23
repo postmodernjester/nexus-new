@@ -158,6 +158,20 @@ export default function DashboardPage() {
   const [copiedUrl, setCopiedUrl] = useState(false);
 
   useEffect(() => {
+    // Re-fetch data when switching back to this page so action items stay in sync
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", load);
+    // Also listen to Next.js client-side navigation via popstate
+    window.addEventListener("popstate", load);
+    load();
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", load);
+      window.removeEventListener("popstate", load);
+    };
     async function load() {
       const {
         data: { user },
@@ -333,8 +347,6 @@ export default function DashboardPage() {
 
       setLoading(false);
     }
-
-    load();
   }, [router]);
 
   async function completeAction(noteId: string) {

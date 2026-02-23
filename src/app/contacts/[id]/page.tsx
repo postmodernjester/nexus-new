@@ -81,6 +81,16 @@ export default function ContactDossierPage() {
 
   useEffect(() => {
     loadAll();
+    // Re-fetch when switching back so action items stay in sync across pages
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadAll();
+    };
+    window.addEventListener("focus", loadAll);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", loadAll);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [cid]);
 
   // Touch contact's updated_at so "Recent" sort reflects note activity

@@ -25,18 +25,26 @@ function formatZoomLabel(scale: number): string {
 export default function ZoomControls({ svgRef, zoomRef }: ZoomControlsProps) {
   const [sliderPos, setSliderPos] = useState(() => scaleToSlider(1));
   const draggingRef = useRef(false);
+  const rafRef = useRef<number>(0);
 
-  // Listen to D3 zoom events to keep slider in sync
+  // Sync slider from D3 zoom transform using rAF polling.
+  // This avoids the timing issue where the D3 zoom behavior hasn't been
+  // created yet when this component's effect runs.
   useEffect(() => {
-    if (!svgRef.current || !zoomRef.current) return;
-    const svg = d3.select(svgRef.current);
-    const handler = () => {
-      const transform = d3.zoomTransform(svgRef.current!);
-      setSliderPos(scaleToSlider(transform.k));
+    let lastK = 1;
+    const sync = () => {
+      if (svgRef.current) {
+        const k = d3.zoomTransform(svgRef.current).k;
+        if (k !== lastK) {
+          lastK = k;
+          setSliderPos(scaleToSlider(k));
+        }
+      }
+      rafRef.current = requestAnimationFrame(sync);
     };
-    svg.on("zoom.slider", handler);
-    return () => { svg.on("zoom.slider", null); };
-  }, [svgRef, zoomRef]);
+    rafRef.current = requestAnimationFrame(sync);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [svgRef]);
 
   const applyZoom = useCallback((pos: number) => {
     if (!svgRef.current || !zoomRef.current) return;
@@ -44,9 +52,19 @@ export default function ZoomControls({ svgRef, zoomRef }: ZoomControlsProps) {
     const newScale = sliderToScale(clamped);
     const svg = d3.select(svgRef.current);
     const currentTransform = d3.zoomTransform(svgRef.current);
-    const newTransform = currentTransform.scale(newScale / currentTransform.k);
+
+    // Zoom centered on the viewport center (where the self node is)
+    const cx = svgRef.current.clientWidth / 2;
+    const cy = svgRef.current.clientHeight / 2;
+    const svgCenter = currentTransform.invert([cx, cy]);
+    const newTransform = d3.zoomIdentity
+      .translate(cx, cy)
+      .scale(newScale)
+      .translate(-svgCenter[0], -svgCenter[1]);
+
     (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>)
       .call(zoomRef.current.transform, newTransform);
+    setSliderPos(clamped);
   }, [svgRef, zoomRef]);
 
   const handleTrackClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -134,7 +152,6 @@ export default function ZoomControls({ svgRef, zoomRef }: ZoomControlsProps) {
             background: "#94a3b8",
             cursor: "grab",
             boxShadow: "0 1px 4px rgba(0,0,0,.4)",
-            transition: draggingRef.current ? "none" : "left 0.08s ease-out",
           }}
         />
       </div>
