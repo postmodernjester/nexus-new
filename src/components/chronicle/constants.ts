@@ -34,4 +34,4 @@ export const DEFAULT_COLORS: Record<string, string> = {
 }
 
 // Columns where double-click should NOT open add modal
-export const NO_ADD_COLS = new Set(['gatherings', 'people'])
+export const NO_ADD_COLS = new Set(['people'])

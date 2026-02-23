@@ -14,6 +14,7 @@ export interface TimelineItem {
   fuzzyStart: boolean
   fuzzyEnd: boolean
   note: string
+  description?: string
   source: 'chronicle' | 'work' | 'contact' | 'education'
 }
 

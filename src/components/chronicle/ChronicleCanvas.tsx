@@ -237,6 +237,7 @@ export default function ChronicleCanvas() {
         fuzzyStart: e.fuzzy_start,
         fuzzyEnd: e.fuzzy_end,
         note: e.note || '',
+        description: e.description || '',
         source: 'chronicle',
       })
     })
@@ -847,6 +848,7 @@ export default function ChronicleCanvas() {
           id: data.id || undefined,
           type: data.cat,
           title: data.title,
+          description: data.description || undefined,
           start_date: data.start,
           end_date: data.end || null,
           canvas_col: data.cat,
@@ -1091,6 +1093,7 @@ export default function ChronicleCanvas() {
           id: entry.id,
           cat: entryCat,
           title: entry.title,
+          description: entry.description || '',
           start: entry.start_date,
           end: entry.end_date || '',
           fuzzyStart: entry.fuzzy_start,
@@ -1245,8 +1248,41 @@ export default function ChronicleCanvas() {
     )
   }
 
-  const regularItems = timelineItems.filter(i => i.cat !== 'people')
+  const regularItems = timelineItems.filter(i => i.cat !== 'people' && i.cat !== 'gatherings')
+  const gatheringItems = timelineItems.filter(i => i.cat === 'gatherings')
   const peopleItems = timelineItems.filter(i => i.cat === 'people')
+
+  // Compute horizontal slot for each gathering (up to 4 side by side)
+  const gatheringSlots = useMemo(() => {
+    const gItems = gatheringItems
+      .map(item => {
+        const s = parseYM(item.start)
+        const e = item.end ? parseYM(item.end) : null
+        return { id: item.id, startMo: s ? toMo(s, viewStart) : 0, endMo: e ? toMo(e, viewStart) : 9999 }
+      })
+      .sort((a, b) => a.startMo - b.startMo)
+
+    const slots = new Map<string, number>()
+    const slotEnds: number[] = []
+
+    for (const item of gItems) {
+      let assigned = false
+      for (let s = 0; s < slotEnds.length; s++) {
+        if (item.startMo >= slotEnds[s]) {
+          slots.set(item.id, s)
+          slotEnds[s] = item.endMo
+          assigned = true
+          break
+        }
+      }
+      if (!assigned) {
+        slots.set(item.id, slotEnds.length)
+        slotEnds.push(item.endMo)
+      }
+    }
+
+    return slots
+  }, [gatheringItems, viewStart])
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f0ead8', color: '#1a1812', fontFamily: "'DM Mono', monospace", userSelect: 'none' }}>
@@ -1551,6 +1587,86 @@ export default function ChronicleCanvas() {
                       height: tailH, background: item.color, opacity: 0.18, pointerEvents: 'none',
                     }} />
                   )}
+                </div>
+              )
+            })}
+
+            {/* ── GATHERINGS (1/4 width, rotated text) ── */}
+            {!collapsedCols.has('gatherings') && gatheringItems.map(item => {
+              const s = parseYM(item.start)
+              const en = item.end ? parseYM(item.end) : null
+              if (!s) return null
+
+              const dragged = getDraggedPosition(item)
+              let top: number, h: number
+              if (dragged) {
+                top = dragged.top
+                h = dragged.h
+              } else {
+                top = toPx(s, pxm, viewStart)
+                h = en ? Math.max(Math.round(pxm * 2), toPx(en, pxm, viewStart) - top) : Math.round(pxm * 4)
+              }
+
+              const slot = gatheringSlots.get(item.id) ?? 0
+              const slotW = Math.floor((COL_W - 7) / 4)
+              const colLeft = getColLeft('gatherings', collapsedCols)
+              const left = colLeft + 3 + slot * slotW
+              const w = slotW - 1
+              const isSelected = selectedId === item.id
+
+              return (
+                <div
+                  key={item.id}
+                  data-entry="true"
+                  onMouseDown={(e) => startDrag(e, item, 'move')}
+                  onClick={(e) => { e.stopPropagation(); selectEntry(item.id) }}
+                  onDoubleClick={(e) => { e.stopPropagation(); openEditModal(item) }}
+                  onMouseEnter={(e) => showTooltip(e, item)}
+                  onMouseMove={moveTooltip}
+                  onMouseLeave={hideTooltip}
+                  style={{
+                    position: 'absolute', top, left, width: w, height: h,
+                    borderRadius: 3, overflow: 'hidden',
+                    background: hex2rgba(item.color, 0.14),
+                    border: `1px solid ${hex2rgba(item.color, 0.35)}`,
+                    ...(isSelected ? { outline: '2px solid #1a1812', outlineOffset: 1 } : {}),
+                    zIndex: 10, cursor: 'default',
+                  }}
+                >
+                  {/* Rotated label */}
+                  <div style={{
+                    writingMode: 'vertical-rl',
+                    transform: 'rotate(180deg)',
+                    position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: Math.max(6, Math.min(9, slotW * 0.28)),
+                    fontWeight: 600, letterSpacing: '.06em',
+                    color: item.color, whiteSpace: 'nowrap',
+                    overflow: 'hidden', textOverflow: 'ellipsis',
+                    padding: '4px 0',
+                  }}>
+                    {item.title}
+                  </div>
+
+                  {/* Resize handles */}
+                  <div
+                    onMouseDown={(e) => { e.stopPropagation(); startDrag(e, item, 'top') }}
+                    style={{
+                      position: 'absolute', left: 0, right: 0, height: 8, top: -4,
+                      zIndex: 15, cursor: 'ns-resize', opacity: isSelected ? 1 : 0,
+                    }}
+                  >
+                    <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 12, height: 2, borderRadius: 2, background: 'rgba(0,0,0,.28)' }} />
+                  </div>
+                  <div
+                    onMouseDown={(e) => { e.stopPropagation(); startDrag(e, item, 'bot') }}
+                    style={{
+                      position: 'absolute', left: 0, right: 0, height: 8, bottom: -4,
+                      zIndex: 15, cursor: 'ns-resize', opacity: isSelected ? 1 : 0,
+                    }}
+                  >
+                    <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 12, height: 2, borderRadius: 2, background: 'rgba(0,0,0,.28)' }} />
+                  </div>
                 </div>
               )
             })}
