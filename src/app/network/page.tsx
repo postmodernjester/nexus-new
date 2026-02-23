@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import * as d3 from "d3";
 import { GraphNode, GraphLink } from "./types";
 import { lineColor, nodeSize } from "./utils";
 import { useNetworkData } from "./hooks/useNetworkData";
+import { computeSimilarity, similarityToLink } from "./similarity";
+import type { NodeProfile } from "./similarity";
 import NetworkTooltip from "./components/NetworkTooltip";
 import ZoomControls from "./components/ZoomControls";
 
@@ -23,11 +25,43 @@ export default function NetworkPage() {
   const [filterText, setFilterText] = useState("");
   const router = useRouter();
 
-  const { graphData, loading } = useNetworkData();
+  const { graphData, nodeProfiles, loading, fetchWorldData } = useNetworkData();
+
+  // ─── World toggle ───
+  const [showWorld, setShowWorld] = useState(false);
+  const [worldNodes, setWorldNodes] = useState<GraphNode[]>([]);
+  const [worldProfiles, setWorldProfiles] = useState<Record<string, NodeProfile>>({});
+  const [worldLoading, setWorldLoading] = useState(false);
+
+  const toggleWorld = useCallback(async () => {
+    if (showWorld) {
+      setShowWorld(false);
+      return;
+    }
+    if (worldNodes.length === 0) {
+      setWorldLoading(true);
+      const data = await fetchWorldData();
+      setWorldNodes(data.nodes);
+      setWorldProfiles(data.profiles);
+      setWorldLoading(false);
+    }
+    setShowWorld(true);
+  }, [showWorld, worldNodes.length, fetchWorldData]);
+
+  // Merge graph + world data
+  const allNodes = useMemo(() => {
+    if (showWorld) return [...graphData.nodes, ...worldNodes];
+    return graphData.nodes;
+  }, [graphData.nodes, worldNodes, showWorld]);
+
+  const allProfiles = useMemo(() => {
+    if (showWorld) return { ...nodeProfiles, ...worldProfiles };
+    return nodeProfiles;
+  }, [nodeProfiles, worldProfiles, showWorld]);
 
   // ─── D3 Rendering ───
   useEffect(() => {
-    if (loading || graphData.nodes.length === 0) return;
+    if (loading || allNodes.length === 0) return;
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     const container = containerRef.current;
@@ -49,7 +83,6 @@ export default function NetworkPage() {
         g.attr("transform", event.transform);
       });
     (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>).call(zoom);
-    // Disable zoom's built-in double-click-to-zoom so our dblclick handler works
     svg.on("dblclick.zoom", null);
     zoomRef.current = zoom;
 
@@ -58,7 +91,7 @@ export default function NetworkPage() {
       let wNodes: GraphNode[] = [];
       const force = () => {
         for (const n of wNodes) {
-          if (n.fx != null) continue; // skip dragged nodes
+          if (n.fx != null) continue;
           n.vx = (n.vx || 0) + (Math.random() - 0.5) * 0.65;
           n.vy = (n.vy || 0) + (Math.random() - 0.5) * 0.65;
         }
@@ -67,8 +100,8 @@ export default function NetworkPage() {
       return force;
     };
 
-    // Pin self node at center — you are always the center of your own network
-    const selfNode = graphData.nodes.find(n => n.id === "self");
+    // Pin self node at center
+    const selfNode = allNodes.find(n => n.id === "self");
     if (selfNode) {
       selfNode.x = width / 2;
       selfNode.y = height / 2;
@@ -76,7 +109,8 @@ export default function NetworkPage() {
       selfNode.fy = height / 2;
     }
 
-    // Build adjacency map for clustering — nodes sharing neighbors attract
+    // ── Similarity-based clustering ──────────────────────────
+    // Build adjacency from real links so we don't duplicate them
     const adjacency: Record<string, Set<string>> = {};
     for (const link of graphData.links) {
       const sId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id;
@@ -87,21 +121,61 @@ export default function NetworkPage() {
       adjacency[tId].add(sId);
     }
 
-    // Create cluster links between non-linked nodes that share neighbors
-    const clusterLinks: GraphLink[] = [];
+    // Compute similarity between all non-self node pairs and create
+    // invisible attraction links where similarity is above threshold.
+    // This replaces both the old adjacency-based clustering and
+    // simple company-name matching with a richer semantic signal.
+    const clusterLinks: (GraphLink & { _simStrength?: number })[] = [];
     const clusterPairSet = new Set<string>();
-    const nodeIds = graphData.nodes.map(n => n.id);
+    const nodeIds = allNodes.map(n => n.id);
+
     for (let i = 0; i < nodeIds.length; i++) {
       for (let j = i + 1; j < nodeIds.length; j++) {
         const a = nodeIds[i], b = nodeIds[j];
         if (a === 'self' || b === 'self') continue;
+        // Skip if already directly linked
+        if ((adjacency[a] || new Set()).has(b)) continue;
+
+        const profA = allProfiles[a];
+        const profB = allProfiles[b];
+        if (!profA || !profB) continue;
+
+        const score = computeSimilarity(profA, profB);
+        const params = similarityToLink(score);
+        if (!params) continue;
+
+        const pairKey = a < b ? `${a}|${b}` : `${b}|${a}`;
+        if (clusterPairSet.has(pairKey)) continue;
+        clusterPairSet.add(pairKey);
+
+        clusterLinks.push({
+          source: a,
+          target: b,
+          distance: params.distance,
+          thickness: 0,
+          recency: 0,
+          isMutual: false,
+          isLinkedUser: false,
+          _simStrength: params.strength,
+        });
+      }
+    }
+
+    // Also keep adjacency-based (shared-neighbor) clustering for nodes
+    // that might not have profile data but share structural connections
+    for (let i = 0; i < nodeIds.length; i++) {
+      for (let j = i + 1; j < nodeIds.length; j++) {
+        const a = nodeIds[i], b = nodeIds[j];
+        if (a === 'self' || b === 'self') continue;
+        const pairKey = a < b ? `${a}|${b}` : `${b}|${a}`;
+        if (clusterPairSet.has(pairKey)) continue;
+        if ((adjacency[a] || new Set()).has(b)) continue;
+
         const aNeighbors = adjacency[a] || new Set();
         const bNeighbors = adjacency[b] || new Set();
-        if (aNeighbors.has(b)) continue; // already directly linked
         let shared = 0;
         for (const n of aNeighbors) { if (bNeighbors.has(n)) shared++; }
         if (shared >= 1) {
-          const pairKey = a < b ? `${a}|${b}` : `${b}|${a}`;
           clusterPairSet.add(pairKey);
           clusterLinks.push({
             source: a,
@@ -111,37 +185,7 @@ export default function NetworkPage() {
             recency: 0,
             isMutual: false,
             isLinkedUser: false,
-          });
-        }
-      }
-    }
-
-    // Company similarity links — people at the same company attract slightly
-    const companyGroups: Record<string, string[]> = {};
-    for (const n of graphData.nodes) {
-      if (n.company && n.id !== 'self') {
-        const key = n.company.toLowerCase().trim();
-        if (!companyGroups[key]) companyGroups[key] = [];
-        companyGroups[key].push(n.id);
-      }
-    }
-    for (const ids of Object.values(companyGroups)) {
-      if (ids.length < 2) continue;
-      for (let i = 0; i < ids.length; i++) {
-        for (let j = i + 1; j < ids.length; j++) {
-          const a = ids[i], b = ids[j];
-          const pairKey = a < b ? `${a}|${b}` : `${b}|${a}`;
-          if ((adjacency[a] || new Set()).has(b)) continue;
-          if (clusterPairSet.has(pairKey)) continue;
-          clusterPairSet.add(pairKey);
-          clusterLinks.push({
-            source: a,
-            target: b,
-            distance: 100,
-            thickness: 0,
-            recency: 0,
-            isMutual: false,
-            isLinkedUser: false,
+            _simStrength: 0.04,
           });
         }
       }
@@ -150,14 +194,17 @@ export default function NetworkPage() {
     const allLinks = [...graphData.links, ...clusterLinks];
 
     const simulation = d3
-      .forceSimulation<GraphNode>(graphData.nodes)
+      .forceSimulation<GraphNode>(allNodes)
       .force(
         "link",
         d3
           .forceLink<GraphNode, GraphLink>(allLinks)
           .id((d) => d.id)
           .distance((d) => d.distance)
-          .strength((d) => d.thickness === 0 ? 0.04 : 0.12)
+          .strength((d) => {
+            if (d.thickness > 0) return 0.12; // visible links
+            return (d as GraphLink & { _simStrength?: number })._simStrength || 0.04;
+          })
       )
       .force("charge", d3.forceManyBody().strength(-160).distanceMax(600))
       .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => d.id === "self" ? 0.12 : 0.015))
@@ -172,7 +219,7 @@ export default function NetworkPage() {
 
     simulationRef.current = simulation;
 
-    // Links
+    // Links (only render visible links — not cluster/similarity links)
     const link = g
       .append("g")
       .selectAll<SVGLineElement, GraphLink>("line")
@@ -183,11 +230,11 @@ export default function NetworkPage() {
       .attr("stroke-linecap", "round")
       .attr("stroke-dasharray", (d) => d.isCrossLink ? "6 4" : null);
 
-    // Node groups — opacity reflects recency (self always 1.0)
+    // Node groups
     const node = g
       .append("g")
       .selectAll<SVGGElement, GraphNode>("g")
-      .data(graphData.nodes)
+      .data(allNodes)
       .join("g")
       .style("cursor", "pointer")
       .attr("opacity", (d) => d.recency ?? 1);
@@ -199,12 +246,13 @@ export default function NetworkPage() {
       .attr("fill", (d) => {
         if (d.type === "self") return "#a08040";
         if (d.type === "their_contact") return "#4a5568";
-        return "#6b7f99"; // contact + connected_user
+        if (d.type === "world") return "#2d6a5a";
+        return "#6b7f99";
       })
       .attr("stroke", "none")
       .attr("stroke-width", 0);
 
-    // Labels — self: last name, 1st degree: F. LastName, 2nd degree: job title
+    // Labels
     node
       .append("text")
       .text((d) => d.label)
@@ -213,9 +261,10 @@ export default function NetworkPage() {
       .attr("fill", (d) => {
         if (d.type === "self") return "#c9a050";
         if (d.type === "their_contact") return "#64748b";
-        return "#94a3b8"; // contact + connected_user
+        if (d.type === "world") return "#3d8a7a";
+        return "#94a3b8";
       })
-      .attr("font-size", (d) => (d.type === "their_contact" ? "8px" : "11px"))
+      .attr("font-size", (d) => (d.type === "their_contact" || d.type === "world" ? "8px" : "11px"))
       .attr("font-weight", (d) =>
         d.type === "self" ? "bold" : "normal"
       );
@@ -233,8 +282,7 @@ export default function NetworkPage() {
         setHoveredNode(null);
       });
 
-    // Click/dblclick detection via drag events + timers.
-    // Double-click = open connection card.
+    // Click/dblclick detection
     let dragMoved = false;
     let totalDragDist = 0;
     let lastTapTime = 0;
@@ -257,7 +305,6 @@ export default function NetworkPage() {
       })
       .on("end", (event, d) => {
         if (!event.active) simulation.alphaTarget(0.02);
-        // Keep self pinned at center
         if (d.type !== "self") {
           d.fx = null;
           d.fy = null;
@@ -268,10 +315,11 @@ export default function NetworkPage() {
 
         const now = Date.now();
         if (now - lastTapTime < 400 && lastTapNodeId === d.id) {
-          // Double-tap → open card
           lastTapTime = 0;
           lastTapNodeId = "";
           if (d.contactId) router.push(`/contacts/${d.contactId}`);
+          // World nodes: open their world profile
+          else if (d.type === "world" && d.profileId) router.push(`/world/${d.profileId}`);
         } else {
           lastTapTime = now;
           lastTapNodeId = d.id;
@@ -291,14 +339,14 @@ export default function NetworkPage() {
       node.attr("transform", (d) => `translate(${d.x || 0},${d.y || 0})`);
     });
 
-    // Filter highlight — smart search across all contact data (notes, resume, city, etc.)
+    // Filter highlight
     if (filterText.trim()) {
       const q = filterText.toLowerCase();
       const matchesFilter = (d: GraphNode) => {
         if (d.type === "self") return true;
         return d.searchText ? d.searchText.includes(q) : false;
       };
-      const matchedIds = new Set(graphData.nodes.filter(matchesFilter).map(n => n.id));
+      const matchedIds = new Set(allNodes.filter(matchesFilter).map(n => n.id));
       node.attr("opacity", (d) => matchedIds.has(d.id) ? 1 : 0.15);
       link.attr("opacity", (d) => {
         const sId = (d.source as GraphNode).id;
@@ -307,7 +355,6 @@ export default function NetworkPage() {
         return 0.08;
       });
     } else {
-      // No filter — use recency-based opacity (self always 1.0)
       node.attr("opacity", (d) => d.recency ?? 1);
       link.attr("opacity", 1);
     }
@@ -315,7 +362,12 @@ export default function NetworkPage() {
     return () => {
       simulation.stop();
     };
-  }, [loading, graphData, filterText, router]);
+  }, [loading, graphData, allNodes, allProfiles, filterText, router]);
+
+  // Count stats
+  const networkNodeCount = graphData.nodes.length;
+  const worldNodeCount = showWorld ? worldNodes.length : 0;
+  const totalNodes = networkNodeCount + worldNodeCount;
 
   return (
     <div
@@ -356,8 +408,27 @@ export default function NetworkPage() {
           }}
         />
         <span style={{ color: "#475569", fontSize: "12px" }}>
-          {graphData.nodes.length} nodes · {graphData.links.length} connections
+          {totalNodes} nodes · {graphData.links.length} connections
         </span>
+
+        {/* World toggle */}
+        <button
+          onClick={toggleWorld}
+          disabled={worldLoading}
+          style={{
+            padding: "4px 12px",
+            fontSize: "12px",
+            borderRadius: "12px",
+            border: showWorld ? "1px solid #2d6a5a" : "1px solid #334155",
+            background: showWorld ? "rgba(45, 106, 90, 0.25)" : "transparent",
+            color: showWorld ? "#5ab89a" : "#64748b",
+            cursor: worldLoading ? "wait" : "pointer",
+            transition: "all 0.2s",
+          }}
+        >
+          {worldLoading ? "Loading…" : showWorld ? `World (${worldNodes.length})` : "World"}
+        </button>
+
         <span style={{ color: "#334155", fontSize: "11px", marginLeft: "auto" }}>
           Double-click to open · Drag to reposition
         </span>

@@ -1,11 +1,97 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Contact, Connection, NoteStats, GraphNode, GraphLink } from "../types";
 import { CLOSENESS, computeRecency, lineThickness, nodeSize } from "../utils";
+import type { NodeProfile } from "../similarity";
 
+// ─── Raw row types for structured data ───────────────────────
+interface WorkRow {
+  user_id: string;
+  title: string;
+  company: string;
+  description: string | null;
+  location: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  is_current: boolean | null;
+  ai_skills_extracted: string[] | null;
+}
+interface EduRow {
+  user_id: string;
+  institution: string;
+  degree: string | null;
+  field_of_study: string | null;
+  start_date: string | null;
+  end_date: string | null;
+}
+interface SkillRow { user_id: string; name: string }
+interface ProfileEnrich {
+  id: string;
+  ai_interests: string[] | null;
+  ai_strengths: string[] | null;
+  location: string | null;
+}
+
+export interface WorldProfile {
+  id: string;
+  full_name: string;
+  headline: string | null;
+  location: string | null;
+  ai_interests: string[] | null;
+  ai_strengths: string[] | null;
+}
+
+// ─── Build NodeProfile from available data ───────────────────
+function buildProfile(
+  nodeId: string,
+  node: GraphNode,
+  contactCompany: string | undefined,
+  contactLocation: string | undefined,
+  workRows: WorkRow[],
+  eduRows: EduRow[],
+  skills: string[],
+  enrich: ProfileEnrich | undefined,
+): NodeProfile {
+  const companies: NodeProfile["companies"] = [];
+  const allSkills: string[] = [...skills];
+
+  for (const w of workRows) {
+    if (w.company) {
+      companies.push({
+        name: w.company,
+        start: w.start_date || undefined,
+        end: w.is_current ? null : (w.end_date || undefined),
+      });
+    }
+    if (w.ai_skills_extracted) allSkills.push(...w.ai_skills_extracted);
+  }
+
+  // Add contact-card company if not already represented
+  const cc = contactCompany || node.company;
+  if (cc) {
+    const lower = cc.toLowerCase().trim();
+    if (!companies.some(c => c.name.toLowerCase().trim() === lower)) {
+      companies.push({ name: cc });
+    }
+  }
+
+  return {
+    companies,
+    skills: allSkills,
+    education: eduRows.map(e => ({
+      institution: e.institution,
+      field: e.field_of_study || undefined,
+    })),
+    location: enrich?.location || contactLocation || undefined,
+    interests: enrich?.ai_interests || [],
+    tags: [],
+  };
+}
+
+// ─── Hook ────────────────────────────────────────────────────
 export function useNetworkData() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -13,6 +99,8 @@ export function useNetworkData() {
     nodes: GraphNode[];
     links: GraphLink[];
   }>({ nodes: [], links: [] });
+  const [nodeProfiles, setNodeProfiles] = useState<Record<string, NodeProfile>>({});
+  const [networkProfileIds, setNetworkProfileIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     async function fetchAll() {
@@ -70,9 +158,6 @@ export function useNetworkData() {
           rawMutualUserIds.add(conn.inviter_id);
       }
 
-      // Filter out stale connections: if a connection exists but my contact
-      // for that user was unlinked (linked_profile_id cleared) or deleted,
-      // the connection record is a ghost from a failed DELETE (missing RLS policy).
       const linkedToUserIds = new Set(
         myContacts
           .filter(c => c.linked_profile_id)
@@ -102,8 +187,6 @@ export function useNetworkData() {
             anonymous_beyond_first_degree: p.anonymous_beyond_first_degree || false,
           };
         }
-        // Fallback: fetch missing profiles individually (batch .in() can be
-        // blocked by RLS even when individual .eq() works)
         for (const uid of Array.from(mutualUserIds)) {
           if (!connectedProfiles[uid]) {
             const { data: p } = await supabase
@@ -139,29 +222,57 @@ export function useNetworkData() {
         }
       }
 
-      // Fetch work entries & education for all linked profiles (for smart search)
+      // ── Enriched data for search + similarity ──────────────
+      // Include self in profile list for similarity scoring
       const allSearchableProfileIds = [
+        user.id,
         ...myContacts.filter(c => c.linked_profile_id).map(c => c.linked_profile_id!),
         ...Array.from(mutualUserIds),
       ].filter((id, i, arr) => arr.indexOf(id) === i);
 
       const workTextMap: Record<string, string> = {};
       const eduTextMap: Record<string, string> = {};
+      const workEntriesMap: Record<string, WorkRow[]> = {};
+      const eduEntriesMap: Record<string, EduRow[]> = {};
+      const skillsMap: Record<string, string[]> = {};
+      const profileEnrichMap: Record<string, ProfileEnrich> = {};
+
       if (allSearchableProfileIds.length > 0) {
-        const [workRes, eduRes] = await Promise.all([
-          supabase.from("work_entries").select("user_id, title, company, description, location").in("user_id", allSearchableProfileIds),
-          supabase.from("education").select("user_id, institution, degree, field_of_study").in("user_id", allSearchableProfileIds),
+        const [workRes, eduRes, skillsRes, enrichRes] = await Promise.all([
+          supabase.from("work_entries")
+            .select("user_id, title, company, description, location, start_date, end_date, is_current, ai_skills_extracted")
+            .in("user_id", allSearchableProfileIds),
+          supabase.from("education")
+            .select("user_id, institution, degree, field_of_study, start_date, end_date")
+            .in("user_id", allSearchableProfileIds),
+          supabase.from("skills")
+            .select("user_id, name")
+            .in("user_id", allSearchableProfileIds),
+          supabase.from("profiles")
+            .select("id, ai_interests, ai_strengths, location")
+            .in("id", allSearchableProfileIds),
         ]);
-        for (const w of workRes.data || []) {
+
+        for (const w of (workRes.data || []) as WorkRow[]) {
           workTextMap[w.user_id] = (workTextMap[w.user_id] || "") + ` ${w.title || ""} ${w.company || ""} ${w.description || ""} ${w.location || ""}`;
+          if (!workEntriesMap[w.user_id]) workEntriesMap[w.user_id] = [];
+          workEntriesMap[w.user_id].push(w);
         }
-        for (const e of eduRes.data || []) {
+        for (const e of (eduRes.data || []) as EduRow[]) {
           eduTextMap[e.user_id] = (eduTextMap[e.user_id] || "") + ` ${e.institution || ""} ${e.degree || ""} ${e.field_of_study || ""}`;
+          if (!eduEntriesMap[e.user_id]) eduEntriesMap[e.user_id] = [];
+          eduEntriesMap[e.user_id].push(e);
+        }
+        for (const s of (skillsRes.data || []) as SkillRow[]) {
+          if (!skillsMap[s.user_id]) skillsMap[s.user_id] = [];
+          skillsMap[s.user_id].push(s.name);
+        }
+        for (const p of (enrichRes.data || []) as ProfileEnrich[]) {
+          profileEnrichMap[p.id] = p;
         }
       }
 
       // Fetch connected users' contacts via SECURITY DEFINER RPC
-      // (bypasses RLS so we don't depend on the contacts SELECT policy)
       let theirContacts: Contact[] = [];
       if (mutualUserIds.size > 0) {
         const { data: rpcContacts, error: rpcError } = await supabase.rpc(
@@ -189,8 +300,10 @@ export function useNetworkData() {
       const nameToNodeId: Record<string, string> = {};
       const nodes: GraphNode[] = [];
       const links: GraphLink[] = [];
+      // Track contact metadata for profile building (location, company)
+      const nodeContactMeta: Record<string, { company?: string; location?: string }> = {};
 
-      // 1) Self -- show last name, golden warm color
+      // 1) Self
       const myName = profileRes.data?.full_name || "You";
       const myLastName = myName.split(" ").slice(-1)[0] || myName;
       const selfConnCount = myContacts.length + mutualUserIds.size;
@@ -209,7 +322,7 @@ export function useNetworkData() {
       profileToNodeId[user.id] = "self";
       nameToNodeId[myName.toLowerCase()] = "self";
 
-      // 2) Connected users (linked via connections table) -- "F. LastName" format
+      // 2) Connected users
       for (const uid of Array.from(mutualUserIds)) {
         const profile = connectedProfiles[uid];
         const myCard = myContactsLinkedToConnectedUser.get(uid);
@@ -228,7 +341,6 @@ export function useNetworkData() {
           stats?.most_recent || myCard?.last_contact_date || null
         );
 
-        // Build search text from all available data
         const cuSearchParts = [name, relType, myCard?.company, profile?.headline, myCard?.role, myCard?.location, myCard?.email, myCard?.how_we_met, myCard?.ai_summary, myCard?.next_action_note];
         const cuNoteText = myCard ? noteTextMap[myCard.id] || "" : "";
         const cuWorkText = workTextMap[uid] || "";
@@ -253,6 +365,7 @@ export function useNetworkData() {
 
         profileToNodeId[uid] = nodeId;
         nameToNodeId[name.toLowerCase()] = nodeId;
+        nodeContactMeta[nodeId] = { company: myCard?.company || undefined, location: myCard?.location || undefined };
 
         const baseDist = CLOSENESS[relType] || 200;
         const dist = baseDist * (0.85 + Math.random() * 0.3);
@@ -269,13 +382,13 @@ export function useNetworkData() {
         });
       }
 
-      // 3) My contacts (that are NOT linked to a connected user) -- "F. LastName" format
+      // 3) My contacts (not linked to connected user)
       for (const c of myContacts) {
         if (
           c.linked_profile_id &&
           mutualUserIds.has(c.linked_profile_id)
         ) {
-          continue; // skip -- already shown as connected_user node
+          continue;
         }
 
         const nodeId = `contact-${c.id}`;
@@ -287,7 +400,6 @@ export function useNetworkData() {
           stats?.most_recent || c.last_contact_date || null
         );
 
-        // Build search text from all available data
         const cSearchParts = [c.full_name, relType, c.company, c.role, c.location, c.email, c.how_we_met, c.ai_summary, c.next_action_note];
         const cNoteText = noteTextMap[c.id] || "";
         const cWorkText = c.linked_profile_id ? workTextMap[c.linked_profile_id] || "" : "";
@@ -313,6 +425,7 @@ export function useNetworkData() {
         if (c.linked_profile_id) {
           profileToNodeId[c.linked_profile_id] = nodeId;
         }
+        nodeContactMeta[nodeId] = { company: c.company || undefined, location: c.location || undefined };
 
         const baseDist = CLOSENESS[relType] || 200;
         const dist = baseDist * (0.85 + Math.random() * 0.3);
@@ -329,21 +442,17 @@ export function useNetworkData() {
         });
       }
 
-      // 4) Their contacts (second-degree) -- contacts owned by connected users
+      // 4) Their contacts (second-degree)
       const addedSecondDegreeIds = new Set<string>();
       for (const tc of theirContacts) {
-        // Skip if this contact is actually me
         if (tc.linked_profile_id === user.id) continue;
 
-        // Check if this person's profile opted for anonymity beyond first degree
         const ownerProfile = connectedProfiles[tc.owner_id];
         if (ownerProfile?.anonymous_beyond_first_degree) continue;
 
-        // Check if contact itself is anonymous
         if (tc.linked_profile_id && anonymousProfiles.has(tc.linked_profile_id)) continue;
         if (tc.anonymous_to_connections) continue;
 
-        // Check if this person already exists as a node (dedup by linked_profile_id or name)
         let existingNodeId: string | undefined;
         if (tc.linked_profile_id) {
           existingNodeId = profileToNodeId[tc.linked_profile_id];
@@ -356,7 +465,6 @@ export function useNetworkData() {
         if (!ownerNodeId) continue;
 
         if (existingNodeId) {
-          // Already have this person -- just add a link from the owner to them if not already linked
           const alreadyLinked = links.some(
             (l) =>
               (((l.source as GraphNode).id || l.source) === ownerNodeId &&
@@ -365,7 +473,6 @@ export function useNetworkData() {
                 ((l.target as GraphNode).id || l.target) === ownerNodeId)
           );
           if (!alreadyLinked) {
-            // Detect cross-link: linked user -> my non-linked contact
             const existingNode = nodes.find((n) => n.id === existingNodeId);
             const isCrossLink = existingNode?.type === "contact";
             links.push({
@@ -380,7 +487,6 @@ export function useNetworkData() {
               isCrossLink,
             });
           }
-          // Increase connection count
           const existingNode = nodes.find((n) => n.id === existingNodeId);
           if (existingNode) {
             existingNode.connectionCount++;
@@ -389,13 +495,11 @@ export function useNetworkData() {
           continue;
         }
 
-        // New second-degree contact
         const dedupKey = tc.linked_profile_id || `name:${tc.full_name.toLowerCase()}`;
         if (addedSecondDegreeIds.has(dedupKey)) continue;
         addedSecondDegreeIds.add(dedupKey);
 
         const nodeId = `their-${tc.id}`;
-        // 2nd degree: show job title only, no name or company
         const jobLabel = tc.role || "";
 
         const tcSearchParts = [tc.full_name, tc.relationship_type, tc.company, tc.role, tc.location];
@@ -417,6 +521,7 @@ export function useNetworkData() {
 
         if (tc.linked_profile_id) profileToNodeId[tc.linked_profile_id] = nodeId;
         nameToNodeId[tc.full_name.toLowerCase()] = nodeId;
+        nodeContactMeta[nodeId] = { company: tc.company || undefined, location: tc.location || undefined };
 
         links.push({
           source: ownerNodeId,
@@ -430,12 +535,141 @@ export function useNetworkData() {
         });
       }
 
+      // ── Build NodeProfile for each node (for similarity clustering) ──
+      const profiles: Record<string, NodeProfile> = {};
+      for (const node of nodes) {
+        const pid = node.profileId || node.user_id;
+        const meta = nodeContactMeta[node.id];
+        profiles[node.id] = buildProfile(
+          node.id,
+          node,
+          meta?.company,
+          meta?.location,
+          pid ? workEntriesMap[pid] || [] : [],
+          pid ? eduEntriesMap[pid] || [] : [],
+          pid ? skillsMap[pid] || [] : [],
+          pid ? profileEnrichMap[pid] : undefined,
+        );
+      }
+
+      // Track which profile IDs are already in the network (for world list exclusion)
+      const inNetwork = new Set<string>();
+      inNetwork.add(user.id);
+      for (const uid of mutualUserIds) inNetwork.add(uid);
+      for (const c of myContacts) {
+        if (c.linked_profile_id) inNetwork.add(c.linked_profile_id);
+      }
+
       setGraphData({ nodes, links });
+      setNodeProfiles(profiles);
+      setNetworkProfileIds(inNetwork);
       setLoading(false);
     }
 
     fetchAll();
   }, [router]);
 
-  return { graphData, loading };
+  // ── World list fetcher (called on toggle) ──────────────────
+  const fetchWorldData = useCallback(async (): Promise<{
+    nodes: GraphNode[];
+    profiles: Record<string, NodeProfile>;
+  }> => {
+    const { data: worldProfiles } = await supabase
+      .from("profiles")
+      .select("id, full_name, headline, location, ai_interests, ai_strengths")
+      .eq("is_public", true);
+
+    if (!worldProfiles || worldProfiles.length === 0) {
+      return { nodes: [], profiles: {} };
+    }
+
+    // Exclude profiles already in the network
+    const filtered = worldProfiles.filter(
+      (p: WorldProfile) => !networkProfileIds.has(p.id)
+    );
+
+    // Fetch work_entries + education for world profiles (for richer similarity)
+    const worldIds = filtered.map((p: WorldProfile) => p.id);
+    let worldWork: WorkRow[] = [];
+    let worldEdu: EduRow[] = [];
+    let worldSkills: SkillRow[] = [];
+
+    if (worldIds.length > 0) {
+      const [wRes, eRes, sRes] = await Promise.all([
+        supabase.from("work_entries")
+          .select("user_id, title, company, description, location, start_date, end_date, is_current, ai_skills_extracted")
+          .in("user_id", worldIds),
+        supabase.from("education")
+          .select("user_id, institution, degree, field_of_study, start_date, end_date")
+          .in("user_id", worldIds),
+        supabase.from("skills")
+          .select("user_id, name")
+          .in("user_id", worldIds),
+      ]);
+      worldWork = (wRes.data || []) as WorkRow[];
+      worldEdu = (eRes.data || []) as EduRow[];
+      worldSkills = (sRes.data || []) as SkillRow[];
+    }
+
+    // Build structured maps
+    const wMap: Record<string, WorkRow[]> = {};
+    const eMap: Record<string, EduRow[]> = {};
+    const sMap: Record<string, string[]> = {};
+    for (const w of worldWork) {
+      if (!wMap[w.user_id]) wMap[w.user_id] = [];
+      wMap[w.user_id].push(w);
+    }
+    for (const e of worldEdu) {
+      if (!eMap[e.user_id]) eMap[e.user_id] = [];
+      eMap[e.user_id].push(e);
+    }
+    for (const s of worldSkills) {
+      if (!sMap[s.user_id]) sMap[s.user_id] = [];
+      sMap[s.user_id].push(s.name);
+    }
+
+    const worldNodes: GraphNode[] = [];
+    const worldProfs: Record<string, NodeProfile> = {};
+
+    for (const p of filtered as WorldProfile[]) {
+      const nameParts = p.full_name.split(" ");
+      const lastName = nameParts.length > 1 ? nameParts.slice(-1)[0] : p.full_name;
+      const nodeId = `world-${p.id}`;
+
+      worldNodes.push({
+        id: nodeId,
+        label: lastName,
+        fullName: p.full_name,
+        type: "world",
+        radius: 5,
+        connectionCount: 0,
+        profileId: p.id,
+        role: p.headline || undefined,
+        recency: 0.35,
+        searchText: [p.full_name, p.headline, p.location].filter(Boolean).join(" ").toLowerCase(),
+      });
+
+      const enrich: ProfileEnrich = {
+        id: p.id,
+        ai_interests: p.ai_interests,
+        ai_strengths: p.ai_strengths,
+        location: p.location,
+      };
+
+      worldProfs[nodeId] = buildProfile(
+        nodeId,
+        worldNodes[worldNodes.length - 1],
+        undefined,
+        p.location || undefined,
+        wMap[p.id] || [],
+        eMap[p.id] || [],
+        sMap[p.id] || [],
+        enrich,
+      );
+    }
+
+    return { nodes: worldNodes, profiles: worldProfs };
+  }, [networkProfileIds]);
+
+  return { graphData, nodeProfiles, loading, fetchWorldData };
 }

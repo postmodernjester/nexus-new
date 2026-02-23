@@ -24,9 +24,9 @@ export function lineColor(
   isSecondDegree?: boolean,
   isCrossLink?: boolean
 ): string {
-  // Cross-links: linked user -> my non-linked contact (amber, distinct)
+  // Cross-links: linked user -> my non-linked contact (red, like linked connections)
   if (isCrossLink) {
-    return "rgba(251, 146, 60, 0.6)";
+    return `rgba(220, 80, 80, ${Math.max(recency, 0.4)})`;
   }
   // 2nd degree links: lighter grey so they don't vanish against dark bg
   if (isSecondDegree) {
