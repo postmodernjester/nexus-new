@@ -59,7 +59,6 @@ export default function ContactDossierPage() {
     return d.toISOString().split("T")[0];
   });
   const [addingNote, setAddingNote] = useState(false);
-  const [showActionFields, setShowActionFields] = useState(false);
 
   // Edit note
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -269,7 +268,6 @@ export default function ContactDossierPage() {
       const nextWeek = new Date();
       nextWeek.setDate(nextWeek.getDate() + 7);
       setNoteActionDue(nextWeek.toISOString().split("T")[0]);
-      setShowActionFields(false);
       setNoteDate(new Date().toISOString().split("T")[0]);
       touchContactUpdatedAt();
     }
@@ -762,8 +760,6 @@ export default function ContactDossierPage() {
           noteActionDue={noteActionDue}
           setNoteActionDue={setNoteActionDue}
           addingNote={addingNote}
-          showActionFields={showActionFields}
-          setShowActionFields={setShowActionFields}
           addNote={addNote}
           handleNoteKeyDown={handleNoteKeyDown}
           editingNoteId={editingNoteId}

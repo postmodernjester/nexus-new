@@ -26,8 +26,6 @@ interface NotesSectionProps {
   noteActionDue: string;
   setNoteActionDue: (v: string) => void;
   addingNote: boolean;
-  showActionFields: boolean;
-  setShowActionFields: (v: boolean) => void;
   addNote: () => void;
   handleNoteKeyDown: (e: React.KeyboardEvent) => void;
   // Edit note state
@@ -86,8 +84,6 @@ export default function NotesSection({
   noteActionDue,
   setNoteActionDue,
   addingNote,
-  showActionFields,
-  setShowActionFields,
   addNote,
   handleNoteKeyDown,
   editingNoteId,
@@ -188,55 +184,35 @@ export default function NotesSection({
             gap: "8px",
           }}
         >
-          <button
-            onClick={() => setShowActionFields(!showActionFields)}
+          <input
+            value={noteAction}
+            onChange={(e) => setNoteAction(e.target.value)}
+            placeholder="next step: follow up, send proposal..."
             style={{
-              background: "none",
-              border: "none",
+              ...s.input,
+              flex: 1,
               fontSize: "11px",
-              padding: "3px 0",
-              color: showActionFields ? "#a78bfa" : "#475569",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-              fontWeight: showActionFields ? 600 : 400,
+              padding: "4px 8px",
+              background: "transparent",
+              border: "1px solid #1e293b",
+              color: "#e2e8f0",
             }}
-          >
-            + Next Steps
-          </button>
-
-          {showActionFields && (
-            <>
-              <input
-                value={noteAction}
-                onChange={(e) => setNoteAction(e.target.value)}
-                placeholder="Follow up, send proposal..."
-                style={{
-                  ...s.input,
-                  flex: 1,
-                  fontSize: "11px",
-                  padding: "4px 8px",
-                  background: "transparent",
-                  border: "1px solid #1e293b",
-                  color: "#e2e8f0",
-                }}
-              />
-              <span style={{ fontSize: "10px", color: "#475569" }}>due</span>
-              <input
-                type="date"
-                value={noteActionDue}
-                onChange={(e) => setNoteActionDue(e.target.value)}
-                style={{
-                  ...s.input,
-                  width: "130px",
-                  fontSize: "11px",
-                  padding: "4px 6px",
-                  background: "transparent",
-                  border: "1px solid #1e293b",
-                  color: "#64748b",
-                }}
-              />
-            </>
-          )}
+          />
+          <span style={{ fontSize: "10px", color: "#475569" }}>due</span>
+          <input
+            type="date"
+            value={noteActionDue}
+            onChange={(e) => setNoteActionDue(e.target.value)}
+            style={{
+              ...s.input,
+              width: "130px",
+              fontSize: "11px",
+              padding: "4px 6px",
+              background: "transparent",
+              border: "1px solid #1e293b",
+              color: "#64748b",
+            }}
+          />
 
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px" }}>
             <span style={{ fontSize: "9px", color: "#334155" }}>

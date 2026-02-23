@@ -66,6 +66,15 @@ export default function ContactsPage() {
 
   useEffect(() => {
     loadData();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadData();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", loadData);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", loadData);
+    };
   }, []);
 
   async function loadData() {
