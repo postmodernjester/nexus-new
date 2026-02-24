@@ -15,17 +15,18 @@ import { type WorkEntry, EMPTY_WORK } from '@/app/resume/types'
 import { parseDate, buildDate } from '@/app/resume/utils'
 
 import {
-  CURRENT_YEAR, COL_W, COLLAPSED_W, AXIS_W,
+  CURRENT_YEAR, COL_W, HALF_W, COLLAPSED_W, AXIS_W,
   LS_SLIDER, LS_CENTER_YEAR, LS_CENTER_MONTH, LS_COLLAPSED,
-  COLS, DEFAULT_COLORS, NO_ADD_COLS,
+  DEFAULT_COLORS, resolveColumns, loadUserColumns, saveUserColumns,
 } from './constants'
-import type { TimelineItem, PlaceItem } from './types'
+import type { TimelineItem, PlaceItem, ColumnDef } from './types'
 import {
   parseYM, toMo, toPx, pxToYM, ymStr, fmtYM, hex2rgba, addOneYear,
-  sliderToYears, getColLeft, getTotalGridW, getColAtX, yearFromDate,
+  sliderToYears, getColLeft, getTotalGridW, getColAtX, getColWidth, yearFromDate,
 } from './utils'
 import LockIcon from './LockIcon'
 import Toolbar from './Toolbar'
+import ColumnSettings from './ColumnSettings'
 
 // ═══════════════════════════════════════════════
 // COMPONENT
@@ -39,6 +40,11 @@ export default function ChronicleCanvas() {
   const [educationEntries, setEducationEntries] = useState<ChronicleEducationEntry[]>([])
   const [birthday, setBirthday] = useState<string | null>(null) // "YYYY-MM-DD"
   const [loading, setLoading] = useState(true)
+
+  // Dynamic columns
+  const [userCols, setUserCols] = useState<ColumnDef[]>(loadUserColumns)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const activeCols = useMemo(() => resolveColumns(userCols), [userCols])
 
   // Zoom slider position [0, 1] — persisted
   const [sliderPos, setSliderPos] = useState(() => {
@@ -141,7 +147,7 @@ export default function ChronicleCanvas() {
   // ─── Derived zoom values ───────────────────────
   const yearsVisible = sliderToYears(sliderPos)
   const pxm = Math.max(0.5, viewportH / (yearsVisible * 12))
-  const totalGridW = getTotalGridW(collapsedCols)
+  const totalGridW = getTotalGridW(collapsedCols, activeCols)
   const totalH = (viewEnd - viewStart) * 12 * pxm
 
   const zoomLabel = yearsVisible >= 10
@@ -367,13 +373,12 @@ export default function ChronicleCanvas() {
   const colDividers = useMemo(() => {
     const divs: { left: number }[] = []
     let x = 0
-    for (let i = 0; i < COLS.length; i++) {
-      const w = collapsedCols.has(COLS[i].id) ? COLLAPSED_W : COL_W
-      x += w
-      if (i < COLS.length - 1) divs.push({ left: x })
+    for (let i = 0; i < activeCols.length; i++) {
+      x += getColWidth(activeCols[i], collapsedCols)
+      if (i < activeCols.length - 1) divs.push({ left: x })
     }
     return divs
-  }, [collapsedCols])
+  }, [collapsedCols, activeCols])
 
   // ─── Selection with click-through for overlapping items ───
   const clickCycleRef = useRef<{ itemId: string; time: number; overlapping: string[]; idx: number }>({ itemId: '', time: 0, overlapping: [], idx: 0 })
@@ -699,11 +704,11 @@ export default function ChronicleCanvas() {
     const rect = gridEl.getBoundingClientRect()
     const relX = ev.clientX - rect.left
     const relY = ev.clientY - rect.top
-    const colIdx = getColAtX(relX, collapsedCols)
-    if (colIdx < 0 || colIdx >= COLS.length) return
-    const col = COLS[colIdx]
-    // Don't add to collapsed, gatherings, or people columns
-    if (collapsedCols.has(col.id) || NO_ADD_COLS.has(col.id)) return
+    const colIdx = getColAtX(relX, collapsedCols, activeCols)
+    if (colIdx < 0 || colIdx >= activeCols.length) return
+    const col = activeCols[colIdx]
+    // Don't add to collapsed columns or columns marked noAdd
+    if (collapsedCols.has(col.id) || col.noAdd) return
     const ym = pxToYM(relY, pxm, viewStart)
     const startYM = ymStr(ym)
     if (col.id === 'work') {
@@ -726,7 +731,7 @@ export default function ChronicleCanvas() {
         defaultEndYM: addOneYear(startYM),
       })
     }
-  }, [pxm, viewStart, collapsedCols])
+  }, [pxm, viewStart, collapsedCols, activeCols])
 
   // ─── Axis double-click → geo modal ──────────────────
   const handleAxisDblClick = useCallback((ev: React.MouseEvent) => {
@@ -1236,10 +1241,15 @@ export default function ChronicleCanvas() {
     return h
   }, [fuzzyMonths, pxm, dragDelta])
 
-  // ─── Split items by column type ─────────────
-  const regularItems = useMemo(() => timelineItems.filter(i => i.cat !== 'people' && i.cat !== 'gatherings'), [timelineItems])
-  const gatheringItems = useMemo(() => timelineItems.filter(i => i.cat === 'gatherings'), [timelineItems])
-  const peopleItems = useMemo(() => timelineItems.filter(i => i.cat === 'people'), [timelineItems])
+  // ─── Split items by render type ─────────────
+  const colRenderMap = useMemo(() => {
+    const map: Record<string, 'bar' | 'slot' | 'marker'> = {}
+    for (const col of activeCols) map[col.id] = col.renderType
+    return map
+  }, [activeCols])
+  const regularItems = useMemo(() => timelineItems.filter(i => (colRenderMap[i.cat] || 'bar') === 'bar'), [timelineItems, colRenderMap])
+  const gatheringItems = useMemo(() => timelineItems.filter(i => colRenderMap[i.cat] === 'slot'), [timelineItems, colRenderMap])
+  const peopleItems = useMemo(() => timelineItems.filter(i => colRenderMap[i.cat] === 'marker'), [timelineItems, colRenderMap])
 
   // Compute horizontal slot for each gathering (up to 4 side by side)
   const gatheringSlots = useMemo(() => {
@@ -1294,6 +1304,7 @@ export default function ChronicleCanvas() {
         zoomLabel={zoomLabel}
         zoomDragRef={zoomDragRef}
         zoomFromTrack={zoomFromTrack}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       {/* ── SCROLL CONTAINER ─────────────────── */}
@@ -1317,10 +1328,11 @@ export default function ChronicleCanvas() {
             <span style={{ fontSize: 7, letterSpacing: '.15em', color: '#d8d0c0', textTransform: 'uppercase' }}>geography</span>
           </div>
           <div style={{ display: 'flex' }}>
-            {COLS.map(col => {
+            {activeCols.map(col => {
               const isCollapsed = collapsedCols.has(col.id)
-              const w = isCollapsed ? COLLAPSED_W : COL_W
-              const canAdd = !NO_ADD_COLS.has(col.id)
+              const w = getColWidth(col, collapsedCols)
+              const canAdd = !col.noAdd
+              const isHalf = col.width === 'half' && !isCollapsed
               return (
                 <div
                   key={col.id}
@@ -1335,9 +1347,9 @@ export default function ChronicleCanvas() {
                   }}
                   style={{
                     flexShrink: 0, width: w, borderRight: '1px solid #d8d0c0',
-                    padding: isCollapsed ? '7px 0' : '7px 10px',
+                    padding: isCollapsed ? '7px 0' : isHalf ? '7px 5px' : '7px 10px',
                     display: 'flex', alignItems: 'center', justifyContent: isCollapsed ? 'center' : 'flex-start',
-                    gap: isCollapsed ? 0 : 6, cursor: isCollapsed ? 'default' : (canAdd ? 'pointer' : 'default'),
+                    gap: isCollapsed ? 0 : isHalf ? 4 : 6, cursor: isCollapsed ? 'default' : (canAdd ? 'pointer' : 'default'),
                     transition: 'width .2s ease',
                     overflow: 'hidden',
                   }}
@@ -1354,7 +1366,7 @@ export default function ChronicleCanvas() {
                   />
                   {!isCollapsed && (
                     <>
-                      <span style={{ fontSize: 8, letterSpacing: '.16em', textTransform: 'uppercase', color: '#9a8e78', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: isHalf ? 6.5 : 8, letterSpacing: isHalf ? '.1em' : '.16em', textTransform: 'uppercase', color: '#9a8e78', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {col.label}
                       </span>
                       {col.private && <LockIcon />}
@@ -1548,13 +1560,16 @@ export default function ChronicleCanvas() {
               )
             })}
 
-            {/* ── PEOPLE ─────────────────────────── */}
-            {!collapsedCols.has('people') && peopleItems.map(item => {
+            {/* ── MARKER items (people, etc.) ─────── */}
+            {peopleItems.map(item => {
+              if (collapsedCols.has(item.cat)) return null
               const s = parseYM(item.start)
               if (!s) return null
               const top = toPx(s, pxm, viewStart)
               const dotH = Math.max(14, pxm * 0.9)
-              const left = getColLeft('people', collapsedCols)
+              const left = getColLeft(item.cat, collapsedCols, activeCols)
+              const markerCol = activeCols.find(c => c.id === item.cat)
+              const colW = markerCol ? (markerCol.width === 'half' ? HALF_W : COL_W) : COL_W
 
               return (
                 <div
@@ -1566,7 +1581,7 @@ export default function ChronicleCanvas() {
                   onMouseMove={moveTooltip}
                   onMouseLeave={hideTooltip}
                   style={{
-                    position: 'absolute', top, left, width: COL_W, height: dotH,
+                    position: 'absolute', top, left, width: colW, height: dotH,
                     zIndex: 12, cursor: 'default', display: 'flex', alignItems: 'center',
                   }}
                 >
@@ -1579,15 +1594,16 @@ export default function ChronicleCanvas() {
                     ...(item.fuzzyStart ? { opacity: 0.4 } : {}),
                     ...(selectedId === item.id ? { filter: `drop-shadow(0 0 2px #1a1812) drop-shadow(0 0 2px ${item.color})` } : {}),
                   }} />
-                  <div style={{ fontSize: 8, marginLeft: 5, whiteSpace: 'nowrap', letterSpacing: '.02em', color: item.color }}>
+                  <div style={{ fontSize: 8, marginLeft: 5, whiteSpace: 'nowrap', letterSpacing: '.02em', color: item.color, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {item.title}
                   </div>
                 </div>
               )
             })}
 
-            {/* ── GATHERINGS (1/4 width, rotated text) ── */}
-            {!collapsedCols.has('gatherings') && gatheringItems.map(item => {
+            {/* ── SLOT items (gatherings, etc.) ─── */}
+            {gatheringItems.map(item => {
+              if (collapsedCols.has(item.cat)) return null
               const s = parseYM(item.start)
               const en = item.end ? parseYM(item.end) : null
               if (!s) return null
@@ -1603,8 +1619,10 @@ export default function ChronicleCanvas() {
               }
 
               const slot = gatheringSlots.get(item.id) ?? 0
-              const slotW = Math.floor((COL_W - 7) / 4)
-              const colLeft = getColLeft('gatherings', collapsedCols)
+              const slotCol = activeCols.find(c => c.id === item.cat)
+              const slotColW = slotCol ? (slotCol.width === 'half' ? HALF_W : COL_W) : COL_W
+              const slotW = Math.floor((slotColW - 7) / 4)
+              const colLeft = getColLeft(item.cat, collapsedCols, activeCols)
               const left = colLeft + 3 + slot * slotW
               const w = slotW - 1
               const isSelected = selectedId === item.id
@@ -1684,8 +1702,9 @@ export default function ChronicleCanvas() {
                 top = toPx(s, pxm, viewStart)
                 h = en ? Math.max(Math.round(pxm), toPx(en, pxm, viewStart) - top) : Math.round(pxm * 2)
               }
-              const colW = collapsedCols.has(item.cat) ? COLLAPSED_W : COL_W
-              const left = getColLeft(item.cat, collapsedCols) + 3
+              const itemCol = activeCols.find(c => c.id === item.cat)
+              const colW = collapsedCols.has(item.cat) ? COLLAPSED_W : (itemCol?.width === 'half' ? HALF_W : COL_W)
+              const left = getColLeft(item.cat, collapsedCols, activeCols) + 3
               const w = colW - 7
               const showDate = h > Math.round(pxm * 1.2)
               const isSelected = selectedId === item.id
@@ -1870,6 +1889,15 @@ export default function ChronicleCanvas() {
         DEL to delete selected
       </div>
 
+      {/* ── COLUMN SETTINGS ──────────────────── */}
+      {settingsOpen && (
+        <ColumnSettings
+          userCols={userCols}
+          onUpdate={setUserCols}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
       {/* ── MODALS ───────────────────────────── */}
       <ChronicleModal
         open={entryModal.open}
@@ -1880,6 +1908,7 @@ export default function ChronicleCanvas() {
         onSave={handleEntrySave}
         onDelete={handleEntryDelete}
         onClose={() => setEntryModal({ open: false })}
+        columns={activeCols}
       />
       <ChronicleGeoModal
         open={geoModal.open}

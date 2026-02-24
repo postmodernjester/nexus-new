@@ -1,27 +1,16 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import type { ColumnDef } from './types'
+import { COLUMN_PALETTE, UNIVERSAL_COLORS, DEFAULT_COLORS } from './constants'
 
-const COLS = [
-  { id: 'work', label: 'Work / Employer' },
-  { id: 'project', label: 'Project' },
-  { id: 'education', label: 'Education' },
-  { id: 'personal', label: 'Personal / Family' },
-  { id: 'residence', label: 'Residence' },
-  { id: 'gatherings', label: 'Gathering / Event' },
-  { id: 'tech', label: 'Tech context' },
-  { id: 'people', label: 'Person' },
-]
-
-const PAL: Record<string, string[]> = {
-  work: ['#1a3660', '#2d5080', '#4070a8', '#5890c8', '#78b0e0', '#3060c0', '#5080d8', '#284878'],
-  project: ['#1a4010', '#306018', '#508038', '#70a050', '#90c070', '#388020', '#60b040', '#406828'],
-  education: ['#104838', '#1a6050', '#2a8a6a', '#40a880', '#60c8a0', '#188868', '#38b090', '#206050'],
-  personal: ['#601828', '#802838', '#a85060', '#c87080', '#e090a0', '#b04058', '#d06878', '#903040'],
-  residence: ['#403010', '#604820', '#806840', '#a08858', '#c0a878', '#907038', '#b89050', '#584020'],
-  gatherings: ['#802010', '#a04828', '#c06848', '#d88868', '#f0a888', '#b85838', '#e07858', '#984030'],
-  tech: ['#402808', '#604018', '#986020', '#b88040', '#d8a060', '#a87028', '#c89048', '#785020'],
-  people: ['#301850', '#482870', '#7050a8', '#9070c8', '#b090e0', '#6040c0', '#8060d8', '#583880'],
+// Fallback column labels for the category dropdown
+const FALLBACK_LABELS: Record<string, string> = {
+  work: 'Work / Employer', project: 'Project', education: 'Education',
+  personal: 'Personal / Family', residence: 'Residence',
+  gatherings: 'Gathering / Event', tech: 'Tech context', people: 'Person',
+  health: 'Health', creative: 'Creative', finance: 'Finance',
+  social: 'Social', spiritual: 'Spiritual',
 }
 
 export interface EntryFormData {
@@ -49,6 +38,7 @@ interface Props {
   onSave: (data: EntryFormData) => void
   onDelete?: (id: string) => void
   onClose: () => void
+  columns?: ColumnDef[]
 }
 
 // Parse "1988,1990,1992" → Set<number>
@@ -68,7 +58,12 @@ function yearFromYM(ym: string): string {
   return ym.split('-')[0]
 }
 
-export default function ChronicleModal({ open, editingEntry, defaultCat, defaultYM, defaultEndYM, onSave, onDelete, onClose }: Props) {
+/** Get the palette for a given column ID, falling back gracefully */
+function getPalette(catId: string): string[] {
+  return COLUMN_PALETTE[catId] || UNIVERSAL_COLORS
+}
+
+export default function ChronicleModal({ open, editingEntry, defaultCat, defaultYM, defaultEndYM, onSave, onDelete, onClose, columns }: Props) {
   const [cat, setCat] = useState(defaultCat || 'work')
   const [title, setTitle] = useState('')
   const [company, setCompany] = useState('')
@@ -85,6 +80,9 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
   const [firstYear, setFirstYear] = useState('')
   const [lastYear, setLastYear] = useState('')
   const [yearsAttended, setYearsAttended] = useState<Set<number>>(new Set())
+
+  // Derive column list for the category dropdown
+  const colOptions = columns || []
 
   useEffect(() => {
     if (open) {
@@ -126,8 +124,8 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
         setFuzzyEnd(false)
         setNote('')
         setShowOnResume(false)
-        const pal = PAL[defaultCat || 'work'] || PAL.work
-        setColor(pal[0])
+        const pal = getPalette(defaultCat || 'work')
+        setColor(pal[2] || pal[0] || DEFAULT_COLORS[defaultCat || 'work'] || '#4070a8')
 
         // Gathering defaults from click position
         if (defaultCat === 'gatherings') {
@@ -154,8 +152,8 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
 
   const handleCatChange = (newCat: string) => {
     setCat(newCat)
-    const pal = PAL[newCat] || PAL.work
-    if (!editingEntry && !pal.includes(color)) setColor(pal[0])
+    const pal = getPalette(newCat)
+    if (!editingEntry && !pal.includes(color)) setColor(pal[2] || pal[0] || '#4070a8')
   }
 
   const toggleYear = (y: number) => {
@@ -220,8 +218,13 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
   if (!open) return null
 
   const isGathering = cat === 'gatherings'
-  const basePal = PAL[cat] || PAL.work
-  const swatches = color && !basePal.includes(color) ? [...basePal, color] : basePal
+  const basePal = getPalette(cat)
+  const allSwatches = color && !basePal.includes(color) && !UNIVERSAL_COLORS.includes(color)
+    ? [...basePal, color]
+    : basePal
+
+  // Resolve label for current category
+  const catLabel = colOptions.find(c => c.id === cat)?.label || FALLBACK_LABELS[cat] || 'entry'
 
   // Year grid for gatherings
   const fyNum = parseInt(firstYear)
@@ -238,7 +241,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
     >
       <div style={S.box}>
         <div style={S.title}>
-          {editingEntry ? 'Edit entry' : `New ${COLS.find(c => c.id === cat)?.label || 'entry'}`}
+          {editingEntry ? 'Edit entry' : `New ${catLabel}`}
         </div>
 
         <div style={S.frow}>
@@ -249,7 +252,7 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
             disabled={editingEntry?.source === 'work' || editingEntry?.source === 'contact' || editingEntry?.source === 'education'}
             style={S.input}
           >
-            {COLS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+            {colOptions.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         </div>
 
@@ -395,16 +398,31 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
 
         <div style={S.frow}>
           <label style={S.label}>Color</label>
-          <div style={S.swatches}>
-            {swatches.map(c => (
+          <div style={S.swatchGrid}>
+            {allSwatches.map(c => (
               <div
                 key={c}
                 onClick={() => setColor(c)}
                 style={{
-                  width: 20, height: 20, borderRadius: 3, cursor: 'pointer',
+                  width: 18, height: 18, borderRadius: 3, cursor: 'pointer',
                   background: c,
                   border: c === color ? '2px solid #1a1812' : '2px solid transparent',
                   transition: 'border-color .1s, transform .1s',
+                }}
+              />
+            ))}
+          </div>
+          {/* Universal colors */}
+          <div style={{ marginTop: 4, display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+            <span style={{ width: '100%', fontSize: 6, letterSpacing: '.2em', color: '#d8d0c0', marginBottom: 1 }}>UNIVERSAL</span>
+            {UNIVERSAL_COLORS.map(c => (
+              <div
+                key={c}
+                onClick={() => setColor(c)}
+                style={{
+                  width: 18, height: 18, borderRadius: 3, cursor: 'pointer',
+                  background: c,
+                  border: c === color ? '2px solid #1a1812' : '2px solid transparent',
                 }}
               />
             ))}
@@ -462,7 +480,9 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 9, color: '#5a5040', letterSpacing: '.04em',
   },
   checkbox: { width: 13, height: 13, cursor: 'pointer', accentColor: '#1a1812' },
-  swatches: { display: 'flex', gap: 5, flexWrap: 'wrap' as const },
+  swatchGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(8, 18px)', gap: 3,
+  },
   yearGrid: {
     display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(42px, 1fr))',
     gap: 4,

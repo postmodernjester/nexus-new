@@ -1,10 +1,10 @@
-import type { YM } from './types'
+import type { YM, ColumnDef } from './types'
 import {
   ZOOM_YEARS_MAX,
   ZOOM_YEARS_MIN,
   ZOOM_GAMMA,
-  COLS,
   COL_W,
+  HALF_W,
   COLLAPSED_W,
 } from './constants'
 
@@ -53,24 +53,30 @@ export function sliderToYears(t: number): number {
   return ZOOM_YEARS_MAX * Math.pow(ZOOM_YEARS_MIN / ZOOM_YEARS_MAX, Math.pow(clamped, ZOOM_GAMMA))
 }
 
-// Column layout (collapse-aware)
-export function getColLeft(colId: string, collapsed: Set<string>): number {
+/** Get effective pixel width for a column (collapse-aware, half-width-aware) */
+export function getColWidth(col: ColumnDef, collapsed: Set<string>): number {
+  if (collapsed.has(col.id)) return COLLAPSED_W
+  return col.width === 'half' ? HALF_W : COL_W
+}
+
+// Column layout (collapse-aware, half-width-aware, dynamic column list)
+export function getColLeft(colId: string, collapsed: Set<string>, cols: ColumnDef[]): number {
   let x = 0
-  for (const c of COLS) {
+  for (const c of cols) {
     if (c.id === colId) return x
-    x += collapsed.has(c.id) ? COLLAPSED_W : COL_W
+    x += getColWidth(c, collapsed)
   }
   return x
 }
 
-export function getTotalGridW(collapsed: Set<string>): number {
-  return COLS.reduce((sum, c) => sum + (collapsed.has(c.id) ? COLLAPSED_W : COL_W), 0)
+export function getTotalGridW(collapsed: Set<string>, cols: ColumnDef[]): number {
+  return cols.reduce((sum, c) => sum + getColWidth(c, collapsed), 0)
 }
 
-export function getColAtX(x: number, collapsed: Set<string>): number {
+export function getColAtX(x: number, collapsed: Set<string>, cols: ColumnDef[]): number {
   let acc = 0
-  for (let i = 0; i < COLS.length; i++) {
-    const w = collapsed.has(COLS[i].id) ? COLLAPSED_W : COL_W
+  for (let i = 0; i < cols.length; i++) {
+    const w = getColWidth(cols[i], collapsed)
     if (x < acc + w) return i
     acc += w
   }
