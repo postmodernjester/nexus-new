@@ -138,16 +138,20 @@ export default function ContactDossierPage() {
   useEffect(() => {
     loadAll();
     // Re-fetch when switching back so action items stay in sync across pages
+    // Skip if resume upload modal is open (prevents race with save)
     const onVisible = () => {
-      if (document.visibilityState === "visible") loadAll();
+      if (document.visibilityState === "visible" && !resumeUploadOpen) loadAll();
     };
-    window.addEventListener("focus", loadAll);
+    const onFocus = () => {
+      if (!resumeUploadOpen) loadAll();
+    };
+    window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      window.removeEventListener("focus", loadAll);
+      window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [cid]);
+  }, [cid, resumeUploadOpen]);
 
   // Touch contact's updated_at so "Recent" sort reflects note activity
   async function touchContactUpdatedAt() {
@@ -592,16 +596,24 @@ export default function ContactDossierPage() {
 
   async function handleResumeParsed(data: ParsedResumeData) {
     setResumeUploadOpen(false);
+    // Preserve any existing snapshot profile/chronicle data when merging with uploaded work/edu
     const resumeData: ResumeData = {
       work: data.work,
       education: data.education,
       raw_text: data.raw_text,
+      profile: contact?.resume_data?.profile,
+      chronicle: contact?.resume_data?.chronicle,
     };
     // Save to DB
-    await supabase
+    const { error } = await supabase
       .from("contacts")
       .update({ resume_data: resumeData })
       .eq("id", cid);
+    if (error) {
+      console.error("Failed to save resume data:", error);
+      alert("Failed to save resume: " + error.message);
+      return;
+    }
     setContact((prev) => prev ? { ...prev, resume_data: resumeData } : prev);
   }
 
