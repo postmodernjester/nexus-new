@@ -266,6 +266,15 @@ export default function NetworkPage() {
 
     const allLinks = [...graphData.links, ...clusterLinks, ...thirdDegreeLinks];
 
+    // Build radial distance map: each 1st-degree node → its link distance from self
+    const radialDistMap: Record<string, number> = {};
+    for (const link of graphData.links) {
+      const sId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id;
+      const tId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id;
+      if (sId === 'self') radialDistMap[tId] = link.distance;
+      if (tId === 'self') radialDistMap[sId] = link.distance;
+    }
+
     const simulation = d3
       .forceSimulation<GraphNode>(allNodes)
       .force(
@@ -277,32 +286,38 @@ export default function NetworkPage() {
           .strength((d) => {
             // 2nd-degree links (non-cross): very strong to keep tight cluster
             if (d.isSecondDegree && !d.isCrossLink) return 0.7;
-            // self→1st-degree: strong spring to hold at radial distance
-            if (d.thickness > 0) return 0.25;
+            // self→1st-degree: weakened — forceRadial handles distance anchoring
+            if (d.thickness > 0) return 0.08;
             return (d as GraphLink & { _simStrength?: number })._simStrength || 0.04;
           })
       )
+      // Radial force: locks 1st-degree nodes to their orbital distance from center
+      .force("radial", d3.forceRadial<GraphNode>(
+        (d) => radialDistMap[d.id] || 0,
+        width / 2,
+        height / 2
+      ).strength((d) => {
+        if (d.type === "contact" || d.type === "connected_user") return 0.35;
+        return 0;
+      }))
       .force("charge", d3.forceManyBody<GraphNode>()
         .strength((d) => {
-          // Self: minimal charge — it's pinned, link springs keep nodes at distance
-          if (d.id === "self") return -30;
+          if (d.id === "self") return 0;
           if (d.type === "their_contact") return -8;
           if (d.type === "third_degree") return -5;
           if (d.type === "world") return -15;
-          // 1st-degree: strong mutual repulsion to spread around the circle
-          return -350;
+          // 1st-degree: repulsion spreads them around their orbit
+          return -250;
         })
-        .distanceMax(900))
+        .distanceMax(800))
       .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => {
         if (d.id === "self") return 0.12;
-        if (d.type === "their_contact" || d.type === "third_degree") return 0;
-        // 1st-degree: light centering to prevent drift, repulsion spreads them around
-        return 0.02;
+        // No x/y centering for 1st-degree — forceRadial handles it
+        return 0;
       }))
       .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => {
         if (d.id === "self") return 0.12;
-        if (d.type === "their_contact" || d.type === "third_degree") return 0;
-        return 0.02;
+        return 0;
       }))
       .force(
         "collision",

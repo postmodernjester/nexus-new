@@ -437,6 +437,7 @@ export default function DashboardPage() {
           entry_date: data.entry_date,
           contact_id: data.contact_id,
           contact_name: contact?.full_name || "Unknown",
+          contact_company: null,
         },
       ]);
       setNewContactId("");
