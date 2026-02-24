@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getOrCreateInviteCode } from "@/lib/connections";
@@ -50,6 +50,11 @@ interface LinkedConnection {
   profile_id: string;
   updated_at: string;
   headline: string | null;
+}
+
+interface ContactOption {
+  id: string;
+  full_name: string;
 }
 
 // SVG ring chart component
@@ -147,7 +152,7 @@ export default function DashboardPage() {
   const [recentNotes, setRecentNotes] = useState<RecentNote[]>([]);
   const [totalContacts, setTotalContacts] = useState(0);
   const [connectionCount, setConnectionCount] = useState(0);
-  const [networkSize, setNetworkSize] = useState(0); // total including 2nd degree
+  const [networkSize, setNetworkSize] = useState(0);
   const [linkedConnections, setLinkedConnections] = useState<LinkedConnection[]>([]);
   const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
   const [respondingTo, setRespondingTo] = useState<string | null>(null);
@@ -156,15 +161,27 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [allContacts, setAllContacts] = useState<ContactOption[]>([]);
+
+  // Inline editing state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [editDue, setEditDue] = useState("");
+  const editRef = useRef<HTMLInputElement>(null);
+
+  // New action item state
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [newContactId, setNewContactId] = useState("");
+  const [newActionText, setNewActionText] = useState("");
+  const [newActionDue, setNewActionDue] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    // Re-fetch data when switching back to this page so action items stay in sync
     const onVisible = () => {
       if (document.visibilityState === "visible") load();
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", load);
-    // Also listen to Next.js client-side navigation via popstate
     window.addEventListener("popstate", load);
     load();
     return () => {
@@ -183,7 +200,6 @@ export default function DashboardPage() {
 
       setUserId(user.id);
 
-      // Fetch all data in parallel
       const [profileRes, contactsRes, connectionsRes, notesRes, invitationsRes] =
         await Promise.all([
           supabase
@@ -200,14 +216,12 @@ export default function DashboardPage() {
             .select("id, inviter_id, invitee_id")
             .eq("status", "accepted")
             .or(`inviter_id.eq.${user.id},invitee_id.eq.${user.id}`),
-          // Get recent notes with contact info
           supabase
             .from("contact_notes")
             .select("id, content, context, entry_date, contact_id, action_text, action_due_date, action_completed, importance, created_at")
             .eq("owner_id", user.id)
             .order("created_at", { ascending: false })
             .limit(200),
-          // Pending link invitations received
           supabase
             .from("link_invitations")
             .select("id, from_user_id, created_at")
@@ -218,15 +232,18 @@ export default function DashboardPage() {
       setProfile(profileRes.data as Profile);
       const contactsList = (contactsRes.data || []) as { id: string; full_name: string; linked_profile_id: string | null }[];
       setTotalContacts(contactsList.length);
+      setAllContacts(
+        contactsList
+          .map((c) => ({ id: c.id, full_name: c.full_name }))
+          .sort((a, b) => a.full_name.localeCompare(b.full_name))
+      );
       const connectionsList = (connectionsRes.data || []) as { id: string; inviter_id: string; invitee_id: string }[];
       setConnectionCount(connectionsList.length);
 
-      // Get connected user IDs for 2nd-degree network
       const connectedUserIds = connectionsList.map((c) =>
         c.inviter_id === user.id ? c.invitee_id : c.inviter_id
       );
 
-      // Fetch linked profiles' updated_at for content modification tracking
       const linkedProfileIds = contactsList
         .filter((c) => c.linked_profile_id)
         .map((c) => c.linked_profile_id!);
@@ -261,7 +278,6 @@ export default function DashboardPage() {
         }
       }
 
-      // 2nd-degree network size
       let secondDegreeCount = 0;
       if (connectedUserIds.length > 0) {
         const { count } = await supabase
@@ -272,13 +288,11 @@ export default function DashboardPage() {
       }
       setNetworkSize(contactsList.length + secondDegreeCount);
 
-      // Build contact name lookup
       const contactMap = new Map<string, string>();
       contactsList.forEach((c) => contactMap.set(c.id, c.full_name));
 
       const allNotes = (notesRes.data || []) as any[];
 
-      // Extract action items (pending)
       const actions: ActionItem[] = allNotes
         .filter((n: any) => n.action_text && !n.action_completed)
         .map((n: any) => ({
@@ -292,7 +306,6 @@ export default function DashboardPage() {
           contact_name: contactMap.get(n.contact_id) || "Unknown",
         }))
         .sort((a: ActionItem, b: ActionItem) => {
-          // Sort: overdue first, then by due date, then by importance
           const now = new Date().toISOString().split("T")[0];
           const aOverdue = a.action_due_date && a.action_due_date < now;
           const bOverdue = b.action_due_date && b.action_due_date < now;
@@ -305,7 +318,6 @@ export default function DashboardPage() {
 
       setActionItems(actions);
 
-      // Recent notes (last 10)
       const recent: RecentNote[] = allNotes.slice(0, 10).map((n: any) => ({
         id: n.id,
         content: n.content,
@@ -317,7 +329,6 @@ export default function DashboardPage() {
       }));
       setRecentNotes(recent);
 
-      // Process pending invitations — look up sender profiles
       const rawInvitations = (invitationsRes.data || []) as { id: string; from_user_id: string; created_at: string }[];
       if (rawInvitations.length > 0) {
         const senderIds = rawInvitations.map((i) => i.from_user_id);
@@ -350,7 +361,6 @@ export default function DashboardPage() {
   }, [router]);
 
   async function completeAction(noteId: string) {
-    // Optimistically remove from list
     const removed = actionItems.find((a) => a.id === noteId);
     setActionItems((prev) => prev.filter((a) => a.id !== noteId));
     const { data, error } = await supabase
@@ -360,10 +370,79 @@ export default function DashboardPage() {
       .select()
       .single();
     if (error || !data) {
-      // Revert on failure (includes RLS silent denial)
       if (removed) setActionItems((prev) => [...prev, removed]);
       console.error("Failed to complete action:", error || "No rows updated");
     }
+  }
+
+  async function saveActionEdit(noteId: string) {
+    const item = actionItems.find((a) => a.id === noteId);
+    if (!item) return;
+    const newText = editText.trim() || item.action_text;
+    const newDue = editDue || null;
+    // Optimistic update
+    setActionItems((prev) =>
+      prev.map((a) =>
+        a.id === noteId ? { ...a, action_text: newText, action_due_date: newDue } : a
+      )
+    );
+    setEditingId(null);
+    const { error } = await supabase
+      .from("contact_notes")
+      .update({ action_text: newText, action_due_date: newDue })
+      .eq("id", noteId);
+    if (error) {
+      // Revert
+      if (item) {
+        setActionItems((prev) =>
+          prev.map((a) =>
+            a.id === noteId ? { ...a, action_text: item.action_text, action_due_date: item.action_due_date } : a
+          )
+        );
+      }
+      console.error("Failed to update action:", error);
+    }
+  }
+
+  async function createNewAction() {
+    if (!newContactId || !newActionText.trim() || !userId) return;
+    setSaving(true);
+    const { data, error } = await supabase
+      .from("contact_notes")
+      .insert({
+        owner_id: userId,
+        contact_id: newContactId,
+        content: newActionText.trim(),
+        entry_date: new Date().toISOString().split("T")[0],
+        action_text: newActionText.trim(),
+        action_due_date: newActionDue || null,
+        action_completed: false,
+      })
+      .select()
+      .single();
+    if (error) {
+      console.error("Failed to create action:", error);
+    } else if (data) {
+      const contact = allContacts.find((c) => c.id === newContactId);
+      setActionItems((prev) => [
+        ...prev,
+        {
+          id: data.id,
+          action_text: data.action_text,
+          action_due_date: data.action_due_date,
+          action_completed: false,
+          importance: null,
+          entry_date: data.entry_date,
+          contact_id: data.contact_id,
+          contact_name: contact?.full_name || "Unknown",
+        },
+      ]);
+      setNewContactId("");
+      setNewActionText("");
+      setNewActionDue("");
+      setShowNewForm(false);
+    }
+    setSaving(false);
   }
 
   async function respondToInvitation(invitationId: string, accept: boolean) {
@@ -421,6 +500,13 @@ export default function DashboardPage() {
     return Math.round((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   }
 
+  function startEditing(item: ActionItem) {
+    setEditingId(item.id);
+    setEditText(item.action_text);
+    setEditDue(item.action_due_date || "");
+    setTimeout(() => editRef.current?.focus(), 0);
+  }
+
   if (loading) {
     return (
       <div
@@ -450,136 +536,25 @@ export default function DashboardPage() {
 
   const avatarUrl = profile?.profile_photo_url || profile?.avatar_url;
 
+  const inputStyle: React.CSSProperties = {
+    background: "#0f172a",
+    border: "1px solid #334155",
+    borderRadius: "5px",
+    color: "#e2e8f0",
+    fontSize: "13px",
+    padding: "6px 8px",
+    outline: "none",
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: "#0f172a", color: "#e2e8f0" }}>
       <Nav />
 
       <div style={{ maxWidth: "900px", margin: "0 auto", padding: "28px 20px 60px" }}>
-        {/* Profile header */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "16px",
-            marginBottom: "28px",
-          }}
-        >
-          <div
-            style={{
-              width: "52px",
-              height: "52px",
-              borderRadius: "50%",
-              background: "#1e293b",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "20px",
-              fontWeight: "bold",
-              color: "#a78bfa",
-              overflow: "hidden",
-              flexShrink: 0,
-            }}
-          >
-            {avatarUrl ? (
-              <img
-                src={avatarUrl}
-                alt=""
-                style={{ width: "52px", height: "52px", objectFit: "cover" }}
-              />
-            ) : (
-              profile?.full_name?.[0] || "?"
-            )}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: "18px", fontWeight: "bold" }}>
-              {profile?.full_name || "Unknown"}
-            </div>
-            {profile?.headline && (
-              <div style={{ fontSize: "13px", color: "#64748b", marginTop: "1px" }}>
-                {profile.headline}
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Stats row with ring charts */}
-        <div
-          style={{
-            display: "flex",
-            gap: "16px",
-            marginBottom: "24px",
-            flexWrap: "wrap",
-          }}
-        >
-          {/* Action items ring */}
-          <div
-            style={{
-              background: "#1e293b",
-              border: "1px solid #334155",
-              borderRadius: "12px",
-              padding: "16px 20px",
-              display: "flex",
-              alignItems: "center",
-              gap: "16px",
-              flex: "1 1 220px",
-            }}
-          >
-            <RingChart
-              segments={[
-                { value: overdueCount, color: "#ef4444" },
-                { value: dueSoonCount, color: "#eab308" },
-                { value: laterCount, color: "#22c55e" },
-              ]}
-              label="actions"
-            />
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "12px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#ef4444" }} />
-                <span style={{ color: "#94a3b8" }}>{overdueCount} overdue</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#eab308" }} />
-                <span style={{ color: "#94a3b8" }}>{dueSoonCount} this week</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#22c55e" }} />
-                <span style={{ color: "#94a3b8" }}>{laterCount} upcoming</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Network stats */}
-          <div
-            style={{
-              background: "#1e293b",
-              border: "1px solid #334155",
-              borderRadius: "12px",
-              padding: "16px 20px",
-              flex: "1 1 180px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "10px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Network Size</span>
-              <span style={{ fontSize: "20px", fontWeight: "bold" }}>{networkSize}</span>
-            </div>
-            <MiniBar value={networkSize} max={Math.max(networkSize, 50)} color="#f59e0b" />
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Contacts</span>
-              <span style={{ fontSize: "20px", fontWeight: "bold" }}>{totalContacts}</span>
-            </div>
-            <MiniBar value={totalContacts} max={Math.max(totalContacts, 20)} color="#a78bfa" />
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Links</span>
-              <span style={{ fontSize: "20px", fontWeight: "bold" }}>{connectionCount}</span>
-            </div>
-            <MiniBar value={connectionCount} max={Math.max(totalContacts, 1)} color="#60a5fa" />
-          </div>
-        </div>
-
-        {/* ACTION ITEMS — main feature */}
+        {/* ═══════════════════════════════════════════════════════
+            ACTION ITEMS — the primary feature, always on top
+            ═══════════════════════════════════════════════════════ */}
         <div
           style={{
             background: "#1e293b",
@@ -589,17 +564,18 @@ export default function DashboardPage() {
             marginBottom: "20px",
           }}
         >
+          {/* Header row */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              marginBottom: "14px",
+              marginBottom: "16px",
             }}
           >
             <span
               style={{
-                fontSize: "13px",
+                fontSize: "15px",
                 fontWeight: "bold",
                 textTransform: "uppercase",
                 letterSpacing: "0.5px",
@@ -608,154 +584,303 @@ export default function DashboardPage() {
             >
               Action Items
             </span>
-            <Link
-              href="/contacts"
-              style={{ color: "#475569", fontSize: "11px", textDecoration: "none" }}
+            <button
+              onClick={() => setShowNewForm((v) => !v)}
+              style={{
+                padding: "4px 14px",
+                background: showNewForm ? "#334155" : "#fbbf24",
+                color: showNewForm ? "#94a3b8" : "#0f172a",
+                border: "none",
+                borderRadius: "6px",
+                fontSize: "12px",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
             >
-              All contacts
-            </Link>
+              {showNewForm ? "Cancel" : "+ New"}
+            </button>
           </div>
 
-          {actionItems.length === 0 && pendingInvitations.length === 0 ? (
+          {/* New action item form */}
+          {showNewForm && (
+            <div
+              style={{
+                display: "flex",
+                gap: "8px",
+                alignItems: "center",
+                padding: "12px",
+                background: "#0f172a",
+                borderRadius: "8px",
+                marginBottom: "14px",
+                flexWrap: "wrap",
+              }}
+            >
+              <select
+                value={newContactId}
+                onChange={(e) => setNewContactId(e.target.value)}
+                style={{
+                  ...inputStyle,
+                  minWidth: "140px",
+                  flex: "0 0 auto",
+                }}
+              >
+                <option value="">Select person...</option>
+                {allContacts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.full_name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                placeholder="Action item..."
+                value={newActionText}
+                onChange={(e) => setNewActionText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createNewAction();
+                }}
+                style={{ ...inputStyle, flex: "1 1 200px" }}
+              />
+              <input
+                type="date"
+                value={newActionDue}
+                onChange={(e) => setNewActionDue(e.target.value)}
+                style={{ ...inputStyle, flex: "0 0 auto" }}
+              />
+              <button
+                onClick={createNewAction}
+                disabled={saving || !newContactId || !newActionText.trim()}
+                style={{
+                  padding: "6px 16px",
+                  background: !newContactId || !newActionText.trim() ? "#334155" : "#fbbf24",
+                  color: !newContactId || !newActionText.trim() ? "#64748b" : "#0f172a",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  cursor: !newContactId || !newActionText.trim() ? "default" : "pointer",
+                  opacity: saving ? 0.5 : 1,
+                  flex: "0 0 auto",
+                }}
+              >
+                {saving ? "Adding..." : "Add"}
+              </button>
+            </div>
+          )}
+
+          {/* Pending invitations */}
+          {pendingInvitations.map((inv) => (
+            <div
+              key={inv.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                padding: "10px 0",
+                borderBottom: "1px solid #334155",
+              }}
+            >
+              <div
+                style={{
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  background: "#a78bfa",
+                  flexShrink: 0,
+                }}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "13px", color: "#e2e8f0" }}>
+                  <span style={{ fontWeight: 600 }}>{inv.from_name}</span>
+                  <span style={{ color: "#94a3b8" }}> wants to connect</span>
+                </div>
+                {inv.from_headline && (
+                  <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+                    {inv.from_headline}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => respondToInvitation(inv.id, true)}
+                disabled={respondingTo === inv.id}
+                style={{
+                  padding: "4px 12px",
+                  background: "#a78bfa",
+                  color: "#0f172a",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  opacity: respondingTo === inv.id ? 0.5 : 1,
+                }}
+              >
+                Accept
+              </button>
+              <button
+                onClick={() => respondToInvitation(inv.id, false)}
+                disabled={respondingTo === inv.id}
+                style={{
+                  padding: "4px 10px",
+                  background: "transparent",
+                  color: "#64748b",
+                  border: "1px solid #334155",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  opacity: respondingTo === inv.id ? 0.5 : 1,
+                }}
+              >
+                Decline
+              </button>
+            </div>
+          ))}
+
+          {/* Action items list */}
+          {actionItems.length === 0 && pendingInvitations.length === 0 && !showNewForm ? (
             <div style={{ color: "#475569", fontSize: "13px", padding: "8px 0" }}>
-              No pending action items. You're all caught up.
+              No pending action items. You&apos;re all caught up.
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column" }}>
-              {/* Pending invitations as action items */}
-              {pendingInvitations.map((inv) => (
-                <div
-                  key={inv.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    padding: "8px 0",
-                    borderBottom: "1px solid rgba(30,41,59,0.8)",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "8px",
-                      height: "8px",
-                      borderRadius: "50%",
-                      background: "#a78bfa",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "13px", color: "#e2e8f0" }}>
-                      <span style={{ fontWeight: 500 }}>{inv.from_name}</span>
-                      <span style={{ color: "#94a3b8" }}> wants to connect</span>
-                    </div>
-                    {inv.from_headline && (
-                      <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
-                        {inv.from_headline}
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => respondToInvitation(inv.id, true)}
-                    disabled={respondingTo === inv.id}
-                    style={{
-                      padding: "4px 12px",
-                      background: "#a78bfa",
-                      color: "#0f172a",
-                      border: "none",
-                      borderRadius: "5px",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      flexShrink: 0,
-                      opacity: respondingTo === inv.id ? 0.5 : 1,
-                    }}
-                  >
-                    Accept
-                  </button>
-                  <button
-                    onClick={() => respondToInvitation(inv.id, false)}
-                    disabled={respondingTo === inv.id}
-                    style={{
-                      padding: "4px 10px",
-                      background: "transparent",
-                      color: "#64748b",
-                      border: "1px solid #334155",
-                      borderRadius: "5px",
-                      fontSize: "11px",
-                      cursor: "pointer",
-                      flexShrink: 0,
-                      opacity: respondingTo === inv.id ? 0.5 : 1,
-                    }}
-                  >
-                    Decline
-                  </button>
-                </div>
-              ))}
               {actionItems.map((item) => {
                 const isOverdue =
                   item.action_due_date &&
                   new Date(item.action_due_date) < new Date();
-                const importanceColor = item.importance
-                  ? { green: "#22c55e", yellow: "#eab308", red: "#ef4444" }[item.importance] || "#334155"
-                  : null;
+                const isEditing = editingId === item.id;
 
                 return (
                   <div
                     key={item.id}
                     style={{
                       display: "flex",
-                      alignItems: "flex-start",
+                      alignItems: "center",
                       gap: "10px",
-                      padding: "8px 0",
-                      borderBottom: "1px solid rgba(30,41,59,0.8)",
+                      padding: "10px 0",
+                      borderBottom: "1px solid #334155",
                     }}
                   >
+                    {/* Checkbox */}
                     <input
                       type="checkbox"
                       checked={false}
                       onChange={() => completeAction(item.id)}
                       style={{
-                        marginTop: "3px",
+                        width: "18px",
+                        height: "18px",
                         cursor: "pointer",
                         accentColor: "#a78bfa",
                         flexShrink: 0,
                       }}
                     />
-                    {importanceColor && (
-                      <div
+
+                    {/* Person name */}
+                    <Link
+                      href={`/contacts/${item.contact_id}`}
+                      style={{
+                        color: "#a78bfa",
+                        textDecoration: "none",
+                        fontWeight: 700,
+                        fontSize: "14px",
+                        flexShrink: 0,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.contact_name}
+                    </Link>
+
+                    {/* Action text — editable */}
+                    {isEditing ? (
+                      <input
+                        ref={editRef}
+                        type="text"
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveActionEdit(item.id);
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
                         style={{
-                          width: "8px",
-                          height: "8px",
-                          borderRadius: "50%",
-                          background: importanceColor,
-                          flexShrink: 0,
-                          marginTop: "5px",
+                          ...inputStyle,
+                          flex: 1,
+                          minWidth: 0,
                         }}
                       />
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: "13px", color: "#e2e8f0" }}>
+                    ) : (
+                      <span
+                        onClick={() => startEditing(item)}
+                        style={{
+                          fontSize: "14px",
+                          color: "#e2e8f0",
+                          flex: 1,
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          cursor: "pointer",
+                          borderBottom: "1px dashed transparent",
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.borderBottomColor = "#475569")}
+                        onMouseLeave={(e) => (e.currentTarget.style.borderBottomColor = "transparent")}
+                      >
                         {item.action_text}
-                      </div>
-                      <div style={{ display: "flex", gap: "8px", marginTop: "2px", fontSize: "11px" }}>
-                        <Link
-                          href={`/contacts/${item.contact_id}`}
-                          style={{ color: "#64748b", textDecoration: "none" }}
+                      </span>
+                    )}
+
+                    {/* Due date — editable */}
+                    {isEditing ? (
+                      <>
+                        <input
+                          type="date"
+                          value={editDue}
+                          onChange={(e) => setEditDue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveActionEdit(item.id);
+                            if (e.key === "Escape") setEditingId(null);
+                          }}
+                          style={{ ...inputStyle, flex: "0 0 auto" }}
+                        />
+                        <button
+                          onClick={() => saveActionEdit(item.id)}
+                          style={{
+                            padding: "4px 10px",
+                            background: "#fbbf24",
+                            color: "#0f172a",
+                            border: "none",
+                            borderRadius: "5px",
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            flexShrink: 0,
+                          }}
                         >
-                          {item.contact_name}
-                        </Link>
-                        {item.action_due_date && (
-                          <span
-                            style={{
-                              color: isOverdue ? "#f87171" : "#475569",
-                              fontWeight: isOverdue ? 600 : 400,
-                            }}
-                          >
-                            {isOverdue ? "overdue" : `due ${formatShortDate(item.action_due_date)}`}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                          Save
+                        </button>
+                      </>
+                    ) : (
+                      <span
+                        onClick={() => startEditing(item)}
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: isOverdue ? 700 : 500,
+                          color: isOverdue ? "#f87171" : item.action_due_date ? "#94a3b8" : "#475569",
+                          flexShrink: 0,
+                          whiteSpace: "nowrap",
+                          cursor: "pointer",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          background: isOverdue ? "rgba(239,68,68,0.1)" : "transparent",
+                        }}
+                      >
+                        {item.action_due_date
+                          ? isOverdue
+                            ? `overdue · ${formatShortDate(item.action_due_date)}`
+                            : formatShortDate(item.action_due_date)
+                          : "no date"}
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -763,7 +888,9 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* CONNECTION UPDATES */}
+        {/* ═══════════════════════════════════════════════════════
+            CONNECTION UPDATES
+            ═══════════════════════════════════════════════════════ */}
         {linkedConnections.length > 0 && (
           <div
             style={{
@@ -831,7 +958,9 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* RECENT ACTIVITY */}
+        {/* ═══════════════════════════════════════════════════════
+            RECENT ACTIVITY
+            ═══════════════════════════════════════════════════════ */}
         <div
           style={{
             background: "#1e293b",
@@ -922,14 +1051,140 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* INVITE SECTION — compact */}
+        {/* ═══════════════════════════════════════════════════════
+            BOTTOM SECTION — profile, stats, invite (less important)
+            ═══════════════════════════════════════════════════════ */}
+
+        {/* Profile header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "16px",
+            marginBottom: "16px",
+          }}
+        >
+          <div
+            style={{
+              width: "44px",
+              height: "44px",
+              borderRadius: "50%",
+              background: "#1e293b",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "18px",
+              fontWeight: "bold",
+              color: "#a78bfa",
+              overflow: "hidden",
+              flexShrink: 0,
+            }}
+          >
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt=""
+                style={{ width: "44px", height: "44px", objectFit: "cover" }}
+              />
+            ) : (
+              profile?.full_name?.[0] || "?"
+            )}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: "16px", fontWeight: "bold" }}>
+              {profile?.full_name || "Unknown"}
+            </div>
+            {profile?.headline && (
+              <div style={{ fontSize: "12px", color: "#64748b", marginTop: "1px" }}>
+                {profile.headline}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div
+          style={{
+            display: "flex",
+            gap: "12px",
+            marginBottom: "16px",
+            flexWrap: "wrap",
+          }}
+        >
+          <div
+            style={{
+              background: "#1e293b",
+              border: "1px solid #334155",
+              borderRadius: "12px",
+              padding: "14px 18px",
+              display: "flex",
+              alignItems: "center",
+              gap: "14px",
+              flex: "1 1 220px",
+            }}
+          >
+            <RingChart
+              segments={[
+                { value: overdueCount, color: "#ef4444" },
+                { value: dueSoonCount, color: "#eab308" },
+                { value: laterCount, color: "#22c55e" },
+              ]}
+              label="actions"
+            />
+            <div style={{ display: "flex", flexDirection: "column", gap: "5px", fontSize: "11px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#ef4444" }} />
+                <span style={{ color: "#94a3b8" }}>{overdueCount} overdue</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#eab308" }} />
+                <span style={{ color: "#94a3b8" }}>{dueSoonCount} this week</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#22c55e" }} />
+                <span style={{ color: "#94a3b8" }}>{laterCount} upcoming</span>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: "#1e293b",
+              border: "1px solid #334155",
+              borderRadius: "12px",
+              padding: "14px 18px",
+              flex: "1 1 180px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Network</span>
+              <span style={{ fontSize: "18px", fontWeight: "bold" }}>{networkSize}</span>
+            </div>
+            <MiniBar value={networkSize} max={Math.max(networkSize, 50)} color="#f59e0b" />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Contacts</span>
+              <span style={{ fontSize: "18px", fontWeight: "bold" }}>{totalContacts}</span>
+            </div>
+            <MiniBar value={totalContacts} max={Math.max(totalContacts, 20)} color="#a78bfa" />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>Links</span>
+              <span style={{ fontSize: "18px", fontWeight: "bold" }}>{connectionCount}</span>
+            </div>
+            <MiniBar value={connectionCount} max={Math.max(totalContacts, 1)} color="#60a5fa" />
+          </div>
+        </div>
+
+        {/* Invite section */}
         <div
           style={{
             background: "#1e293b",
             border: "1px solid #334155",
             borderRadius: "12px",
-            padding: "20px",
-            marginBottom: "20px",
+            padding: "16px 20px",
+            marginBottom: "16px",
           }}
         >
           <div
@@ -938,16 +1193,16 @@ export default function DashboardPage() {
               color: "#64748b",
               textTransform: "uppercase",
               letterSpacing: "0.5px",
-              marginBottom: "12px",
+              marginBottom: "10px",
             }}
           >
             Invite to NEXUS
           </div>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "10px" }}>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "8px" }}>
             <div
               style={{
                 flex: 1,
-                padding: "8px 12px",
+                padding: "7px 12px",
                 background: "#0f172a",
                 border: "1px solid #334155",
                 borderRadius: "6px",
@@ -964,7 +1219,7 @@ export default function DashboardPage() {
             <button
               onClick={copyUrl}
               style={{
-                padding: "8px 14px",
+                padding: "7px 14px",
                 background: copiedUrl ? "#22c55e" : "#a78bfa",
                 color: copiedUrl ? "#fff" : "#0f172a",
                 border: "none",
@@ -981,7 +1236,7 @@ export default function DashboardPage() {
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             <div
               style={{
-                padding: "8px 12px",
+                padding: "7px 12px",
                 background: "#0f172a",
                 border: "1px solid #334155",
                 borderRadius: "6px",
@@ -998,7 +1253,7 @@ export default function DashboardPage() {
             <button
               onClick={copyCode}
               style={{
-                padding: "6px 12px",
+                padding: "5px 12px",
                 background: copied ? "#22c55e" : "transparent",
                 color: copied ? "#fff" : "#64748b",
                 border: copied ? "none" : "1px solid #334155",
