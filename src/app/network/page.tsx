@@ -277,36 +277,38 @@ export default function NetworkPage() {
           .strength((d) => {
             // 2nd-degree links (non-cross): very strong to keep tight cluster
             if (d.isSecondDegree && !d.isCrossLink) return 0.7;
-            if (d.thickness > 0) return 0.12; // visible links
+            // self→1st-degree: strong spring to hold at radial distance
+            if (d.thickness > 0) return 0.25;
             return (d as GraphLink & { _simStrength?: number })._simStrength || 0.04;
           })
       )
       .force("charge", d3.forceManyBody<GraphNode>()
         .strength((d) => {
+          // Self: minimal charge — it's pinned, link springs keep nodes at distance
+          if (d.id === "self") return -30;
           if (d.type === "their_contact") return -8;
           if (d.type === "third_degree") return -5;
           if (d.type === "world") return -15;
-          // 1st-degree: strong repulsion so they spread as far apart as possible
-          return -450;
+          // 1st-degree: strong mutual repulsion to spread around the circle
+          return -350;
         })
-        .distanceMax(1200))
+        .distanceMax(900))
       .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => {
         if (d.id === "self") return 0.12;
         if (d.type === "their_contact" || d.type === "third_degree") return 0;
-        // 1st-degree: very weak centering — let repulsion dominate spread
-        return 0.008;
+        // 1st-degree: light centering to prevent drift, repulsion spreads them around
+        return 0.02;
       }))
       .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => {
         if (d.id === "self") return 0.12;
         if (d.type === "their_contact" || d.type === "third_degree") return 0;
-        return 0.008;
+        return 0.02;
       }))
       .force(
         "collision",
         d3.forceCollide<GraphNode>().radius((d) => {
           if (d.type === "their_contact" || d.type === "third_degree") return d.radius + 1;
-          // 1st-degree: wider collision buffer to keep them well-separated
-          return d.radius + 20;
+          return d.radius + 12;
         })
       )
       .force("wiggle", wiggleForce() as unknown as d3.Force<GraphNode, GraphLink>)
