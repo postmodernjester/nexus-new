@@ -429,12 +429,15 @@ export default function ChronicleModal({ open, editingEntry, defaultCat, default
           </div>
         </div>
 
-        <div style={S.frow}>
-          <label style={S.fuzzCheck}>
-            <input type="checkbox" checked={showOnResume} onChange={(e) => setShowOnResume(e.target.checked)} style={S.checkbox} />
-            Show on resume
-          </label>
-        </div>
+        {/* Show on resume — only for resume-linked columns + gatherings */}
+        {(cat === 'work' || cat === 'project' || cat === 'education' || cat === 'gatherings') && (
+          <div style={S.frow}>
+            <label style={S.fuzzCheck}>
+              <input type="checkbox" checked={showOnResume} onChange={(e) => setShowOnResume(e.target.checked)} style={S.checkbox} />
+              Show on resume
+            </label>
+          </div>
+        )}
 
         <div style={S.actions}>
           {editingEntry?.id && onDelete && (

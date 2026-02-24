@@ -24,7 +24,6 @@ import {
   parseYM, toMo, toPx, pxToYM, ymStr, fmtYM, hex2rgba, addOneYear,
   sliderToYears, getColLeft, getTotalGridW, getColAtX, getColWidth, yearFromDate,
 } from './utils'
-import LockIcon from './LockIcon'
 import Toolbar from './Toolbar'
 import ColumnSettings from './ColumnSettings'
 
@@ -1329,11 +1328,12 @@ export default function ChronicleCanvas() {
             <span style={{ fontSize: 7, letterSpacing: '.15em', color: '#d8d0c0', textTransform: 'uppercase' }}>geography</span>
           </div>
           <div style={{ display: 'flex' }}>
-            {activeCols.map(col => {
+            {activeCols.map((col, colIdx) => {
               const isCollapsed = collapsedCols.has(col.id)
               const w = getColWidth(col, collapsedCols)
               const canAdd = !col.noAdd
               const isHalf = col.width === 'half' && !isCollapsed
+              const isLastLocked = col.locked && (!activeCols[colIdx + 1]?.locked)
               return (
                 <div
                   key={col.id}
@@ -1347,31 +1347,53 @@ export default function ChronicleCanvas() {
                     }
                   }}
                   style={{
-                    flexShrink: 0, width: w, borderRight: '1px solid #d8d0c0',
-                    padding: isCollapsed ? '7px 0' : isHalf ? '7px 5px' : '7px 10px',
-                    display: 'flex', alignItems: 'center', justifyContent: isCollapsed ? 'center' : 'flex-start',
-                    gap: isCollapsed ? 0 : isHalf ? 4 : 6, cursor: isCollapsed ? 'default' : (canAdd ? 'pointer' : 'default'),
+                    flexShrink: 0, width: w,
+                    borderRight: isLastLocked ? '2px solid #d8d0c0' : '1px solid #d8d0c0',
+                    display: 'flex', flexDirection: 'column', justifyContent: 'center',
                     transition: 'width .2s ease',
                     overflow: 'hidden',
+                    cursor: isCollapsed ? 'default' : (canAdd ? 'pointer' : 'default'),
                   }}
                 >
-                  {/* Dot — click to toggle collapse */}
-                  <span
-                    onClick={(e) => { e.stopPropagation(); toggleCollapse(col.id) }}
-                    style={{
-                      width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                      background: col.color, cursor: 'pointer',
-                      transition: 'transform .15s',
-                    }}
-                    title={isCollapsed ? `Expand ${col.label}` : `Collapse ${col.label}`}
-                  />
-                  {!isCollapsed && (
-                    <>
+                  {/* Column label row */}
+                  <div style={{
+                    padding: isCollapsed ? '5px 0' : isHalf ? '5px 5px 0' : '5px 10px 0',
+                    display: 'flex', alignItems: 'center', justifyContent: isCollapsed ? 'center' : 'flex-start',
+                    gap: isCollapsed ? 0 : isHalf ? 4 : 6,
+                  }}>
+                    {/* Dot — click to toggle collapse */}
+                    <span
+                      onClick={(e) => { e.stopPropagation(); toggleCollapse(col.id) }}
+                      style={{
+                        width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                        background: col.color, cursor: 'pointer',
+                        transition: 'transform .15s',
+                      }}
+                      title={isCollapsed ? `Expand ${col.label}` : `Collapse ${col.label}`}
+                    />
+                    {!isCollapsed && (
                       <span style={{ fontSize: isHalf ? 6.5 : 8, letterSpacing: isHalf ? '.1em' : '.16em', textTransform: 'uppercase', color: '#9a8e78', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {col.label}
                       </span>
-                      {col.private && <LockIcon />}
-                    </>
+                    )}
+                  </div>
+                  {/* RESUME tag for locked columns */}
+                  {col.locked && !isCollapsed && (
+                    <div style={{
+                      margin: '2px 0 3px', padding: '0 10px',
+                    }}>
+                      <div style={{
+                        background: '#d8d0c0', borderRadius: 2, padding: '1px 0',
+                        textAlign: 'center', fontSize: 5.5, letterSpacing: '.22em',
+                        textTransform: 'uppercase', color: '#9a8e78',
+                      }}>
+                        resume
+                      </div>
+                    </div>
+                  )}
+                  {/* Spacer for non-locked columns to keep alignment */}
+                  {!col.locked && !isCollapsed && (
+                    <div style={{ height: 12 }} />
                   )}
                 </div>
               )
