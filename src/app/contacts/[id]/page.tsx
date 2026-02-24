@@ -286,15 +286,21 @@ export default function ContactDossierPage() {
         key_links: null,
         profile_photo_url: null,
       };
-      const snapshot = buildResumeSnapshot(currentProfile, filteredWork, chronData, filteredEdu);
-      // Fire-and-forget save — don't block page load
-      supabase
-        .from("contacts")
-        .update({ resume_data: snapshot })
-        .eq("id", cid)
-        .then(() => {
-          setContact((prev) => (prev ? { ...prev, resume_data: snapshot } : prev));
-        });
+      // Only snapshot linked-profile data if the user hasn't manually uploaded
+      // resume data (raw_text is set by the upload modal).  Without this guard
+      // every page load / focus event overwrites the manual upload with the
+      // linked profile's work & education.
+      if (!contactRes.data.resume_data?.raw_text) {
+        const snapshot = buildResumeSnapshot(currentProfile, filteredWork, chronData, filteredEdu);
+        // Fire-and-forget save — don't block page load
+        supabase
+          .from("contacts")
+          .update({ resume_data: snapshot })
+          .eq("id", cid)
+          .then(() => {
+            setContact((prev) => (prev ? { ...prev, resume_data: snapshot } : prev));
+          });
+      }
     }
 
     setLoading(false);
