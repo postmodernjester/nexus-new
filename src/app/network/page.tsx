@@ -138,12 +138,21 @@ export default function NetworkPage() {
       selfNode.fy = height / 2;
     }
 
-    // Pre-position 1st-degree nodes radially around center for a stable start
+    // Build radial distance map: each 1st-degree node → its link distance from self
+    const radialDistMap: Record<string, number> = {};
+    for (const link of graphData.links) {
+      const sId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id;
+      const tId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id;
+      if (sId === 'self') radialDistMap[tId] = link.distance;
+      if (tId === 'self') radialDistMap[sId] = link.distance;
+    }
+
+    // Pre-position 1st-degree nodes at their actual radial distance, evenly around 360°
     const firstDeg = allNodes.filter(n => n.type === "contact" || n.type === "connected_user");
     const fdCount = firstDeg.length || 1;
     firstDeg.forEach((n, i) => {
       const angle = (2 * Math.PI * i) / fdCount;
-      const r = 180 + Math.random() * 40;
+      const r = radialDistMap[n.id] || 300;
       n.x = width / 2 + Math.cos(angle) * r;
       n.y = height / 2 + Math.sin(angle) * r;
     });
@@ -266,15 +275,6 @@ export default function NetworkPage() {
 
     const allLinks = [...graphData.links, ...clusterLinks, ...thirdDegreeLinks];
 
-    // Build radial distance map: each 1st-degree node → its link distance from self
-    const radialDistMap: Record<string, number> = {};
-    for (const link of graphData.links) {
-      const sId = typeof link.source === 'string' ? link.source : (link.source as GraphNode).id;
-      const tId = typeof link.target === 'string' ? link.target : (link.target as GraphNode).id;
-      if (sId === 'self') radialDistMap[tId] = link.distance;
-      if (tId === 'self') radialDistMap[sId] = link.distance;
-    }
-
     const simulation = d3
       .forceSimulation<GraphNode>(allNodes)
       .force(
@@ -284,20 +284,22 @@ export default function NetworkPage() {
           .id((d) => d.id)
           .distance((d) => d.distance)
           .strength((d) => {
-            // 2nd-degree links (non-cross): very strong to keep tight cluster
+            // 2nd-degree links: strong to keep satellite cluster tight
             if (d.isSecondDegree && !d.isCrossLink) return 0.7;
-            // self→1st-degree: weakened — forceRadial handles distance anchoring
-            if (d.thickness > 0) return 0.08;
-            return (d as GraphLink & { _simStrength?: number })._simStrength || 0.04;
+            // 3rd-degree → anchor: moderate spring
+            if ((d as GraphLink & { _simStrength?: number })._simStrength) return 0.05;
+            // Everything else (self→1st, cluster, similarity): ZERO.
+            // Links are visual only. ForceRadial + repulsion handle positioning.
+            return 0;
           })
       )
-      // Radial force: locks 1st-degree nodes to their orbital distance from center
+      // Radial force: anchors 1st-degree nodes to their orbital distance
       .force("radial", d3.forceRadial<GraphNode>(
         (d) => radialDistMap[d.id] || 0,
         width / 2,
         height / 2
       ).strength((d) => {
-        if (d.type === "contact" || d.type === "connected_user") return 0.35;
+        if (d.type === "contact" || d.type === "connected_user") return 0.4;
         return 0;
       }))
       .force("charge", d3.forceManyBody<GraphNode>()
@@ -306,13 +308,12 @@ export default function NetworkPage() {
           if (d.type === "their_contact") return -8;
           if (d.type === "third_degree") return -5;
           if (d.type === "world") return -15;
-          // 1st-degree: repulsion spreads them around their orbit
-          return -250;
+          // 1st-degree: strong repulsion is the ONLY force spreading them around
+          return -400;
         })
-        .distanceMax(800))
+        .distanceMax(1200))
       .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => {
         if (d.id === "self") return 0.12;
-        // No x/y centering for 1st-degree — forceRadial handles it
         return 0;
       }))
       .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => {
