@@ -129,7 +129,7 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
 
       cleanedText = text
         .split("\n")
-        .map((line) => {
+        .map((line: string) => {
           let t = line.trim();
           // Strip LinkedIn bullet markers (* )
           t = t.replace(/^\*\s*/, "");

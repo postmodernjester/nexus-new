@@ -115,14 +115,16 @@ export default function NetworkPage() {
     (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>)
       .call(zoom.transform, initialTransform);
 
-    // Custom wiggle force for gentle continuous drift
+    // Custom wiggle force for gentle continuous drift (scales with alpha
+    // so it doesn't overwhelm springs at low alpha)
     const wiggleForce = () => {
       let wNodes: GraphNode[] = [];
-      const force = () => {
+      const force = (alpha: number) => {
+        const mag = 0.65 * Math.sqrt(alpha);
         for (const n of wNodes) {
           if (n.fx != null) continue;
-          n.vx = (n.vx || 0) + (Math.random() - 0.5) * 0.65;
-          n.vy = (n.vy || 0) + (Math.random() - 0.5) * 0.65;
+          n.vx = (n.vx || 0) + (Math.random() - 0.5) * mag;
+          n.vy = (n.vy || 0) + (Math.random() - 0.5) * mag;
         }
       };
       force.initialize = (n: GraphNode[]) => { wNodes = n; };
@@ -287,11 +289,16 @@ export default function NetworkPage() {
           .strength((d) => {
             if (d.isSecondDegree && !d.isCrossLink) return 0.7;
             if ((d as GraphLink & { _simStrength?: number })._simStrength) return 0.05;
+            // Self→1st-degree: strong spring to hold at CLOSENESS distance
+            const sId = typeof d.source === 'string' ? d.source : (d.source as GraphNode).id;
+            const tId = typeof d.target === 'string' ? d.target : (d.target as GraphNode).id;
+            if (sId === 'self' || tId === 'self') return 0.4;
             return 0.15;
           })
       )
       .force("charge", d3.forceManyBody<GraphNode>()
         .strength((d) => {
+          if (d.id === "self") return 0; // self is pinned; charge was pushing 1st-degree past their link distances
           if (d.type === "their_contact") return -8;
           if (d.type === "third_degree") return -5;
           if (d.type === "world") return -15;

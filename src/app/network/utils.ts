@@ -3,8 +3,8 @@ export const CLOSENESS: Record<string, number> = {
   "Close Friend": 207,
   "Work-Friend": 250,
   "Business Contact": 342,
-  Acquaintance: 750,
-  None: 900,
+  Acquaintance: 510,
+  None: 600,
 };
 
 export function computeRecency(mostRecent: string | null): number {
