@@ -81,6 +81,7 @@ export default function ContactDossierPage() {
 
   // Resume upload
   const [resumeUploadOpen, setResumeUploadOpen] = useState(false);
+  const resumeUploadOpenRef = useRef(false);
 
   // Edit scroll ref
   const editRef = useRef<HTMLDivElement>(null);
@@ -135,15 +136,19 @@ export default function ContactDossierPage() {
     setContact((prev) => (prev ? { ...prev, resume_data: snapshot } : prev));
   }
 
+  // Keep ref in sync so the focus/visibility handlers can read it without
+  // being in the useEffect dependency array (avoids refetch on modal close).
+  resumeUploadOpenRef.current = resumeUploadOpen;
+
   useEffect(() => {
     loadAll();
     // Re-fetch when switching back so action items stay in sync across pages
     // Skip if resume upload modal is open (prevents race with save)
     const onVisible = () => {
-      if (document.visibilityState === "visible" && !resumeUploadOpen) loadAll();
+      if (document.visibilityState === "visible" && !resumeUploadOpenRef.current) loadAll();
     };
     const onFocus = () => {
-      if (!resumeUploadOpen) loadAll();
+      if (!resumeUploadOpenRef.current) loadAll();
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
@@ -151,7 +156,7 @@ export default function ContactDossierPage() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [cid, resumeUploadOpen]);
+  }, [cid]);
 
   // Touch contact's updated_at so "Recent" sort reflects note activity
   async function touchContactUpdatedAt() {
@@ -595,6 +600,7 @@ export default function ContactDossierPage() {
   }
 
   async function handleResumeParsed(data: ParsedResumeData) {
+    setResumeUploadOpen(false);
     // Preserve any existing snapshot profile/chronicle data when merging with uploaded work/edu
     const resumeData: ResumeData = {
       work: data.work,
@@ -603,9 +609,9 @@ export default function ContactDossierPage() {
       profile: contact?.resume_data?.profile,
       chronicle: contact?.resume_data?.chronicle,
     };
-    // Save to DB BEFORE closing the modal — closing the modal triggers a
-    // refetch via the useEffect on resumeUploadOpen, so the DB must already
-    // have the new data when that refetch runs.
+    // Save to DB — closing the modal no longer triggers a refetch (the
+    // useEffect depends only on cid, not resumeUploadOpen), so there's
+    // no race condition.
     const { error } = await supabase
       .from("contacts")
       .update({ resume_data: resumeData })
@@ -616,7 +622,6 @@ export default function ContactDossierPage() {
       return;
     }
     setContact((prev) => prev ? { ...prev, resume_data: resumeData } : prev);
-    setResumeUploadOpen(false);
   }
 
   async function handleClearResume() {
