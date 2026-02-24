@@ -1327,7 +1327,7 @@ export default function ChronicleCanvas() {
           >
             <span style={{ fontSize: 7, letterSpacing: '.15em', color: '#d8d0c0', textTransform: 'uppercase' }}>geography</span>
           </div>
-          <div style={{ display: 'flex' }}>
+          <div style={{ display: 'flex', position: 'relative' }}>
             {activeCols.map((col, colIdx) => {
               const isCollapsed = collapsedCols.has(col.id)
               const w = getColWidth(col, collapsedCols)
@@ -1377,27 +1377,38 @@ export default function ChronicleCanvas() {
                       </span>
                     )}
                   </div>
-                  {/* RESUME tag for locked columns */}
-                  {col.locked && !isCollapsed && (
-                    <div style={{
-                      margin: '2px 0 3px', padding: '0 10px',
-                    }}>
-                      <div style={{
-                        background: '#d8d0c0', borderRadius: 2, padding: '1px 0',
-                        textAlign: 'center', fontSize: 5.5, letterSpacing: '.22em',
-                        textTransform: 'uppercase', color: '#9a8e78',
-                      }}>
-                        resume
-                      </div>
-                    </div>
-                  )}
                   {/* Spacer for non-locked columns to keep alignment */}
                   {!col.locked && !isCollapsed && (
+                    <div style={{ height: 12 }} />
+                  )}
+                  {/* Spacer for locked columns (resume bar rendered separately) */}
+                  {col.locked && !isCollapsed && (
                     <div style={{ height: 12 }} />
                   )}
                 </div>
               )
             })}
+            {/* Single RESUME bar spanning all locked columns */}
+            {(() => {
+              const lockedCols = activeCols.filter(c => c.locked)
+              const allCollapsed = lockedCols.every(c => collapsedCols.has(c.id))
+              if (allCollapsed) return null
+              const lockedWidth = lockedCols.reduce((sum, c) => sum + getColWidth(c, collapsedCols), 0)
+              return (
+                <div style={{
+                  position: 'absolute', left: 0, bottom: 2, width: lockedWidth,
+                  padding: '0 10px', pointerEvents: 'none',
+                }}>
+                  <div style={{
+                    background: '#d8d0c0', borderRadius: 2, padding: '1px 0',
+                    textAlign: 'center', fontSize: 5.5, letterSpacing: '.22em',
+                    textTransform: 'uppercase', color: '#9a8e78',
+                  }}>
+                    resume
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
 
