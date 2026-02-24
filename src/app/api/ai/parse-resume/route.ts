@@ -141,7 +141,7 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
           t = dedup(t);
           return t;
         })
-        .filter((line) => line.length > 0)
+        .filter((line: string) => line.length > 0)
         .join("\n")
         // Remove "Show all X ..." navigation links
         .replace(/Show all \d+ experiences?/gi, "")
