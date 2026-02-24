@@ -47,12 +47,14 @@ export default function ResumeUploadModal({
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState("");
+  const [preview, setPreview] = useState<ParsedResumeData | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   if (!open) return null;
 
   async function handleParse() {
     setError("");
+    setPreview(null);
     setParsing(true);
 
     try {
@@ -86,16 +88,26 @@ export default function ResumeUploadModal({
         return;
       }
 
-      onParsed({
+      const result: ParsedResumeData = {
         work: data.work || [],
         education: data.education || [],
         raw_text: mode === "paste" ? text.trim() : undefined,
-      });
+      };
+
+      // Show preview so user can confirm before saving
+      setPreview(result);
     } catch (e: any) {
       setError(e.message || "Network error");
     }
 
     setParsing(false);
+  }
+
+  function handleConfirmSave() {
+    if (preview) {
+      onParsed(preview);
+      setPreview(null);
+    }
   }
 
   return (
@@ -218,9 +230,46 @@ export default function ResumeUploadModal({
           </div>
         )}
 
+        {/* Parse result preview */}
+        {preview && (
+          <div style={{
+            marginTop: 12,
+            padding: "12px 14px",
+            background: "#0f172a",
+            border: "1px solid #334155",
+            borderRadius: 8,
+            fontSize: 13,
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 8, color: "#e2e8f0" }}>
+              Parsed Results
+            </div>
+            <div style={{ color: preview.work.length > 0 ? "#a78bfa" : "#f87171", marginBottom: 4 }}>
+              {preview.work.length} work {preview.work.length === 1 ? "entry" : "entries"}
+              {preview.work.length > 0 && (
+                <span style={{ color: "#64748b", fontWeight: 400 }}>
+                  {" "}— {preview.work.map((w) => `${w.title} @ ${w.company}`).join(", ")}
+                </span>
+              )}
+              {preview.work.length === 0 && (
+                <span style={{ color: "#f8717188", fontWeight: 400 }}>
+                  {" "}— no work experience found
+                </span>
+              )}
+            </div>
+            <div style={{ color: preview.education.length > 0 ? "#a78bfa" : "#f87171" }}>
+              {preview.education.length} education {preview.education.length === 1 ? "entry" : "entries"}
+              {preview.education.length > 0 && (
+                <span style={{ color: "#64748b", fontWeight: 400 }}>
+                  {" "}— {preview.education.map((e) => e.institution).join(", ")}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
           <button
-            onClick={onClose}
+            onClick={() => { setPreview(null); onClose(); }}
             disabled={parsing}
             style={{
               padding: "8px 16px",
@@ -234,23 +283,57 @@ export default function ResumeUploadModal({
           >
             Cancel
           </button>
-          <button
-            onClick={handleParse}
-            disabled={parsing}
-            style={{
-              padding: "8px 20px",
-              background: parsing ? "#7c6cbf" : "#a78bfa",
-              color: "#0f172a",
-              border: "none",
-              borderRadius: 6,
-              fontWeight: 600,
-              fontSize: 13,
-              cursor: parsing ? "wait" : "pointer",
-              opacity: parsing ? 0.7 : 1,
-            }}
-          >
-            {parsing ? "Parsing..." : "Parse Resume"}
-          </button>
+          {preview ? (
+            <>
+              <button
+                onClick={() => setPreview(null)}
+                style={{
+                  padding: "8px 16px",
+                  background: "transparent",
+                  color: "#f8a171",
+                  border: "1px solid #55413488",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Re-parse
+              </button>
+              <button
+                onClick={handleConfirmSave}
+                style={{
+                  padding: "8px 20px",
+                  background: "#a78bfa",
+                  color: "#0f172a",
+                  border: "none",
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Save
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={handleParse}
+              disabled={parsing}
+              style={{
+                padding: "8px 20px",
+                background: parsing ? "#7c6cbf" : "#a78bfa",
+                color: "#0f172a",
+                border: "none",
+                borderRadius: 6,
+                fontWeight: 600,
+                fontSize: 13,
+                cursor: parsing ? "wait" : "pointer",
+                opacity: parsing ? 0.7 : 1,
+              }}
+            >
+              {parsing ? "Parsing..." : "Parse Resume"}
+            </button>
+          )}
         </div>
       </div>
     </div>

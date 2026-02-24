@@ -149,10 +149,12 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
         .replace(/Show \d+ more experiences?/gi, "")
         // Remove endorsement counts like "99+" or "· 99+"
         .replace(/·?\s*\d+\+?\s*endorsements?/gi, "")
-        // Remove "People also viewed" and everything after (usually at the bottom)
-        .replace(/People also viewed[\s\S]*$/i, "")
-        // Remove "More activity" / "Show all activity" blocks
-        .replace(/Show all activity[\s\S]*?(?=Experience|Education|About|$)/i, "")
+        // Remove "People also viewed" section — only strip lines until we hit a known
+        // section header (Experience, Education, About, Skills, etc.) so we don't
+        // accidentally nuke work/education that appears after sidebar content.
+        .replace(/People also viewed[^\n]*(?:\n(?!Experience|Education|About|Skills|Licenses|Certifications|Honors|Publications|Volunteer|Projects)[^\n]*)*/gi, "")
+        // Remove "More activity" / "Show all activity" blocks (same safe pattern)
+        .replace(/Show all activity[^\n]*(?:\n(?!Experience|Education|About|Skills)[^\n]*)*/gi, "")
         // Remove connection/follower counts
         .replace(/\d+\+?\s*connections?/gi, "")
         .replace(/\d+\+?\s*followers?/gi, "")
@@ -163,10 +165,17 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
         .trim();
     }
 
+    // Debug: log cleaned text so we can verify the cleanup didn't eat critical data
+    if (cleanedText && cleanedText !== text) {
+      console.log("[parse-resume] Cleaned text length:", cleanedText.length, "(original:", text?.length || 0, ")");
+      console.log("[parse-resume] Cleaned text preview:", cleanedText.slice(0, 2000));
+    }
+
     // Build the user message content
     const content: any[] = [];
 
     if (pdf_base64) {
+      console.log("[parse-resume] Mode: PDF upload, base64 length:", pdf_base64.length);
       content.push({
         type: "document",
         source: {
@@ -180,6 +189,7 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
         text: "Parse this resume PDF and extract all work experience and education entries as structured JSON.",
       });
     } else {
+      console.log("[parse-resume] Mode: text paste, length:", cleanedText?.length);
       content.push({
         type: "text",
         text: `Parse the following resume/profile text and extract all work experience and education entries as structured JSON.\n\n---\n${cleanedText}\n---`,
@@ -195,7 +205,7 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 4096,
+        max_tokens: 8192,
         system: systemPrompt,
         messages: [{ role: "user", content }],
       }),
@@ -236,6 +246,11 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
     // Normalize
     if (!Array.isArray(parsed.work)) parsed.work = [];
     if (!Array.isArray(parsed.education)) parsed.education = [];
+
+    console.log(`[parse-resume] Result: ${parsed.work.length} work entries, ${parsed.education.length} education entries`);
+    if (parsed.work.length === 0) {
+      console.warn("[parse-resume] WARNING: 0 work entries extracted. Raw AI response:", raw.slice(0, 2000));
+    }
 
     return NextResponse.json(parsed);
   } catch (error: unknown) {
