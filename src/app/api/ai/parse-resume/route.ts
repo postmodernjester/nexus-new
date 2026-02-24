@@ -108,10 +108,41 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
   ]
 }`;
 
-    // Pre-process LinkedIn text to strip the worst cruft before sending to Claude
+    // Pre-process LinkedIn text: dedup doubled lines, strip cruft
     let cleanedText = text;
     if (text) {
+      // LinkedIn's copy-paste duplicates every line (accessibility text).
+      // "TitleTitle" → "Title", "Oct 2023 - Present · 2 yrsOct 2023 to Present · 2 yrs" → "Oct 2023 - Present · 2 yrs"
+      const dedup = (line: string): string => {
+        if (line.length < 8) return line;
+        const mid = Math.floor(line.length / 2);
+        const norm = (s: string) => s.replace(/ to /g, " - ").replace(/\s+/g, " ").trim();
+        for (const m of [mid, mid - 1, mid + 1, mid - 2, mid + 2]) {
+          if (m < 3 || m >= line.length - 2) continue;
+          const first = line.slice(0, m);
+          const second = line.slice(m);
+          if (first === second) return first;
+          if (norm(first) === norm(second)) return first;
+        }
+        return line;
+      };
+
       cleanedText = text
+        .split("\n")
+        .map((line) => {
+          let t = line.trim();
+          // Strip LinkedIn bullet markers (* )
+          t = t.replace(/^\*\s*/, "");
+          // Strip "…see more" suffix
+          t = t.replace(/…see more$/i, "").trim();
+          // Drop skill endorsement lines ("X, Y and +N skills")
+          if (/and \+\d+ skills?$/i.test(t)) return "";
+          // Deduplicate doubled text
+          t = dedup(t);
+          return t;
+        })
+        .filter((line) => line.length > 0)
+        .join("\n")
         // Remove "Show all X ..." navigation links
         .replace(/Show all \d+ experiences?/gi, "")
         .replace(/Show all \d+ education/gi, "")
