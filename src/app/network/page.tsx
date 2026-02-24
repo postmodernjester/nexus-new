@@ -252,7 +252,7 @@ export default function NetworkPage() {
             return (d as GraphLink & { _simStrength?: number })._simStrength || 0.04;
           })
       )
-      .force("charge", d3.forceManyBody().strength(-160).distanceMax(600))
+      .force("charge", d3.forceManyBody().strength(-220).distanceMax(1200))
       .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => d.id === "self" ? 0.12 : 0.015))
       .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => d.id === "self" ? 0.12 : 0.015))
       .force(

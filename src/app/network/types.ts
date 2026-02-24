@@ -48,6 +48,8 @@ export interface GraphNode extends d3.SimulationNodeDatum {
   recency?: number;
   searchText?: string;
   anchorNodeId?: string;
+  next_action_note?: string;
+  isLinkedProfile?: boolean;
 }
 
 export interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {

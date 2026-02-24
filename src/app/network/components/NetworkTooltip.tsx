@@ -8,6 +8,9 @@ interface NetworkTooltipProps {
 export default function NetworkTooltip({ hoveredNode, tooltipPos }: NetworkTooltipProps) {
   if (!hoveredNode) return null;
 
+  // 2nd degree simple connections: show nothing
+  if (hoveredNode.type === "their_contact" && !hoveredNode.isLinkedProfile) return null;
+
   return (
     <div
       style={{
@@ -56,36 +59,36 @@ export default function NetworkTooltip({ hoveredNode, tooltipPos }: NetworkToolt
         </>
       ) : hoveredNode.type === "their_contact" ? (
         <>
-          {/* 2nd degree: job title only */}
+          {/* 2nd degree linked: title and company only */}
           {hoveredNode.role && (
             <div style={{ fontWeight: 600, fontSize: "13px", color: "#e2e8f0" }}>
               {hoveredNode.role}
             </div>
           )}
-          <div style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}>
-            2nd degree
-          </div>
-        </>
-      ) : (
-        <>
-          {/* 1st degree + self: full name, title, company */}
-          <div style={{ fontWeight: 600, fontSize: "14px", color: "#e2e8f0" }}>
-            {hoveredNode.fullName}
-          </div>
-          {hoveredNode.role && (
-            <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
-              {hoveredNode.role}
-              {hoveredNode.company ? ` at ${hoveredNode.company}` : ""}
-            </div>
-          )}
-          {!hoveredNode.role && hoveredNode.company && (
+          {hoveredNode.company && (
             <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
               {hoveredNode.company}
             </div>
           )}
-          {hoveredNode.type === "connected_user" && (
-            <div style={{ color: "#475569", fontSize: "11px", marginTop: "4px" }}>
-              NEXUS user
+        </>
+      ) : hoveredNode.type === "self" ? (
+        <div style={{ fontWeight: 600, fontSize: "14px", color: "#e2e8f0" }}>
+          {hoveredNode.fullName}
+        </div>
+      ) : (
+        <>
+          {/* 1st degree: full name, position + company, action item */}
+          <div style={{ fontWeight: 600, fontSize: "14px", color: "#e2e8f0" }}>
+            {hoveredNode.fullName}
+          </div>
+          <div style={{ color: "#94a3b8", fontSize: "12px", marginTop: "2px" }}>
+            {hoveredNode.role || ""}
+            {hoveredNode.role && hoveredNode.company ? ", " : ""}
+            {hoveredNode.company || ""}
+          </div>
+          {hoveredNode.next_action_note && (
+            <div style={{ color: "#f59e0b", fontSize: "11px", marginTop: "6px" }}>
+              {hoveredNode.next_action_note}
             </div>
           )}
         </>

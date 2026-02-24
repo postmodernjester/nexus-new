@@ -362,6 +362,7 @@ export function useNetworkData() {
           role: profile?.headline || (myCard?.role ?? undefined),
           recency: rec,
           searchText: [...cuSearchParts.filter(Boolean), cuNoteText, cuWorkText, cuEduText].join(" ").toLowerCase(),
+          next_action_note: myCard?.next_action_note ?? undefined,
         });
 
         profileToNodeId[uid] = nodeId;
@@ -420,6 +421,7 @@ export function useNetworkData() {
           contactId: c.id,
           recency: rec,
           searchText: [...cSearchParts.filter(Boolean), cNoteText, cWorkText, cEduText].join(" ").toLowerCase(),
+          next_action_note: c.next_action_note ?? undefined,
         });
 
         nameToNodeId[c.full_name.toLowerCase()] = nodeId;
@@ -479,7 +481,7 @@ export function useNetworkData() {
             links.push({
               source: ownerNodeId,
               target: existingNodeId,
-              distance: 180,
+              distance: 80,
               thickness: isCrossLink ? 1.5 : 1,
               recency: 0.3,
               isMutual: true,
@@ -501,6 +503,7 @@ export function useNetworkData() {
         addedSecondDegreeIds.add(dedupKey);
 
         const nodeId = `their-${tc.id}`;
+        const isLinked = !!tc.linked_profile_id;
         const jobLabel = tc.role || "";
 
         const tcSearchParts = [tc.full_name, tc.relationship_type, tc.company, tc.role, tc.location];
@@ -518,6 +521,7 @@ export function useNetworkData() {
           isAnonymous: false,
           recency: 0.5,
           searchText: tcSearchParts.filter(Boolean).join(" ").toLowerCase(),
+          isLinkedProfile: isLinked,
         });
 
         if (tc.linked_profile_id) profileToNodeId[tc.linked_profile_id] = nodeId;
@@ -527,11 +531,11 @@ export function useNetworkData() {
         links.push({
           source: ownerNodeId,
           target: nodeId,
-          distance: 160 * (0.85 + Math.random() * 0.3),
+          distance: 70 * (0.85 + Math.random() * 0.3),
           thickness: 1,
           recency: 0.3,
           isMutual: false,
-          isLinkedUser: false,
+          isLinkedUser: isLinked,
           isSecondDegree: true,
         });
       }
