@@ -11,7 +11,7 @@ const NAV_ITEMS = [
   { href: '/resume',    label: 'Resume' },
   { href: '/network',   label: 'Network' },
   { href: '/chronicle', label: 'Chronicle' },
-  { href: '/journal',   label: 'Journal' },
+  { href: '/lifetime',  label: 'Journal' },
 ];
 
 const LS_LAST_TAB = 'nexus_last_tab';
