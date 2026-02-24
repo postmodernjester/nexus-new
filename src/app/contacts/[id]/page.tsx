@@ -595,7 +595,6 @@ export default function ContactDossierPage() {
   }
 
   async function handleResumeParsed(data: ParsedResumeData) {
-    setResumeUploadOpen(false);
     // Preserve any existing snapshot profile/chronicle data when merging with uploaded work/edu
     const resumeData: ResumeData = {
       work: data.work,
@@ -604,7 +603,9 @@ export default function ContactDossierPage() {
       profile: contact?.resume_data?.profile,
       chronicle: contact?.resume_data?.chronicle,
     };
-    // Save to DB
+    // Save to DB BEFORE closing the modal — closing the modal triggers a
+    // refetch via the useEffect on resumeUploadOpen, so the DB must already
+    // have the new data when that refetch runs.
     const { error } = await supabase
       .from("contacts")
       .update({ resume_data: resumeData })
@@ -615,6 +616,7 @@ export default function ContactDossierPage() {
       return;
     }
     setContact((prev) => prev ? { ...prev, resume_data: resumeData } : prev);
+    setResumeUploadOpen(false);
   }
 
   async function handleClearResume() {
