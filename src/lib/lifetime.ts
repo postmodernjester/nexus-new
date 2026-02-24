@@ -129,8 +129,8 @@ export async function saveLifetimeNotes(year: number, notes: string) {
       { onConflict: 'user_id,year' }
     )
 
-  // If table doesn't exist yet, silently fail
   if (error) {
-    console.warn('lifetime_years save failed (table may not exist yet):', error.message)
+    console.error('lifetime_years save failed:', error.message)
+    throw new Error(`Failed to save notes: ${error.message}`)
   }
 }

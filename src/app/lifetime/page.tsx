@@ -14,6 +14,7 @@ export default function LifetimePage() {
   const [editingYear, setEditingYear] = useState<number | null>(null)
   const [editText, setEditText] = useState('')
   const [birthday, setBirthday] = useState<string>('')
+  const [saveError, setSaveError] = useState<string | null>(null)
   const yearRefs = useRef<Record<number, HTMLDivElement | null>>({})
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -81,16 +82,24 @@ export default function LifetimePage() {
   // ─── Save notes (debounced) ──────────────────
   const saveNotes = useCallback((year: number, text: string) => {
     setYears(prev => prev.map(y => y.year === year ? { ...y, notes: text } : y))
+    setSaveError(null)
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      saveLifetimeNotes(year, text).catch(console.error)
+      saveLifetimeNotes(year, text).catch((err) => {
+        console.error(err)
+        setSaveError('Failed to save — please check your database setup.')
+      })
     }, 800)
   }, [])
 
   // ─── Finish editing ─────────────────────────
   const finishEdit = useCallback(() => {
     if (editingYear !== null) {
-      saveLifetimeNotes(editingYear, editText).catch(console.error)
+      setSaveError(null)
+      saveLifetimeNotes(editingYear, editText).catch((err) => {
+        console.error(err)
+        setSaveError('Failed to save — please check your database setup.')
+      })
       setYears(prev => prev.map(y => y.year === editingYear ? { ...y, notes: editText } : y))
     }
     setEditingYear(null)
@@ -165,6 +174,18 @@ export default function LifetimePage() {
             })}
           </div>
         </div>
+
+        {/* ── SAVE ERROR BANNER ──────────── */}
+        {saveError && (
+          <div style={{
+            maxWidth: 640, margin: '0 auto', padding: '10px 20px',
+            background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6,
+            color: '#991b1b', fontSize: 12, fontFamily: "'DM Mono', monospace",
+            marginTop: 8,
+          }}>
+            {saveError}
+          </div>
+        )}
 
         {/* ── YEAR CARDS ─────────────────── */}
         <div style={S.cardsWrap}>

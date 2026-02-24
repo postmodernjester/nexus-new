@@ -585,7 +585,16 @@ export default function DashboardPage() {
               Action Items
             </span>
             <button
-              onClick={() => setShowNewForm((v) => !v)}
+              onClick={() => {
+                setShowNewForm((v) => {
+                  if (!v) {
+                    const tomorrow = new Date();
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    setNewActionDue(tomorrow.toISOString().split("T")[0]);
+                  }
+                  return !v;
+                });
+              }}
               style={{
                 padding: "4px 14px",
                 background: showNewForm ? "#334155" : "#fbbf24",
@@ -860,26 +869,46 @@ export default function DashboardPage() {
                         </button>
                       </>
                     ) : (
-                      <span
-                        onClick={() => startEditing(item)}
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: isOverdue ? 700 : 500,
-                          color: isOverdue ? "#f87171" : item.action_due_date ? "#94a3b8" : "#475569",
-                          flexShrink: 0,
-                          whiteSpace: "nowrap",
-                          cursor: "pointer",
-                          padding: "2px 6px",
-                          borderRadius: "4px",
-                          background: isOverdue ? "rgba(239,68,68,0.1)" : "transparent",
-                        }}
-                      >
-                        {item.action_due_date
-                          ? isOverdue
-                            ? `overdue · ${formatShortDate(item.action_due_date)}`
-                            : formatShortDate(item.action_due_date)
-                          : "no date"}
-                      </span>
+                      <>
+                        <span
+                          onClick={() => startEditing(item)}
+                          style={{
+                            fontSize: "12px",
+                            fontWeight: isOverdue ? 700 : 500,
+                            color: isOverdue ? "#f87171" : item.action_due_date ? "#94a3b8" : "#475569",
+                            flexShrink: 0,
+                            whiteSpace: "nowrap",
+                            cursor: "pointer",
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            background: isOverdue ? "rgba(239,68,68,0.1)" : "transparent",
+                          }}
+                        >
+                          {item.action_due_date
+                            ? isOverdue
+                              ? `overdue · ${formatShortDate(item.action_due_date)}`
+                              : formatShortDate(item.action_due_date)
+                            : "no date"}
+                        </span>
+                        {/* Edit icon */}
+                        <span
+                          onClick={() => startEditing(item)}
+                          style={{
+                            fontSize: "12px",
+                            color: "#334155",
+                            cursor: "pointer",
+                            flexShrink: 0,
+                            padding: "2px 4px",
+                            opacity: 0.5,
+                            transition: "opacity 0.15s",
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                          onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
+                          title="Edit"
+                        >
+                          ✎
+                        </span>
+                      </>
                     )}
                   </div>
                 );
@@ -910,7 +939,7 @@ export default function DashboardPage() {
                 marginBottom: "10px",
               }}
             >
-              Connection Updates
+              Updates by Your Connections
             </div>
             <div style={{ display: "flex", flexDirection: "column" }}>
               {linkedConnections.slice(0, 5).map((conn) => {
@@ -979,7 +1008,7 @@ export default function DashboardPage() {
               marginBottom: "12px",
             }}
           >
-            Recent Activity
+            Your Recent Activity
           </div>
 
           {recentNotes.length === 0 ? (
