@@ -7,6 +7,17 @@ export const CLOSENESS: Record<string, number> = {
   None: 500,
 };
 
+// How much each ring spreads: [minMult, range] → dist = baseDist * (min + random * range)
+// Inner rings stay tight, outer rings get wider bands to avoid clumping
+export const SPREAD: Record<string, [number, number]> = {
+  Family:             [0.85, 0.30],  // ±15%  →  68–92px
+  "Close Friend":     [0.85, 0.30],  // ±15%  → 176–238px
+  "Work-Friend":      [0.85, 0.30],  // ±15%  → 213–288px
+  "Business Contact":  [0.75, 0.50],  // ±25%  → 225–375px
+  Acquaintance:       [0.70, 0.60],  // ±30%  → 287–533px
+  None:               [0.65, 0.70],  // ±35%  → 325–675px
+};
+
 export function computeRecency(mostRecent: string | null): number {
   if (!mostRecent) return 0.15;
   const daysSince =

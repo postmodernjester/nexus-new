@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Contact, Connection, NoteStats, GraphNode, GraphLink } from "../types";
-import { CLOSENESS, computeRecency, lineThickness, nodeSize } from "../utils";
+import { CLOSENESS, SPREAD, computeRecency, lineThickness, nodeSize } from "../utils";
 import type { NodeProfile } from "../similarity";
 
 // ─── Raw row types for structured data ───────────────────────
@@ -383,7 +383,8 @@ export function useNetworkData() {
         nodeContactMeta[nodeId] = { company: myCard?.company || undefined, location: myCard?.location || undefined };
 
         const baseDist = CLOSENESS[relType] || 200;
-        const dist = baseDist * (0.85 + Math.random() * 0.3);
+        const [spreadMin, spreadRange] = SPREAD[relType] || [0.85, 0.30];
+        const dist = baseDist * (spreadMin + Math.random() * spreadRange);
         const thick = lineThickness(stats?.count || 0);
 
         links.push({
@@ -446,7 +447,8 @@ export function useNetworkData() {
         nodeContactMeta[nodeId] = { company: c.company || undefined, location: c.location || undefined };
 
         const baseDist = CLOSENESS[relType] || 200;
-        const dist = baseDist * (0.85 + Math.random() * 0.3);
+        const [spreadMin, spreadRange] = SPREAD[relType] || [0.85, 0.30];
+        const dist = baseDist * (spreadMin + Math.random() * spreadRange);
         const thick = lineThickness(stats?.count || 0);
 
         links.push({
