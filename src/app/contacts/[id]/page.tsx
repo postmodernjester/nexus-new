@@ -85,6 +85,56 @@ export default function ContactDossierPage() {
   // Edit scroll ref
   const editRef = useRef<HTMLDivElement>(null);
 
+  // Snapshot linked profile data into resume_data so it persists after unlink
+  function buildResumeSnapshot(
+    profile: LinkedProfile | null,
+    work: LinkedWorkEntry[],
+    chronicle: LinkedChronicleEntry[],
+    education: LinkedEducationEntry[],
+  ): ResumeData {
+    return {
+      work: work.map((w) => ({
+        title: w.title,
+        company: w.company || "",
+        location: w.location,
+        engagement_type: w.engagement_type || undefined,
+        start_date: w.start_date || undefined,
+        end_date: w.end_date,
+        is_current: w.is_current,
+        description: w.description,
+      })),
+      education: education.map((e) => ({
+        institution: e.institution,
+        degree: e.degree,
+        field_of_study: e.field_of_study,
+        start_date: e.start_date,
+        end_date: e.end_date,
+        is_current: e.is_current,
+      })),
+      profile: profile
+        ? {
+            full_name: profile.full_name,
+            headline: profile.headline,
+            bio: profile.bio,
+            location: profile.location,
+            website: profile.website,
+            avatar_url: profile.avatar_url,
+            key_links: profile.key_links,
+            profile_photo_url: profile.profile_photo_url,
+          }
+        : undefined,
+      chronicle: chronicle.length > 0 ? chronicle : undefined,
+    };
+  }
+
+  async function saveResumeSnapshot(snapshot: ResumeData) {
+    await supabase
+      .from("contacts")
+      .update({ resume_data: snapshot })
+      .eq("id", cid);
+    setContact((prev) => (prev ? { ...prev, resume_data: snapshot } : prev));
+  }
+
   useEffect(() => {
     loadAll();
     // Re-fetch when switching back so action items stay in sync across pages
@@ -209,9 +259,33 @@ export default function ContactDossierPage() {
           .order("start_date", { ascending: false }),
       ]);
       // Filter out items where show_on_resume is explicitly false (null/undefined = visible)
-      if (workRes.data) setLinkedWork(workRes.data.filter((w: any) => w.show_on_resume !== false));
-      if (chronRes.data) setLinkedChronicle(chronRes.data);
-      if (eduRes.data) setLinkedEducation(eduRes.data.filter((e: any) => e.show_on_resume !== false));
+      const filteredWork = workRes.data ? workRes.data.filter((w: any) => w.show_on_resume !== false) : [];
+      const filteredEdu = eduRes.data ? eduRes.data.filter((e: any) => e.show_on_resume !== false) : [];
+      const chronData = chronRes.data || [];
+      setLinkedWork(filteredWork);
+      setLinkedChronicle(chronData);
+      setLinkedEducation(filteredEdu);
+
+      // Snapshot linked data into resume_data so it persists if contact is later unlinked
+      const currentProfile = profileRes.data || {
+        full_name: contactRes.data.full_name,
+        headline: contactRes.data.role ? [contactRes.data.role, contactRes.data.company].filter(Boolean).join(" at ") : null,
+        bio: null,
+        location: contactRes.data.location || null,
+        website: null,
+        avatar_url: contactRes.data.avatar_url || null,
+        key_links: null,
+        profile_photo_url: null,
+      };
+      const snapshot = buildResumeSnapshot(currentProfile, filteredWork, chronData, filteredEdu);
+      // Fire-and-forget save — don't block page load
+      supabase
+        .from("contacts")
+        .update({ resume_data: snapshot })
+        .eq("id", cid)
+        .then(() => {
+          setContact((prev) => (prev ? { ...prev, resume_data: snapshot } : prev));
+        });
     }
 
     setLoading(false);
@@ -394,11 +468,16 @@ export default function ContactDossierPage() {
 
   async function handleUnlink() {
     if (!contact?.linked_profile_id || !userId) return;
-    if (!confirm(`Unlink from ${contact.full_name}? The contact card and your notes will be kept, but their linked NEXUS data will no longer be visible.`)) return;
+    if (!confirm(`Unlink from ${contact.full_name}? The contact card and your notes will be kept. Their resume data will be preserved as a snapshot.`)) return;
     setUnlinking(true);
+
+    // Snapshot current linked data into resume_data before unlinking
+    const snapshot = buildResumeSnapshot(linkedProfile, linkedWork, linkedChronicle, linkedEducation);
+    await saveResumeSnapshot(snapshot);
+
     const result = await unlinkContact(userId, cid, contact.linked_profile_id, contact.full_name);
     if (result.success) {
-      setContact(prev => prev ? { ...prev, linked_profile_id: null } : prev);
+      setContact(prev => prev ? { ...prev, linked_profile_id: null, resume_data: snapshot } : prev);
       setLinkedProfile(null);
       setLinkedWork([]);
       setLinkedChronicle([]);

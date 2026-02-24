@@ -10,6 +10,7 @@ import type {
   LinkedChronicleEntry,
   LinkedEducationEntry,
   ResumeData,
+  ResumeDataChronicle,
 } from "../types";
 
 interface ResumeViewProps {
@@ -34,7 +35,7 @@ function tileColor(idx: number) {
 }
 
 /* ── Project tile (square card with image or color, hover for details) ── */
-function ProjectTile({ entry, idx }: { entry: LinkedChronicleEntry; idx: number }) {
+function ProjectTile({ entry, idx }: { entry: LinkedChronicleEntry | ResumeDataChronicle; idx: number }) {
   const [hovered, setHovered] = useState(false);
   const color = tileColor(idx);
   const dateStr = `${formatWorkDate(entry.start_date || "")}${entry.end_date ? ` – ${formatWorkDate(entry.end_date)}` : ""}`;
@@ -137,26 +138,37 @@ export default function ResumeView({
   onUploadResume,
   onClearResume,
 }: ResumeViewProps) {
+  // Determine if we're showing live linked data vs snapshot/uploaded data
+  const isLinked = !!linkedProfile;
+
+  // Chronicle entries (live or from snapshot)
+  const activeChronicle: (LinkedChronicleEntry | ResumeDataChronicle)[] = isLinked
+    ? linkedChronicle
+    : (parsedResume?.chronicle || []);
+
   // Work-type chronicle entries belong in Experience, not Projects
-  const workChronicle = linkedChronicle.filter(
+  const workChronicle = activeChronicle.filter(
     (e) => e.canvas_col === "work"
   );
-  const projectEntries = linkedChronicle.filter(
+  const projectEntries = activeChronicle.filter(
     (e) => e.canvas_col === "project" || e.canvas_col === "projects"
   );
-  const educationChronicle = linkedChronicle.filter(
+  const educationChronicle = activeChronicle.filter(
     (e) => e.canvas_col === "education"
   );
   // "Other" means non-work, non-project, non-education chronicle entries → show as projects
-  const otherEntries = linkedChronicle.filter(
+  const otherEntries = activeChronicle.filter(
     (e) =>
       e.canvas_col !== "work" &&
       e.canvas_col !== "project" &&
       e.canvas_col !== "projects" &&
       e.canvas_col !== "education"
   );
+
+  // Profile data: prefer live linked, then snapshot, then contact fields
+  const activeProfile = linkedProfile || parsedResume?.profile || null;
   const visibleLinks =
-    linkedProfile?.key_links?.filter((l) => l.url && l.visible) || [];
+    activeProfile?.key_links?.filter((l) => l.url && l.visible) || [];
   const linkLabels: Record<string, string> = {
     linkedin: "LinkedIn",
     wikipedia: "Wikipedia",
@@ -167,15 +179,16 @@ export default function ResumeView({
 
   const allProjects = [...projectEntries, ...otherEntries];
 
-  // Merge linked data with parsed resume data
-  const parsedWork = parsedResume?.work || [];
-  const parsedEdu = parsedResume?.education || [];
+  // When linked, show live data only. When not linked, show from parsedResume.
+  const activeWork = isLinked ? linkedWork : [];
+  const activeEducation = isLinked ? linkedEducation : [];
+  const parsedWork = isLinked ? [] : (parsedResume?.work || []);
+  const parsedEdu = isLinked ? [] : (parsedResume?.education || []);
 
-  const hasExperience = linkedWork.length > 0 || workChronicle.length > 0 || parsedWork.length > 0;
-  const hasEducation = linkedEducation.length > 0 || educationChronicle.length > 0 || parsedEdu.length > 0;
+  const hasExperience = activeWork.length > 0 || workChronicle.length > 0 || parsedWork.length > 0;
+  const hasEducation = activeEducation.length > 0 || educationChronicle.length > 0 || parsedEdu.length > 0;
 
-  // If no linked profile and no parsed data, just show the upload button
-  const profileName = linkedProfile?.full_name || contact.full_name;
+  const profileName = activeProfile?.full_name || contact.full_name;
   const hasAnyData = hasExperience || hasEducation || allProjects.length > 0;
 
   return (
@@ -201,14 +214,14 @@ export default function ResumeView({
         }}
       >
         {/* Profile photo */}
-        {linkedProfile?.profile_photo_url && (
+        {activeProfile?.profile_photo_url && (
           <div style={{
             width: 72, height: 72, borderRadius: 8,
             overflow: "hidden", margin: "0 auto 12px",
             border: "2px solid #ddd",
           }}>
             <img
-              src={linkedProfile.profile_photo_url}
+              src={activeProfile.profile_photo_url}
               alt=""
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
             />
@@ -225,7 +238,7 @@ export default function ResumeView({
         >
           {profileName}
         </h2>
-        {linkedProfile?.headline && (
+        {activeProfile?.headline && (
           <div
             style={{
               fontSize: "13px",
@@ -234,10 +247,10 @@ export default function ResumeView({
               fontStyle: "italic",
             }}
           >
-            {linkedProfile.headline}
+            {activeProfile.headline}
           </div>
         )}
-        {!linkedProfile?.headline && (contact.role || contact.company) && (
+        {!activeProfile?.headline && (contact.role || contact.company) && (
           <div
             style={{
               fontSize: "13px",
@@ -259,24 +272,24 @@ export default function ResumeView({
             color: "#666",
           }}
         >
-          {(linkedProfile?.location || contact.location) && (
-            <span>{linkedProfile?.location || contact.location}</span>
+          {(activeProfile?.location || contact.location) && (
+            <span>{activeProfile?.location || contact.location}</span>
           )}
-          {linkedProfile?.website && (
+          {activeProfile?.website && (
             <a
-              href={linkedProfile.website}
+              href={activeProfile.website}
               target="_blank"
               rel="noopener noreferrer"
               style={{ color: "#3b5998", textDecoration: "none" }}
             >
               {(() => {
                 try {
-                  return new URL(linkedProfile.website!).hostname.replace(
+                  return new URL(activeProfile.website!).hostname.replace(
                     "www.",
                     ""
                   );
                 } catch {
-                  return linkedProfile.website;
+                  return activeProfile.website;
                 }
               })()}
             </a>
@@ -353,7 +366,7 @@ export default function ResumeView({
       </div>
 
       {/* Bio */}
-      {linkedProfile?.bio && (
+      {activeProfile?.bio && (
         <div
           style={{
             marginBottom: "20px",
@@ -363,7 +376,7 @@ export default function ResumeView({
             fontStyle: "italic",
           }}
         >
-          {linkedProfile.bio}
+          {activeProfile.bio}
         </div>
       )}
 
@@ -385,11 +398,11 @@ export default function ResumeView({
           >
             Experience
           </h3>
-          {linkedWork.map((entry, i) => (
+          {activeWork.map((entry, i) => (
             <div
               key={entry.id}
               style={{
-                marginBottom: i < linkedWork.length - 1 || workChronicle.length > 0 || parsedWork.length > 0 ? "14px" : 0,
+                marginBottom: i < activeWork.length - 1 || workChronicle.length > 0 || parsedWork.length > 0 ? "14px" : 0,
               }}
             >
               <div
@@ -626,12 +639,12 @@ export default function ResumeView({
           >
             Education
           </h3>
-          {linkedEducation.map((edu, i) => (
+          {activeEducation.map((edu, i) => (
             <div
               key={edu.id}
               style={{
                 marginBottom:
-                  i < linkedEducation.length - 1 ||
+                  i < activeEducation.length - 1 ||
                   educationChronicle.length > 0 ||
                   parsedEdu.length > 0
                     ? "14px"

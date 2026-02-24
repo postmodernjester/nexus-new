@@ -1,3 +1,9 @@
+export interface KeyLink {
+  type: string;
+  url: string;
+  visible: boolean;
+}
+
 export interface ParsedResumeWork {
   title: string;
   company: string;
@@ -19,9 +25,34 @@ export interface ParsedResumeEducation {
   is_current: boolean;
 }
 
+export interface ResumeDataProfile {
+  full_name?: string;
+  headline?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  website?: string | null;
+  avatar_url?: string | null;
+  key_links?: KeyLink[] | null;
+  profile_photo_url?: string | null;
+}
+
+export interface ResumeDataChronicle {
+  id: string;
+  type: string;
+  title: string;
+  start_date: string;
+  end_date: string | null;
+  canvas_col: string;
+  note: string | null;
+  description: string | null;
+  image_url: string | null;
+}
+
 export interface ResumeData {
   work: ParsedResumeWork[];
   education: ParsedResumeEducation[];
+  profile?: ResumeDataProfile;
+  chronicle?: ResumeDataChronicle[];
   raw_text?: string;
 }
 
@@ -47,12 +78,6 @@ export interface Contact {
   show_on_chronicle: boolean;
   resume_data: ResumeData | null;
   created_at: string;
-}
-
-export interface KeyLink {
-  type: string;
-  url: string;
-  visible: boolean;
 }
 
 export interface LinkedProfile {
