@@ -24,6 +24,7 @@ interface ActionItem {
   entry_date: string;
   contact_id: string;
   contact_name: string;
+  contact_company: string | null;
 }
 
 interface RecentNote {
@@ -209,7 +210,7 @@ export default function DashboardPage() {
             .single(),
           supabase
             .from("contacts")
-            .select("id, full_name, linked_profile_id")
+            .select("id, full_name, linked_profile_id, company")
             .eq("owner_id", user.id),
           supabase
             .from("connections")
@@ -230,7 +231,7 @@ export default function DashboardPage() {
         ]);
 
       setProfile(profileRes.data as Profile);
-      const contactsList = (contactsRes.data || []) as { id: string; full_name: string; linked_profile_id: string | null }[];
+      const contactsList = (contactsRes.data || []) as { id: string; full_name: string; linked_profile_id: string | null; company: string | null }[];
       setTotalContacts(contactsList.length);
       setAllContacts(
         contactsList
@@ -288,8 +289,8 @@ export default function DashboardPage() {
       }
       setNetworkSize(contactsList.length + secondDegreeCount);
 
-      const contactMap = new Map<string, string>();
-      contactsList.forEach((c) => contactMap.set(c.id, c.full_name));
+      const contactMap = new Map<string, { name: string; company: string | null }>();
+      contactsList.forEach((c) => contactMap.set(c.id, { name: c.full_name, company: c.company }));
 
       const allNotes = (notesRes.data || []) as any[];
 
@@ -303,7 +304,8 @@ export default function DashboardPage() {
           importance: n.importance,
           entry_date: n.entry_date,
           contact_id: n.contact_id,
-          contact_name: contactMap.get(n.contact_id) || "Unknown",
+          contact_name: contactMap.get(n.contact_id)?.name || "Unknown",
+          contact_company: contactMap.get(n.contact_id)?.company || null,
         }))
         .sort((a: ActionItem, b: ActionItem) => {
           const now = new Date().toISOString().split("T")[0];
@@ -324,7 +326,7 @@ export default function DashboardPage() {
         context: n.context,
         entry_date: n.entry_date,
         contact_id: n.contact_id,
-        contact_name: contactMap.get(n.contact_id) || "Unknown",
+        contact_name: contactMap.get(n.contact_id)?.name || "Unknown",
         created_at: n.created_at,
       }));
       setRecentNotes(recent);
@@ -785,19 +787,23 @@ export default function DashboardPage() {
                       }}
                     />
 
-                    {/* Person name */}
+                    {/* Person name / company */}
                     <Link
                       href={`/contacts/${item.contact_id}`}
                       style={{
                         color: "#a78bfa",
                         textDecoration: "none",
-                        fontWeight: 700,
                         fontSize: "14px",
                         flexShrink: 0,
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {item.contact_name}
+                      <span style={{ fontWeight: 700 }}>{item.contact_name}</span>
+                      {item.contact_company && (
+                        <span style={{ fontWeight: 400, opacity: 0.55 }}>
+                          {" / "}{item.contact_company}
+                        </span>
+                      )}
                     </Link>
 
                     {/* Action text — editable */}
