@@ -138,6 +138,33 @@ export default function NetworkPage() {
       selfNode.fy = height / 2;
     }
 
+    // Pre-position 1st-degree nodes radially around center for a stable start
+    const firstDeg = allNodes.filter(n => n.type === "contact" || n.type === "connected_user");
+    const fdCount = firstDeg.length || 1;
+    firstDeg.forEach((n, i) => {
+      const angle = (2 * Math.PI * i) / fdCount;
+      const r = 180 + Math.random() * 40;
+      n.x = width / 2 + Math.cos(angle) * r;
+      n.y = height / 2 + Math.sin(angle) * r;
+    });
+
+    // Pre-position 2nd-degree nodes near their parent 1st-degree node
+    for (const n of allNodes) {
+      if (n.type !== "their_contact") continue;
+      const parentLink = graphData.links.find(l => {
+        const tId = typeof l.target === 'string' ? l.target : (l.target as GraphNode).id;
+        return tId === n.id;
+      });
+      if (parentLink) {
+        const sId = typeof parentLink.source === 'string' ? parentLink.source : (parentLink.source as GraphNode).id;
+        const parent = firstDeg.find(nd => nd.id === sId);
+        if (parent) {
+          n.x = (parent.x || width / 2) + (Math.random() - 0.5) * 30;
+          n.y = (parent.y || height / 2) + (Math.random() - 0.5) * 30;
+        }
+      }
+    }
+
     // ── Similarity-based clustering ──────────────────────────
     // Build adjacency from real links so we don't duplicate them
     const adjacency: Record<string, Set<string>> = {};
@@ -248,16 +275,36 @@ export default function NetworkPage() {
           .id((d) => d.id)
           .distance((d) => d.distance)
           .strength((d) => {
+            // 2nd-degree links (non-cross): very strong to keep tight cluster
+            if (d.isSecondDegree && !d.isCrossLink) return 0.7;
             if (d.thickness > 0) return 0.12; // visible links
             return (d as GraphLink & { _simStrength?: number })._simStrength || 0.04;
           })
       )
-      .force("charge", d3.forceManyBody().strength(-220).distanceMax(1200))
-      .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => d.id === "self" ? 0.12 : 0.015))
-      .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => d.id === "self" ? 0.12 : 0.015))
+      .force("charge", d3.forceManyBody<GraphNode>()
+        .strength((d) => {
+          if (d.type === "their_contact") return -8;
+          if (d.type === "third_degree") return -5;
+          if (d.type === "world") return -15;
+          return -120;
+        })
+        .distanceMax(600))
+      .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => {
+        if (d.id === "self") return 0.12;
+        if (d.type === "their_contact" || d.type === "third_degree") return 0;
+        return 0.04;
+      }))
+      .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => {
+        if (d.id === "self") return 0.12;
+        if (d.type === "their_contact" || d.type === "third_degree") return 0;
+        return 0.04;
+      }))
       .force(
         "collision",
-        d3.forceCollide<GraphNode>().radius((d) => d.radius + 5)
+        d3.forceCollide<GraphNode>().radius((d) => {
+          if (d.type === "their_contact" || d.type === "third_degree") return d.radius + 1;
+          return d.radius + 5;
+        })
       )
       .force("wiggle", wiggleForce() as unknown as d3.Force<GraphNode, GraphLink>)
       .alphaTarget(0.02)

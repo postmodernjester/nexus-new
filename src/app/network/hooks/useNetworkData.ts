@@ -509,7 +509,7 @@ export function useNetworkData() {
         const tcSearchParts = [tc.full_name, tc.relationship_type, tc.company, tc.role, tc.location];
         nodes.push({
           id: nodeId,
-          label: jobLabel,
+          label: isLinked ? jobLabel : "",
           fullName: tc.full_name,
           type: "their_contact",
           radius: 6,
@@ -531,7 +531,7 @@ export function useNetworkData() {
         links.push({
           source: ownerNodeId,
           target: nodeId,
-          distance: 70 * (0.85 + Math.random() * 0.3),
+          distance: 25 * (0.85 + Math.random() * 0.3),
           thickness: 1,
           recency: 0.3,
           isMutual: false,

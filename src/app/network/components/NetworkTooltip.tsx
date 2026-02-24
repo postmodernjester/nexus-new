@@ -88,7 +88,7 @@ export default function NetworkTooltip({ hoveredNode, tooltipPos }: NetworkToolt
           </div>
           {hoveredNode.next_action_note && (
             <div style={{ color: "#f59e0b", fontSize: "11px", marginTop: "6px" }}>
-              {hoveredNode.next_action_note}
+              Next: {hoveredNode.next_action_note}
             </div>
           )}
         </>
