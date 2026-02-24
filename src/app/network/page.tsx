@@ -159,7 +159,8 @@ export default function NetworkPage() {
       n.y = height / 2 + Math.sin(angle) * r;
     });
 
-    // Pre-position 2nd-degree nodes near their parent 1st-degree node
+    // Pre-position 2nd-degree nodes evenly around their parent (like 1st-degree around self)
+    const secondDegByParent: Record<string, GraphNode[]> = {};
     for (const n of allNodes) {
       if (n.type !== "their_contact") continue;
       const parentLink = graphData.links.find(l => {
@@ -168,12 +169,22 @@ export default function NetworkPage() {
       });
       if (parentLink) {
         const sId = typeof parentLink.source === 'string' ? parentLink.source : (parentLink.source as GraphNode).id;
-        const parent = firstDeg.find(nd => nd.id === sId);
-        if (parent) {
-          n.x = (parent.x || width / 2) + (Math.random() - 0.5) * 30;
-          n.y = (parent.y || height / 2) + (Math.random() - 0.5) * 30;
-        }
+        if (!secondDegByParent[sId]) secondDegByParent[sId] = [];
+        secondDegByParent[sId].push(n);
       }
+    }
+    for (const [parentId, children] of Object.entries(secondDegByParent)) {
+      const parent = firstDeg.find(nd => nd.id === parentId);
+      if (!parent) continue;
+      const px = parent.x || width / 2;
+      const py = parent.y || height / 2;
+      const count = children.length;
+      children.forEach((n, i) => {
+        const angle = (2 * Math.PI * i) / count;
+        const r = 25; // same as link distance
+        n.x = px + Math.cos(angle) * r;
+        n.y = py + Math.sin(angle) * r;
+      });
     }
 
     // ── Similarity-based clustering ──────────────────────────
@@ -299,21 +310,21 @@ export default function NetworkPage() {
       .force("charge", d3.forceManyBody<GraphNode>()
         .strength((d) => {
           if (d.id === "self") return 0; // self is pinned; charge was pushing 1st-degree past their link distances
-          if (d.type === "their_contact") return -8;
+          if (d.type === "their_contact") return 0; // 2nd-degree orbit their parent, no charge needed
           if (d.type === "third_degree") return -5;
           if (d.type === "world") return -15;
           return -120;
         })
         .distanceMax(800))
       .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => {
-        // No centering for 1st-degree — link springs to self handle distance,
+        // No centering for 1st/2nd-degree — link springs handle distance,
         // charge repulsion handles spreading. Centering was pulling them all
         // toward the same point, collapsing the layout.
-        if (d.type === "contact" || d.type === "connected_user") return 0;
+        if (d.type === "contact" || d.type === "connected_user" || d.type === "their_contact") return 0;
         return 0.04;
       }))
       .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => {
-        if (d.type === "contact" || d.type === "connected_user") return 0;
+        if (d.type === "contact" || d.type === "connected_user" || d.type === "their_contact") return 0;
         return 0.04;
       }))
       .force(
