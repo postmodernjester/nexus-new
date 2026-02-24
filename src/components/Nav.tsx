@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: '/contacts',  label: 'Contacts' },
   { href: '/network',   label: 'Network' },
   { href: '/chronicle', label: 'Chronicle' },
+  { href: '/lifetime',  label: 'Lifetime' },
   { href: '/dashboard', label: 'Dashboard' },
 ];
 
