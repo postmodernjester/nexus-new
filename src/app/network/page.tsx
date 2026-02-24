@@ -273,7 +273,8 @@ export default function NetworkPage() {
       });
     }
 
-    const allLinks = [...graphData.links, ...clusterLinks, ...thirdDegreeLinks];
+    // Only include real links — no cluster/similarity attraction links
+    const allLinks = [...graphData.links, ...thirdDegreeLinks];
 
     const simulation = d3
       .forceSimulation<GraphNode>(allNodes)
@@ -284,42 +285,21 @@ export default function NetworkPage() {
           .id((d) => d.id)
           .distance((d) => d.distance)
           .strength((d) => {
-            // 2nd-degree links: strong to keep satellite cluster tight
             if (d.isSecondDegree && !d.isCrossLink) return 0.7;
-            // 3rd-degree → anchor: moderate spring
             if ((d as GraphLink & { _simStrength?: number })._simStrength) return 0.05;
-            // Everything else (self→1st, cluster, similarity): ZERO.
-            // Links are visual only. ForceRadial + repulsion handle positioning.
-            return 0;
+            return 0.15;
           })
       )
-      // Radial force: anchors 1st-degree nodes to their orbital distance
-      .force("radial", d3.forceRadial<GraphNode>(
-        (d) => radialDistMap[d.id] || 0,
-        width / 2,
-        height / 2
-      ).strength((d) => {
-        if (d.type === "contact" || d.type === "connected_user") return 0.4;
-        return 0;
-      }))
       .force("charge", d3.forceManyBody<GraphNode>()
         .strength((d) => {
-          if (d.id === "self") return 0;
           if (d.type === "their_contact") return -8;
           if (d.type === "third_degree") return -5;
           if (d.type === "world") return -15;
-          // 1st-degree: strong repulsion is the ONLY force spreading them around
-          return -400;
+          return -120;
         })
-        .distanceMax(1200))
-      .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => {
-        if (d.id === "self") return 0.12;
-        return 0;
-      }))
-      .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => {
-        if (d.id === "self") return 0.12;
-        return 0;
-      }))
+        .distanceMax(800))
+      .force("x", d3.forceX<GraphNode>(width / 2).strength(0.04))
+      .force("y", d3.forceY<GraphNode>(height / 2).strength(0.04))
       .force(
         "collision",
         d3.forceCollide<GraphNode>().radius((d) => {
