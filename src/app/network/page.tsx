@@ -298,8 +298,17 @@ export default function NetworkPage() {
           return -120;
         })
         .distanceMax(800))
-      .force("x", d3.forceX<GraphNode>(width / 2).strength(0.04))
-      .force("y", d3.forceY<GraphNode>(height / 2).strength(0.04))
+      .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => {
+        // No centering for 1st-degree — link springs to self handle distance,
+        // charge repulsion handles spreading. Centering was pulling them all
+        // toward the same point, collapsing the layout.
+        if (d.type === "contact" || d.type === "connected_user") return 0;
+        return 0.04;
+      }))
+      .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => {
+        if (d.type === "contact" || d.type === "connected_user") return 0;
+        return 0.04;
+      }))
       .force(
         "collision",
         d3.forceCollide<GraphNode>().radius((d) => {
