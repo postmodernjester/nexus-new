@@ -49,6 +49,8 @@ export interface GraphNode extends d3.SimulationNodeDatum {
   searchText?: string;
   anchorNodeId?: string;
   next_action_note?: string;
+  pending_action?: string;
+  pending_action_due?: string;
   isLinkedProfile?: boolean;
 }
 

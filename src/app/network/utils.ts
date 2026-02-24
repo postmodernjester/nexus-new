@@ -8,13 +8,20 @@ export const CLOSENESS: Record<string, number> = {
 };
 
 export function computeRecency(mostRecent: string | null): number {
-  if (!mostRecent) return 0.25;
+  if (!mostRecent) return 0.15;
   const daysSince =
     (Date.now() - new Date(mostRecent).getTime()) / (1000 * 60 * 60 * 24);
-  if (daysSince <= 7) return 1.0;
-  if (daysSince <= 30) return 1.0 - ((daysSince - 7) / 23) * 0.2;
-  if (daysSince <= 365) return 0.8 - ((daysSince - 30) / 335) * 0.3;
-  return Math.max(0.25, 0.5 - ((daysSince - 365) / 730) * 0.25);
+  // Stepped decay with clear drops at each threshold:
+  // ≤1 day:  full bright (1.0)
+  // 1d→1w:   0.90 → 0.65  (still quite visible)
+  // 1w→1mo:  0.65 → 0.40  (noticeably faded)
+  // 1mo→1yr: 0.40 → 0.20  (dim but visible)
+  // >1yr:    0.15          (very dim, still there)
+  if (daysSince <= 1) return 1.0;
+  if (daysSince <= 7) return 0.90 - ((daysSince - 1) / 6) * 0.25;
+  if (daysSince <= 30) return 0.65 - ((daysSince - 7) / 23) * 0.25;
+  if (daysSince <= 365) return 0.40 - ((daysSince - 30) / 335) * 0.20;
+  return 0.15;
 }
 
 export function lineColor(

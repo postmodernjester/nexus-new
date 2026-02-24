@@ -113,7 +113,7 @@ export function useNetworkData() {
         return;
       }
 
-      const [myContactsRes, connectionsRes, notesRes, profileRes] =
+      const [myContactsRes, connectionsRes, notesRes, profileRes, pendingActionsRes] =
         await Promise.all([
           supabase.from("contacts").select("*").eq("owner_id", user.id),
           supabase
@@ -127,11 +127,26 @@ export function useNetworkData() {
             .select("full_name, headline")
             .eq("id", user.id)
             .single(),
+          supabase
+            .from("interactions")
+            .select("contact_id, action_item, action_due")
+            .eq("owner_id", user.id)
+            .eq("action_done", false)
+            .not("action_item", "is", null)
+            .order("action_due", { ascending: true }),
         ]);
 
       const myContacts: Contact[] = myContactsRes.data || [];
       const connections: Connection[] = connectionsRes.data || [];
       const allNotes = notesRes.data || [];
+
+      // Build pending action map: first (soonest-due) pending action per contact
+      const pendingActionMap: Record<string, { action_item: string; action_due?: string }> = {};
+      for (const pa of (pendingActionsRes.data || [])) {
+        if (!pendingActionMap[pa.contact_id]) {
+          pendingActionMap[pa.contact_id] = { action_item: pa.action_item, action_due: pa.action_due || undefined };
+        }
+      }
 
       const noteMap: Record<string, NoteStats> = {};
       const noteTextMap: Record<string, string> = {};
@@ -363,6 +378,8 @@ export function useNetworkData() {
           recency: rec,
           searchText: [...cuSearchParts.filter(Boolean), cuNoteText, cuWorkText, cuEduText].join(" ").toLowerCase(),
           next_action_note: myCard?.next_action_note ?? undefined,
+          pending_action: myCard ? pendingActionMap[myCard.id]?.action_item : undefined,
+          pending_action_due: myCard ? pendingActionMap[myCard.id]?.action_due : undefined,
         });
 
         profileToNodeId[uid] = nodeId;
@@ -422,6 +439,8 @@ export function useNetworkData() {
           recency: rec,
           searchText: [...cSearchParts.filter(Boolean), cNoteText, cWorkText, cEduText].join(" ").toLowerCase(),
           next_action_note: c.next_action_note ?? undefined,
+          pending_action: pendingActionMap[c.id]?.action_item,
+          pending_action_due: pendingActionMap[c.id]?.action_due,
         });
 
         nameToNodeId[c.full_name.toLowerCase()] = nodeId;

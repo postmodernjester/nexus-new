@@ -286,24 +286,27 @@ export default function NetworkPage() {
           if (d.type === "their_contact") return -8;
           if (d.type === "third_degree") return -5;
           if (d.type === "world") return -15;
-          return -120;
+          // 1st-degree: strong repulsion so they spread as far apart as possible
+          return -450;
         })
-        .distanceMax(600))
+        .distanceMax(1200))
       .force("x", d3.forceX<GraphNode>(width / 2).strength((d) => {
         if (d.id === "self") return 0.12;
         if (d.type === "their_contact" || d.type === "third_degree") return 0;
-        return 0.04;
+        // 1st-degree: very weak centering — let repulsion dominate spread
+        return 0.008;
       }))
       .force("y", d3.forceY<GraphNode>(height / 2).strength((d) => {
         if (d.id === "self") return 0.12;
         if (d.type === "their_contact" || d.type === "third_degree") return 0;
-        return 0.04;
+        return 0.008;
       }))
       .force(
         "collision",
         d3.forceCollide<GraphNode>().radius((d) => {
           if (d.type === "their_contact" || d.type === "third_degree") return d.radius + 1;
-          return d.radius + 5;
+          // 1st-degree: wider collision buffer to keep them well-separated
+          return d.radius + 20;
         })
       )
       .force("wiggle", wiggleForce() as unknown as d3.Force<GraphNode, GraphLink>)

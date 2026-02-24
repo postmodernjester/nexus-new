@@ -86,7 +86,20 @@ export default function NetworkTooltip({ hoveredNode, tooltipPos }: NetworkToolt
             {hoveredNode.role && hoveredNode.company ? ", " : ""}
             {hoveredNode.company || ""}
           </div>
-          {hoveredNode.next_action_note && (
+          {hoveredNode.pending_action && (
+            <div style={{ color: "#f87171", fontSize: "11px", marginTop: "6px", display: "flex", alignItems: "baseline", gap: "4px" }}>
+              <span style={{ fontSize: "9px" }}>!</span>
+              <span>
+                {hoveredNode.pending_action}
+                {hoveredNode.pending_action_due && (
+                  <span style={{ color: "#94a3b8", marginLeft: "4px" }}>
+                    (due {new Date(hoveredNode.pending_action_due).toLocaleDateString("en-US", { month: "short", day: "numeric" })})
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+          {hoveredNode.next_action_note && !hoveredNode.pending_action && (
             <div style={{ color: "#f59e0b", fontSize: "11px", marginTop: "6px" }}>
               Next: {hoveredNode.next_action_note}
             </div>
