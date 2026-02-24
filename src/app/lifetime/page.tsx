@@ -13,6 +13,7 @@ export default function LifetimePage() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [editingYear, setEditingYear] = useState<number | null>(null)
   const [editText, setEditText] = useState('')
+  const [birthday, setBirthday] = useState<string>('')
   const yearRefs = useRef<Record<number, HTMLDivElement | null>>({})
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -25,6 +26,7 @@ export default function LifetimePage() {
       try {
         const data = await loadLifetimeData()
         setYears(data.years)
+        if (data.birthday) setBirthday(data.birthday)
         // Auto-expand years that have notes or context
         const autoExpand = new Set<number>()
         data.years.forEach(y => {
@@ -39,6 +41,26 @@ export default function LifetimePage() {
     }
     init()
   }, [router])
+
+  // ─── Save birthday ─────────────────────────────
+  const saveBirthday = useCallback(async (date: string) => {
+    setBirthday(date)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    await supabase.from('profiles').update({ birthday: date || null }).eq('id', user.id)
+    // Reload data to regenerate year list from new birth year
+    try {
+      const data = await loadLifetimeData()
+      setYears(data.years)
+      const autoExpand = new Set<number>()
+      data.years.forEach(y => {
+        if (y.notes || y.work.length || y.education.length) autoExpand.add(y.year)
+      })
+      setExpanded(autoExpand)
+    } catch (err) {
+      console.error('Failed to reload after birthday update:', err)
+    }
+  }, [])
 
   // ─── Toggle expand/collapse ──────────────────
   const toggleYear = useCallback((year: number) => {
@@ -78,7 +100,11 @@ export default function LifetimePage() {
   const scrollToYear = useCallback((year: number) => {
     setExpanded(prev => new Set([...prev, year]))
     setTimeout(() => {
-      yearRefs.current[year]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const el = yearRefs.current[year]
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const targetY = window.scrollY + rect.top - window.innerHeight * 0.35
+      window.scrollTo({ top: targetY, behavior: 'smooth' })
     }, 50)
   }, [])
 
@@ -103,8 +129,17 @@ export default function LifetimePage() {
       <div style={S.page}>
         {/* ── HEADER ─────────────────────── */}
         <div style={S.header}>
-          <h1 style={S.title}>lifetime</h1>
+          <h1 style={S.title}>Private Lifetime Journal</h1>
           <p style={S.subtitle}>year by year</p>
+          <div style={S.birthdayRow}>
+            <span style={S.birthdayLabel}>I was born on:</span>
+            <input
+              type="date"
+              value={birthday}
+              onChange={e => saveBirthday(e.target.value)}
+              style={S.birthdayInput}
+            />
+          </div>
         </div>
 
         {/* ── YEAR PICKER ────────────────── */}
@@ -338,6 +373,19 @@ const S: Record<string, React.CSSProperties> = {
   subtitle: {
     fontSize: 8, letterSpacing: '.3em', textTransform: 'uppercase' as const,
     color: '#9a8e78', margin: '4px 0 0',
+  },
+  birthdayRow: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: 8, marginTop: 12,
+  },
+  birthdayLabel: {
+    fontSize: 11, color: '#7a7060', fontFamily: "'Libre Baskerville', serif",
+    fontStyle: 'italic',
+  },
+  birthdayInput: {
+    fontFamily: "'DM Mono', monospace", fontSize: 11, color: '#1a1812',
+    background: 'transparent', border: 'none', borderBottom: '1px solid #c0b8a8',
+    padding: '2px 4px', outline: 'none', cursor: 'pointer',
   },
   yearPicker: {
     position: 'sticky' as const, top: 0, zIndex: 40,
