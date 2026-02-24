@@ -1383,7 +1383,7 @@ export default function ChronicleCanvas() {
                   )}
                   {/* Spacer for locked columns (resume bar rendered separately) */}
                   {col.locked && !isCollapsed && (
-                    <div style={{ height: 12 }} />
+                    <div style={{ height: 16 }} />
                   )}
                 </div>
               )
@@ -1396,8 +1396,8 @@ export default function ChronicleCanvas() {
               const lockedWidth = lockedCols.reduce((sum, c) => sum + getColWidth(c, collapsedCols), 0)
               return (
                 <div style={{
-                  position: 'absolute', left: 0, bottom: 2, width: lockedWidth,
-                  padding: '0 10px', pointerEvents: 'none',
+                  position: 'absolute', left: 0, bottom: 3, width: lockedWidth,
+                  padding: '0 8px', pointerEvents: 'none',
                 }}>
                   <div style={{
                     background: '#d8d0c0', borderRadius: 2, padding: '1px 0',

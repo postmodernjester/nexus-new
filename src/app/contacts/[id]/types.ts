@@ -1,3 +1,30 @@
+export interface ParsedResumeWork {
+  title: string;
+  company: string;
+  location?: string | null;
+  location_type?: string | null;
+  engagement_type?: string;
+  start_date?: string;
+  end_date?: string | null;
+  is_current: boolean;
+  description?: string | null;
+}
+
+export interface ParsedResumeEducation {
+  institution: string;
+  degree?: string | null;
+  field_of_study?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  is_current: boolean;
+}
+
+export interface ResumeData {
+  work: ParsedResumeWork[];
+  education: ParsedResumeEducation[];
+  raw_text?: string;
+}
+
 export interface Contact {
   id: string;
   owner_id: string;
@@ -18,6 +45,7 @@ export interface Contact {
   met_date: string | null;
   avatar_url: string | null;
   show_on_chronicle: boolean;
+  resume_data: ResumeData | null;
   created_at: string;
 }
 

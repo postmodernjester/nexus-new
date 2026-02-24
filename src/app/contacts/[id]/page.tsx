@@ -14,6 +14,7 @@ import type {
   LinkedChronicleEntry,
   LinkedEducationEntry,
   NoteEntry,
+  ResumeData,
 } from "./types";
 
 import { formatDate, extractUrls, initials } from "./utils";
@@ -23,6 +24,8 @@ import NotesSection from "./components/NotesSection";
 import SynergySection from "./components/SynergySection";
 import ResumeView from "./components/ResumeView";
 import EditContactForm from "./components/EditContactForm";
+import ResumeUploadModal from "./components/ResumeUploadModal";
+import type { ParsedResumeData } from "./components/ResumeUploadModal";
 
 export default function ContactDossierPage() {
   const router = useRouter();
@@ -75,6 +78,9 @@ export default function ContactDossierPage() {
   // AI summary
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [autoSummaryTriggered, setAutoSummaryTriggered] = useState(false);
+
+  // Resume upload
+  const [resumeUploadOpen, setResumeUploadOpen] = useState(false);
 
   // Edit scroll ref
   const editRef = useRef<HTMLDivElement>(null);
@@ -505,6 +511,29 @@ export default function ContactDossierPage() {
     setGeneratingSummary(false);
   }
 
+  async function handleResumeParsed(data: ParsedResumeData) {
+    setResumeUploadOpen(false);
+    const resumeData: ResumeData = {
+      work: data.work,
+      education: data.education,
+      raw_text: data.raw_text,
+    };
+    // Save to DB
+    await supabase
+      .from("contacts")
+      .update({ resume_data: resumeData })
+      .eq("id", cid);
+    setContact((prev) => prev ? { ...prev, resume_data: resumeData } : prev);
+  }
+
+  async function handleClearResume() {
+    await supabase
+      .from("contacts")
+      .update({ resume_data: null })
+      .eq("id", cid);
+    setContact((prev) => prev ? { ...prev, resume_data: null } : prev);
+  }
+
   const setField = (k: string, v: string | boolean) =>
     setEditFields({ ...editFields, [k]: v });
 
@@ -820,16 +849,43 @@ export default function ContactDossierPage() {
           linkedEducation={linkedEducation}
         />
 
-        {/* RESUME VIEW */}
-        {linkedProfile && (
+        {/* RESUME VIEW — shown for linked contacts, or contacts with parsed resume data */}
+        {(linkedProfile || contact.resume_data) && (
           <ResumeView
             linkedProfile={linkedProfile}
             linkedWork={linkedWork}
             linkedChronicle={linkedChronicle}
             linkedEducation={linkedEducation}
             contact={contact}
+            parsedResume={contact.resume_data}
+            onUploadResume={() => setResumeUploadOpen(true)}
+            onClearResume={handleClearResume}
           />
         )}
+
+        {/* Upload resume button when no linked profile and no parsed data */}
+        {!linkedProfile && !contact.resume_data && (
+          <div style={{ ...s.card, textAlign: "center" as const }}>
+            <div style={{ ...s.sectionLabel, marginBottom: 8 }}>Resume</div>
+            <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 12 }}>
+              Upload a PDF or paste from LinkedIn to build a resume for this contact.
+            </div>
+            <button
+              onClick={() => setResumeUploadOpen(true)}
+              style={s.btnPrimary}
+            >
+              Upload Resume
+            </button>
+          </div>
+        )}
+
+        {/* Resume Upload Modal */}
+        <ResumeUploadModal
+          open={resumeUploadOpen}
+          personName={contact.full_name}
+          onClose={() => setResumeUploadOpen(false)}
+          onParsed={handleResumeParsed}
+        />
 
         {/* PENDING ACTIONS */}
         {pendingActions.length > 0 && (

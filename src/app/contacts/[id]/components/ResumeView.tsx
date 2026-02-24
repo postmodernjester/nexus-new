@@ -9,14 +9,18 @@ import type {
   LinkedWorkEntry,
   LinkedChronicleEntry,
   LinkedEducationEntry,
+  ResumeData,
 } from "../types";
 
 interface ResumeViewProps {
-  linkedProfile: LinkedProfile;
-  linkedWork: LinkedWorkEntry[];
-  linkedChronicle: LinkedChronicleEntry[];
-  linkedEducation: LinkedEducationEntry[];
+  linkedProfile?: LinkedProfile | null;
+  linkedWork?: LinkedWorkEntry[];
+  linkedChronicle?: LinkedChronicleEntry[];
+  linkedEducation?: LinkedEducationEntry[];
   contact: Contact;
+  parsedResume?: ResumeData | null;
+  onUploadResume?: () => void;
+  onClearResume?: () => void;
 }
 
 /* ── Pastel palette for project tiles ── */
@@ -125,10 +129,13 @@ function ProjectTile({ entry, idx }: { entry: LinkedChronicleEntry; idx: number 
 
 export default function ResumeView({
   linkedProfile,
-  linkedWork,
-  linkedChronicle,
-  linkedEducation,
+  linkedWork = [],
+  linkedChronicle = [],
+  linkedEducation = [],
   contact,
+  parsedResume,
+  onUploadResume,
+  onClearResume,
 }: ResumeViewProps) {
   // Work-type chronicle entries belong in Experience, not Projects
   const workChronicle = linkedChronicle.filter(
@@ -149,7 +156,7 @@ export default function ResumeView({
       e.canvas_col !== "education"
   );
   const visibleLinks =
-    linkedProfile.key_links?.filter((l) => l.url && l.visible) || [];
+    linkedProfile?.key_links?.filter((l) => l.url && l.visible) || [];
   const linkLabels: Record<string, string> = {
     linkedin: "LinkedIn",
     wikipedia: "Wikipedia",
@@ -159,7 +166,17 @@ export default function ResumeView({
   };
 
   const allProjects = [...projectEntries, ...otherEntries];
-  const hasExperience = linkedWork.length > 0 || workChronicle.length > 0;
+
+  // Merge linked data with parsed resume data
+  const parsedWork = parsedResume?.work || [];
+  const parsedEdu = parsedResume?.education || [];
+
+  const hasExperience = linkedWork.length > 0 || workChronicle.length > 0 || parsedWork.length > 0;
+  const hasEducation = linkedEducation.length > 0 || educationChronicle.length > 0 || parsedEdu.length > 0;
+
+  // If no linked profile and no parsed data, just show the upload button
+  const profileName = linkedProfile?.full_name || contact.full_name;
+  const hasAnyData = hasExperience || hasEducation || allProjects.length > 0;
 
   return (
     <div
@@ -184,7 +201,7 @@ export default function ResumeView({
         }}
       >
         {/* Profile photo */}
-        {linkedProfile.profile_photo_url && (
+        {linkedProfile?.profile_photo_url && (
           <div style={{
             width: 72, height: 72, borderRadius: 8,
             overflow: "hidden", margin: "0 auto 12px",
@@ -206,9 +223,9 @@ export default function ResumeView({
             letterSpacing: "0.5px",
           }}
         >
-          {linkedProfile.full_name}
+          {profileName}
         </h2>
-        {linkedProfile.headline && (
+        {linkedProfile?.headline && (
           <div
             style={{
               fontSize: "13px",
@@ -218,6 +235,18 @@ export default function ResumeView({
             }}
           >
             {linkedProfile.headline}
+          </div>
+        )}
+        {!linkedProfile?.headline && (contact.role || contact.company) && (
+          <div
+            style={{
+              fontSize: "13px",
+              color: "#555",
+              marginBottom: "6px",
+              fontStyle: "italic",
+            }}
+          >
+            {[contact.role, contact.company].filter(Boolean).join(" at ")}
           </div>
         )}
         <div
@@ -230,8 +259,10 @@ export default function ResumeView({
             color: "#666",
           }}
         >
-          {linkedProfile.location && <span>{linkedProfile.location}</span>}
-          {linkedProfile.website && (
+          {(linkedProfile?.location || contact.location) && (
+            <span>{linkedProfile?.location || contact.location}</span>
+          )}
+          {linkedProfile?.website && (
             <a
               href={linkedProfile.website}
               target="_blank"
@@ -279,10 +310,50 @@ export default function ResumeView({
             ))}
           </div>
         )}
+
+        {/* Upload / Re-parse buttons */}
+        {(onUploadResume || onClearResume) && (
+          <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 12 }}>
+            {onUploadResume && (
+              <button
+                onClick={onUploadResume}
+                style={{
+                  padding: "4px 12px",
+                  background: "transparent",
+                  color: "#888",
+                  border: "1px solid #ccc",
+                  borderRadius: 4,
+                  fontSize: 11,
+                  cursor: "pointer",
+                  fontFamily: "sans-serif",
+                }}
+              >
+                {hasAnyData ? "Re-parse Resume" : "Upload Resume"}
+              </button>
+            )}
+            {onClearResume && parsedResume && (
+              <button
+                onClick={onClearResume}
+                style={{
+                  padding: "4px 12px",
+                  background: "transparent",
+                  color: "#c88",
+                  border: "1px solid #dcc",
+                  borderRadius: 4,
+                  fontSize: 11,
+                  cursor: "pointer",
+                  fontFamily: "sans-serif",
+                }}
+              >
+                Clear Parsed
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Bio */}
-      {linkedProfile.bio && (
+      {linkedProfile?.bio && (
         <div
           style={{
             marginBottom: "20px",
@@ -296,7 +367,7 @@ export default function ResumeView({
         </div>
       )}
 
-      {/* Experience — traditional resume format (work_entries + work-type chronicle) */}
+      {/* Experience — traditional resume format (work_entries + work-type chronicle + parsed) */}
       {hasExperience && (
         <div style={{ marginBottom: "22px" }}>
           <h3
@@ -318,7 +389,7 @@ export default function ResumeView({
             <div
               key={entry.id}
               style={{
-                marginBottom: i < linkedWork.length - 1 || workChronicle.length > 0 ? "14px" : 0,
+                marginBottom: i < linkedWork.length - 1 || workChronicle.length > 0 || parsedWork.length > 0 ? "14px" : 0,
               }}
             >
               <div
@@ -387,7 +458,7 @@ export default function ResumeView({
             <div
               key={entry.id}
               style={{
-                marginBottom: i < workChronicle.length - 1 ? "14px" : 0,
+                marginBottom: i < workChronicle.length - 1 || parsedWork.length > 0 ? "14px" : 0,
               }}
             >
               <div
@@ -435,6 +506,75 @@ export default function ResumeView({
               )}
             </div>
           ))}
+          {/* Parsed resume work entries */}
+          {parsedWork.map((entry, i) => (
+            <div
+              key={`parsed-w-${i}`}
+              style={{
+                marginBottom: i < parsedWork.length - 1 ? "14px" : 0,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: "14px",
+                    color: "#1a1a2e",
+                  }}
+                >
+                  {entry.title}
+                </div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    color: "#777",
+                    fontFamily: "sans-serif",
+                  }}
+                >
+                  {formatWorkDate(entry.start_date || "")} –{" "}
+                  {entry.is_current
+                    ? "Present"
+                    : formatWorkDate(entry.end_date || "")}
+                </div>
+              </div>
+              {(entry.company || entry.location) && (
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: "#555",
+                    fontStyle: "italic",
+                  }}
+                >
+                  {entry.company}
+                  {entry.location ? ` — ${entry.location}` : ""}
+                  {entry.engagement_type &&
+                  entry.engagement_type !== "full-time"
+                    ? ` (${entry.engagement_type})`
+                    : ""}
+                </div>
+              )}
+              {entry.description && (
+                <p
+                  style={{
+                    fontSize: "12.5px",
+                    lineHeight: "1.6",
+                    color: "#444",
+                    margin: "6px 0 0",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {entry.description}
+                </p>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
@@ -469,7 +609,7 @@ export default function ResumeView({
       )}
 
       {/* Education */}
-      {(linkedEducation.length > 0 || educationChronicle.length > 0) && (
+      {hasEducation && (
         <div style={{ marginBottom: "22px" }}>
           <h3
             style={{
@@ -492,7 +632,8 @@ export default function ResumeView({
               style={{
                 marginBottom:
                   i < linkedEducation.length - 1 ||
-                  educationChronicle.length > 0
+                  educationChronicle.length > 0 ||
+                  parsedEdu.length > 0
                     ? "14px"
                     : 0,
               }}
@@ -545,7 +686,7 @@ export default function ResumeView({
               key={entry.id}
               style={{
                 marginBottom:
-                  i < educationChronicle.length - 1 ? "14px" : 0,
+                  i < educationChronicle.length - 1 || parsedEdu.length > 0 ? "14px" : 0,
               }}
             >
               <div
@@ -593,6 +734,72 @@ export default function ResumeView({
               )}
             </div>
           ))}
+          {/* Parsed resume education entries */}
+          {parsedEdu.map((edu, i) => (
+            <div
+              key={`parsed-e-${i}`}
+              style={{
+                marginBottom: i < parsedEdu.length - 1 ? "14px" : 0,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: "14px",
+                    color: "#1a1a2e",
+                  }}
+                >
+                  {edu.institution}
+                </div>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    color: "#777",
+                    fontFamily: "sans-serif",
+                  }}
+                >
+                  {edu.start_date ? formatWorkDate(edu.start_date) : ""}
+                  {edu.end_date
+                    ? ` – ${formatWorkDate(edu.end_date)}`
+                    : edu.is_current
+                    ? " – Present"
+                    : ""}
+                </div>
+              </div>
+              {(edu.degree || edu.field_of_study) && (
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: "#555",
+                    fontStyle: "italic",
+                  }}
+                >
+                  {[edu.degree, edu.field_of_study].filter(Boolean).join(" in ")}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Empty state with upload prompt */}
+      {!hasAnyData && onUploadResume && (
+        <div style={{
+          textAlign: "center",
+          padding: "20px 0",
+          color: "#999",
+          fontSize: 13,
+          fontFamily: "sans-serif",
+        }}>
+          No resume data yet. Upload a PDF or paste from LinkedIn to populate.
         </div>
       )}
     </div>

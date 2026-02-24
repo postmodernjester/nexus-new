@@ -18,6 +18,8 @@ import WorkModal from './components/WorkModal'
 import EducationModal from './components/EducationModal'
 import ChronicleEntryModal from './components/ChronicleEntryModal'
 import KeyLinksSection from './components/KeyLinksSection'
+import ResumeUploadModal from '@/app/contacts/[id]/components/ResumeUploadModal'
+import type { ParsedResumeData } from '@/app/contacts/[id]/components/ResumeUploadModal'
 
 export default function ResumePage() {
   const router = useRouter()
@@ -54,6 +56,10 @@ export default function ResumePage() {
     LINK_TYPES.map(lt => ({ type: lt.type, url: '', visible: true }))
   )
   const [editingLinks, setEditingLinks] = useState(false)
+
+  // Resume import
+  const [showImportModal, setShowImportModal] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   // Account deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -355,6 +361,108 @@ export default function ResumePage() {
   const deleteSkill = async (id: string) => {
     await supabase.from('skills').delete().eq('id', id)
     setSkills(prev => prev.filter(s => s.id !== id))
+  }
+
+  const handleImportResume = async (data: ParsedResumeData) => {
+    if (!user) return
+    setShowImportModal(false)
+    setImporting(true)
+
+    let addedWork = 0
+    let addedEdu = 0
+    let skippedWork = 0
+    let skippedEdu = 0
+
+    // Import work entries, skipping duplicates (match by company + title, case-insensitive)
+    for (const w of data.work) {
+      const isDuplicate = workEntries.some(
+        existing =>
+          existing.company.toLowerCase() === (w.company || '').toLowerCase() &&
+          existing.title.toLowerCase() === (w.title || '').toLowerCase()
+      )
+      if (isDuplicate) { skippedWork++; continue }
+
+      const basePayload: Record<string, unknown> = {
+        user_id: user.id,
+        title: w.title,
+        company: w.company,
+        start_date: w.start_date || null,
+        end_date: w.is_current ? null : (w.end_date || null),
+        is_current: w.is_current,
+        description: w.description || null,
+        engagement_type: w.engagement_type || 'full-time',
+      }
+      const { data: inserted, error } = await supabase
+        .from('work_entries')
+        .insert(basePayload)
+        .select()
+        .single()
+
+      if (!error && inserted) {
+        // Apply optional columns silently
+        const extra: Record<string, unknown> = {}
+        if (w.location) extra.location = w.location
+        if (w.location_type) extra.remote_type = w.location_type
+        extra.show_on_resume = true
+        await supabase.from('work_entries').update(extra).eq('id', inserted.id).then(() => {}, () => {})
+
+        setWorkEntries(prev => [{
+          ...inserted,
+          title: inserted.title || '',
+          company: inserted.company || '',
+          location: w.location || '',
+          location_type: w.location_type || '',
+          start_date: inserted.start_date || '',
+          end_date: inserted.end_date || '',
+          description: inserted.description || '',
+          engagement_type: inserted.engagement_type || 'full-time',
+          ai_skills_extracted: [],
+          show_on_resume: true,
+        }, ...prev])
+        addedWork++
+      }
+    }
+
+    // Import education entries, skipping duplicates
+    for (const e of data.education) {
+      const isDuplicate = eduEntries.some(
+        existing =>
+          existing.institution.toLowerCase() === (e.institution || '').toLowerCase() &&
+          (existing.degree || '').toLowerCase() === (e.degree || '').toLowerCase()
+      )
+      if (isDuplicate) { skippedEdu++; continue }
+
+      const basePayload: Record<string, unknown> = {
+        user_id: user.id,
+        institution: e.institution,
+        degree: e.degree || null,
+        field_of_study: e.field_of_study || null,
+        start_date: e.start_date || null,
+        end_date: e.is_current ? null : (e.end_date || null),
+        is_current: e.is_current,
+      }
+      const { data: inserted, error } = await supabase
+        .from('education')
+        .insert(basePayload)
+        .select()
+        .single()
+
+      if (!error && inserted) {
+        await supabase.from('education').update({ show_on_resume: true }).eq('id', inserted.id).then(() => {}, () => {})
+        setEduEntries(prev => [{ ...inserted, show_on_resume: true }, ...prev])
+        addedEdu++
+      }
+    }
+
+    setImporting(false)
+
+    const parts = []
+    if (addedWork) parts.push(`${addedWork} work entr${addedWork === 1 ? 'y' : 'ies'}`)
+    if (addedEdu) parts.push(`${addedEdu} education entr${addedEdu === 1 ? 'y' : 'ies'}`)
+    if (skippedWork) parts.push(`${skippedWork} duplicate work skipped`)
+    if (skippedEdu) parts.push(`${skippedEdu} duplicate education skipped`)
+    if (parts.length > 0) alert(`Import complete: ${parts.join(', ')}`)
+    else alert('No new entries to import (all duplicates)')
   }
 
   const openEditChronicle = (entry: ChronicleResumeEntry) => {
@@ -668,7 +776,16 @@ export default function ResumePage() {
         <section style={{ marginTop: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Experience</h2>
-            <button onClick={openAddWork} style={btnPrimary}>+ Add</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setShowImportModal(true)}
+                disabled={importing}
+                style={{ ...btnSecondary, fontSize: 12 }}
+              >
+                {importing ? 'Importing...' : 'Import Resume'}
+              </button>
+              <button onClick={openAddWork} style={btnPrimary}>+ Add</button>
+            </div>
           </div>
 
           {workEntries.length === 0 && chronicleEntries.filter(e => e.canvas_col !== 'project' && e.type !== 'project' && e.canvas_col !== 'education' && e.type !== 'education').length === 0 && (
@@ -1263,6 +1380,14 @@ export default function ResumePage() {
         setEditingEdu={setEditingEdu}
         onSave={saveEdu}
         onClose={() => setShowEduModal(false)}
+      />
+
+      {/* RESUME IMPORT MODAL */}
+      <ResumeUploadModal
+        open={showImportModal}
+        personName={profileName || undefined}
+        onClose={() => setShowImportModal(false)}
+        onParsed={handleImportResume}
       />
     </div>
   )
