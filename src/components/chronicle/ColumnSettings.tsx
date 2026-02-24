@@ -98,6 +98,7 @@ export default function ColumnSettings({ userCols, onUpdate, onClose }: Props) {
   }
 
   const sortedUser = [...userCols].sort((a, b) => a.sortOrder - b.sortOrder)
+  const atCap = totalCols >= MAX_COLUMNS
   const usedIds = new Set([...LOCKED_COLS.map(c => c.id), ...userCols.map(c => c.id)])
   const availablePresets = PRESET_COLS.filter(p => !usedIds.has(p.id))
 
@@ -220,56 +221,61 @@ export default function ColumnSettings({ userCols, onUpdate, onClose }: Props) {
           </div>
         ))}
 
-        {/* Add column area */}
-        {totalCols < MAX_COLUMNS && (
-          <>
-            <div style={S.divider} />
-            <div style={S.sectionLabel}>ADD COLUMN</div>
+        {/* Add column area — always show presets, disable when at cap */}
+        <div style={S.divider} />
+        <div style={S.sectionLabel}>ADD COLUMN</div>
 
-            {/* Presets */}
-            {availablePresets.length > 0 && (
-              <div style={S.presetRow}>
-                {availablePresets.map(p => (
-                  <button
-                    key={p.id}
-                    onClick={() => addPreset(p.id)}
-                    style={{
-                      ...S.presetBtn,
-                      borderColor: DEFAULT_COLORS[p.id] || p.color,
-                      color: DEFAULT_COLORS[p.id] || p.color,
-                    }}
-                  >
-                    <span style={{ ...S.dot, background: DEFAULT_COLORS[p.id] || p.color, width: 6, height: 6 }} />
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            )}
+        {atCap && (
+          <div style={{ fontSize: 8, color: '#9a8e78', marginBottom: 8, letterSpacing: '.04em' }}>
+            Remove a column above to add one of these.
+          </div>
+        )}
 
-            {/* Custom */}
-            {showCustomInput ? (
-              <div style={S.customRow}>
-                <input
-                  autoFocus
-                  value={customName}
-                  onChange={e => setCustomName(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') addCustom()
-                    if (e.key === 'Escape') { setShowCustomInput(false); setCustomName('') }
-                  }}
-                  placeholder="Column name…"
-                  maxLength={20}
-                  style={S.customInput}
-                />
-                <button onClick={addCustom} style={S.addBtn}>Add</button>
-                <button onClick={() => { setShowCustomInput(false); setCustomName('') }} style={S.cancelBtn}>Cancel</button>
-              </div>
-            ) : (
-              <button onClick={() => setShowCustomInput(true)} style={S.customTrigger}>
-                + Custom column…
+        {/* Presets */}
+        {availablePresets.length > 0 && (
+          <div style={S.presetRow}>
+            {availablePresets.map(p => (
+              <button
+                key={p.id}
+                onClick={() => !atCap && addPreset(p.id)}
+                style={{
+                  ...S.presetBtn,
+                  borderColor: DEFAULT_COLORS[p.id] || p.color,
+                  color: DEFAULT_COLORS[p.id] || p.color,
+                  ...(atCap ? { opacity: 0.35, cursor: 'default' } : {}),
+                }}
+              >
+                <span style={{ ...S.dot, background: DEFAULT_COLORS[p.id] || p.color, width: 6, height: 6 }} />
+                {p.label}
               </button>
-            )}
-          </>
+            ))}
+          </div>
+        )}
+
+        {/* Custom */}
+        {!atCap && (
+          showCustomInput ? (
+            <div style={S.customRow}>
+              <input
+                autoFocus
+                value={customName}
+                onChange={e => setCustomName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') addCustom()
+                  if (e.key === 'Escape') { setShowCustomInput(false); setCustomName('') }
+                }}
+                placeholder="Column name…"
+                maxLength={20}
+                style={S.customInput}
+              />
+              <button onClick={addCustom} style={S.addBtn}>Add</button>
+              <button onClick={() => { setShowCustomInput(false); setCustomName('') }} style={S.cancelBtn}>Cancel</button>
+            </div>
+          ) : (
+            <button onClick={() => setShowCustomInput(true)} style={S.customTrigger}>
+              + Custom column…
+            </button>
+          )
         )}
       </div>
     </div>

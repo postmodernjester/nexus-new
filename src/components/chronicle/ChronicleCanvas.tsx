@@ -1241,15 +1241,16 @@ export default function ChronicleCanvas() {
     return h
   }, [fuzzyMonths, pxm, dragDelta])
 
-  // ─── Split items by render type ─────────────
+  // ─── Split items by render type (only items in visible columns) ─
   const colRenderMap = useMemo(() => {
     const map: Record<string, 'bar' | 'slot' | 'marker'> = {}
     for (const col of activeCols) map[col.id] = col.renderType
     return map
   }, [activeCols])
-  const regularItems = useMemo(() => timelineItems.filter(i => (colRenderMap[i.cat] || 'bar') === 'bar'), [timelineItems, colRenderMap])
-  const gatheringItems = useMemo(() => timelineItems.filter(i => colRenderMap[i.cat] === 'slot'), [timelineItems, colRenderMap])
-  const peopleItems = useMemo(() => timelineItems.filter(i => colRenderMap[i.cat] === 'marker'), [timelineItems, colRenderMap])
+  const activeColIds = useMemo(() => new Set(activeCols.map(c => c.id)), [activeCols])
+  const regularItems = useMemo(() => timelineItems.filter(i => activeColIds.has(i.cat) && colRenderMap[i.cat] === 'bar'), [timelineItems, colRenderMap, activeColIds])
+  const gatheringItems = useMemo(() => timelineItems.filter(i => activeColIds.has(i.cat) && colRenderMap[i.cat] === 'slot'), [timelineItems, colRenderMap, activeColIds])
+  const peopleItems = useMemo(() => timelineItems.filter(i => activeColIds.has(i.cat) && colRenderMap[i.cat] === 'marker'), [timelineItems, colRenderMap, activeColIds])
 
   // Compute horizontal slot for each gathering (up to 4 side by side)
   const gatheringSlots = useMemo(() => {
