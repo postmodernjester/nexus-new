@@ -6,12 +6,12 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
 const NAV_ITEMS = [
-  { href: '/resume',    label: 'Resume' },
+  { href: '/dashboard', label: 'Dashboard' },
   { href: '/contacts',  label: 'Contacts' },
+  { href: '/resume',    label: 'Resume' },
   { href: '/network',   label: 'Network' },
   { href: '/chronicle', label: 'Chronicle' },
-  { href: '/lifetime',  label: 'Lifetime' },
-  { href: '/dashboard', label: 'Dashboard' },
+  { href: '/journal',   label: 'Journal' },
 ];
 
 const LS_LAST_TAB = 'nexus_last_tab';
