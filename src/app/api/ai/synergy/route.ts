@@ -39,21 +39,24 @@ ${contactEducation || "None listed"}
 Their projects/chronicle:
 ${contactChronicle || "None listed"}
 
-Write exactly three short paragraphs. Each should be 2-4 sentences, conversational but substantive. Be specific — reference actual details from both profiles. Don't be generic.
+Write exactly three sections. Be concise — use bullet points, not prose. Each section: 2-4 short bullet points max. Reference specific details from both profiles. No filler, no generic advice.
 
-PARAGRAPH 1 - HOW I COULD HELP THEM:
-Based on my skills, experience, and interests, identify concrete ways I might be useful to this connection. Think about introductions I could make, expertise I could share, projects where my background would complement theirs, or industries/domains where I have knowledge they might need. Be specific.
+HELP_THEM: Concrete ways I could help them based on my background.
+- Focus on: specific introductions, expertise they lack, project complementarity, domain knowledge
+- Only include points grounded in actual profile data
 
-PARAGRAPH 2 - HOW THEY MIGHT HELP ME:
-Based on their background, identify what they could offer me. Think about their industry knowledge, network access, skills I lack, mentorship potential, or career/project opportunities their position enables. Be specific.
+HELP_ME: Concrete ways they could help me.
+- Focus on: their industry access, skills I lack, network/opportunities their position enables
+- Only include points grounded in actual profile data
 
-PARAGRAPH 3 - COMMON GROUND FOR CONVERSATION:
-Look for non-obvious shared experiences or interests — not just direct overlaps. Consider: geographic proximity (same city/region at overlapping times even if different schools/companies), generational similarities (similar age = similar cultural touchpoints), adjacent industries that share vocabulary, parallel career arcs, shared hobbies or interests that might not be immediately obvious. Be creative but grounded in the data. If there's very little overlap, say so honestly and suggest the one or two things they might bond over.
+COMMON_GROUND: Shared context for conversation.
+- Look beyond obvious overlaps: same city/region at same time, adjacent industries, parallel career arcs, generational touchpoints
+- If little overlap exists, say so plainly and note the 1-2 things they might connect on
 
 Respond in this exact format:
-HELP_THEM: [paragraph]
-HELP_ME: [paragraph]
-COMMON_GROUND: [paragraph]`;
+HELP_THEM: [bullets]
+HELP_ME: [bullets]
+COMMON_GROUND: [bullets]`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -64,7 +67,7 @@ COMMON_GROUND: [paragraph]`;
       },
       body: JSON.stringify({
         model: "claude-3-haiku-20240307",
-        max_tokens: 800,
+        max_tokens: 500,
         messages: [{ role: "user", content: prompt }],
       }),
     });

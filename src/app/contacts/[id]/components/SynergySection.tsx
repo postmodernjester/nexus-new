@@ -101,13 +101,21 @@ export default function SynergySection({
         contact.relationship_type && `Relationship: ${contact.relationship_type}`,
       ].filter(Boolean).join("\n");
 
-      const contactWorkStr = linkedWork.length > 0
-        ? linkedWork.map(w => `${w.title}${w.company ? ` at ${w.company}` : ''}${w.is_current ? ' (current)' : ''}: ${w.description || 'no description'}`).join("\n")
-        : "None listed";
+      // Use linked data first, fall back to parsed resume_data for non-linked contacts
+      const rd = contact.resume_data;
+      let contactWorkStr = "None listed";
+      if (linkedWork.length > 0) {
+        contactWorkStr = linkedWork.map(w => `${w.title}${w.company ? ` at ${w.company}` : ''}${w.is_current ? ' (current)' : ''}: ${w.description || 'no description'}`).join("\n");
+      } else if (rd?.work && rd.work.length > 0) {
+        contactWorkStr = rd.work.map((w: any) => `${w.title}${w.company ? ` at ${w.company}` : ''}${w.is_current ? ' (current)' : ''}: ${w.description || 'no description'}`).join("\n");
+      }
 
-      const contactEduStr = linkedEducation.length > 0
-        ? linkedEducation.map(e => `${e.institution} — ${[e.degree, e.field_of_study].filter(Boolean).join(" in ")}`).join("\n")
-        : "None listed";
+      let contactEduStr = "None listed";
+      if (linkedEducation.length > 0) {
+        contactEduStr = linkedEducation.map(e => `${e.institution} — ${[e.degree, e.field_of_study].filter(Boolean).join(" in ")}`).join("\n");
+      } else if (rd?.education && rd.education.length > 0) {
+        contactEduStr = rd.education.map((e: any) => `${e.institution} — ${[e.degree, e.field_of_study].filter(Boolean).join(" in ")}`).join("\n");
+      }
 
       const contactChronicleStr = linkedChronicle.length > 0
         ? linkedChronicle.map(c => `${c.title} (${c.canvas_col}): ${c.description || c.note || 'no description'}`).join("\n")
@@ -160,6 +168,7 @@ export default function SynergySection({
     fontSize: "13.5px",
     lineHeight: "1.7",
     color: "#cbd5e1",
+    whiteSpace: "pre-wrap",
   };
 
   return (

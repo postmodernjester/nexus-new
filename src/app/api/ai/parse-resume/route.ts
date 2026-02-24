@@ -53,19 +53,35 @@ export async function POST(req: Request) {
 
     const nameHint = person_name ? `\nThe person's name is: ${person_name}` : "";
 
-    const systemPrompt = `You are an expert resume parser. Extract structured work experience and education entries from the provided resume text or document.${nameHint}
+    const systemPrompt = `You are an expert resume parser. Extract ALL structured work experience and education entries from the provided text.${nameHint}
 
-IMPORTANT RULES:
-- Extract EVERY work position and education entry you can find
-- For LinkedIn copy-paste: ignore navigation cruft, ads, "People also viewed", skill endorsements counts, etc. Focus on the actual experience and education sections.
-- Dates should be in YYYY-MM-DD format. If only month+year given, use the 1st of the month (e.g., "Jan 2020" → "2020-01-01"). If only a year, use January 1st.
-- If a role is listed as current or "Present", set is_current to true and end_date to null
-- For engagement_type, use one of: full-time, part-time, contract, freelance, consulting, volunteer, internship, project-based, self-employed. Default to "full-time" if not specified.
-- For location_type, use: onsite, remote, or hybrid. Omit if unknown.
-- Preserve description text as-is when available (bullet points, paragraphs, etc.)
-- Deduplicate: if the same role appears twice (common in LinkedIn paste), keep only one
+CRITICAL: You MUST extract BOTH work experience AND education. Do NOT return an empty work array if there is any employment history in the text. LinkedIn copy-pastes are messy — work harder to find every role.
 
-Respond with ONLY valid JSON in this exact format (no markdown fences, no commentary):
+LINKEDIN COPY-PASTE GUIDE:
+LinkedIn text is noisy. You'll see sections like Activity, About, Featured, Experience, Education, Skills, Recommendations, etc. all mashed together. Here's how to handle it:
+
+1. EXPERIENCE SECTION: Look for job titles followed by company names, date ranges ("Jan 2020 - Present", "2018 - 2020", "3 yrs 2 mos"), and optional location/description. LinkedIn often formats as:
+   - "Title\nCompany · Full-time\nDate range · Duration\nLocation"
+   - Or: "Title at Company\nDate range"
+   - Or: "Company\nTitle\nDates"
+   - Sometimes roles under the same company are grouped: "Company\n4 yrs 6 mos\nTitle 1\nDate range\nTitle 2\nDate range"
+
+2. IGNORE completely: endorsement counts ("99+"), "Show all X experiences", "People also viewed", "Activity" posts, skill assessments, connection counts, follower counts, "See credential", mutual connections, ads, recommended profiles.
+
+3. MULTIPLE ROLES AT SAME COMPANY: LinkedIn groups them. Extract each role separately with the same company name.
+
+4. SHORT/SPARSE DATA: If dates or descriptions are missing, still extract the entry with whatever is available. A job title + company with no dates is still a valid work entry.
+
+RULES:
+- Extract EVERY work position and education entry — err on the side of including too many rather than too few
+- Dates: YYYY-MM-DD format. Month+year → 1st of month. Year only → January 1st.
+- Current/Present roles: is_current=true, end_date=null
+- engagement_type: full-time, part-time, contract, freelance, consulting, volunteer, internship, project-based, self-employed. Default "full-time".
+- location_type: onsite, remote, hybrid. Omit if unknown.
+- Preserve description text when available
+- Deduplicate identical roles (common in LinkedIn paste)
+
+Respond with ONLY valid JSON (no markdown fences, no commentary):
 {
   "work": [
     {
@@ -92,6 +108,30 @@ Respond with ONLY valid JSON in this exact format (no markdown fences, no commen
   ]
 }`;
 
+    // Pre-process LinkedIn text to strip the worst cruft before sending to Claude
+    let cleanedText = text;
+    if (text) {
+      cleanedText = text
+        // Remove "Show all X ..." navigation links
+        .replace(/Show all \d+ experiences?/gi, "")
+        .replace(/Show all \d+ education/gi, "")
+        .replace(/Show \d+ more experiences?/gi, "")
+        // Remove endorsement counts like "99+" or "· 99+"
+        .replace(/·?\s*\d+\+?\s*endorsements?/gi, "")
+        // Remove "People also viewed" and everything after (usually at the bottom)
+        .replace(/People also viewed[\s\S]*$/i, "")
+        // Remove "More activity" / "Show all activity" blocks
+        .replace(/Show all activity[\s\S]*?(?=Experience|Education|About|$)/i, "")
+        // Remove connection/follower counts
+        .replace(/\d+\+?\s*connections?/gi, "")
+        .replace(/\d+\+?\s*followers?/gi, "")
+        // Remove "See credential" links
+        .replace(/See credential/gi, "")
+        // Collapse excessive whitespace (3+ newlines → 2)
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    }
+
     // Build the user message content
     const content: any[] = [];
 
@@ -111,7 +151,7 @@ Respond with ONLY valid JSON in this exact format (no markdown fences, no commen
     } else {
       content.push({
         type: "text",
-        text: `Parse the following resume/profile text and extract all work experience and education entries as structured JSON.\n\n---\n${text}\n---`,
+        text: `Parse the following resume/profile text and extract all work experience and education entries as structured JSON.\n\n---\n${cleanedText}\n---`,
       });
     }
 
