@@ -50,6 +50,7 @@ export const PRESET_COLS: Omit<ColumnDef, 'visible' | 'sortOrder'>[] = [
   { id: 'finance',   label: 'Finance',   color: '#38806a', width: 'half', renderType: 'bar' },
   { id: 'social',    label: 'Social',    color: '#d07828', width: 'full', renderType: 'bar' },
   { id: 'spiritual', label: 'Spiritual', color: '#6878b8', width: 'half', renderType: 'bar' },
+  { id: 'residence', label: 'Residences', color: '#806840', width: 'full', renderType: 'bar' },
 ]
 
 // ═══════════════════════════════════════════════
@@ -176,8 +177,7 @@ export function loadUserColumns(): ColumnDef[] {
     if (saved) {
       const parsed = JSON.parse(saved) as ColumnDef[]
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Filter out retired columns
-        return parsed.filter(c => c.id !== 'residence')
+        return parsed
       }
     }
   } catch { /* ignore */ }
