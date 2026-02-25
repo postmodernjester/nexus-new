@@ -36,10 +36,9 @@ export const LOCKED_COLS: ColumnDef[] = [
 // ═══════════════════════════════════════════════
 export const DEFAULT_USER_COLS: ColumnDef[] = [
   { id: 'personal',   label: 'Personal',   color: '#a85060', width: 'full', renderType: 'bar', visible: true, sortOrder: 0 },
-  { id: 'residence',  label: 'Residences', color: '#806840', width: 'full', renderType: 'bar', visible: true, sortOrder: 1 },
-  { id: 'gatherings', label: 'Gatherings', color: '#c06848', width: 'full', renderType: 'slot', visible: true, sortOrder: 2 },
-  { id: 'tech',       label: 'Tech',       color: '#986020', width: 'half', renderType: 'bar', visible: true, sortOrder: 3 },
-  { id: 'people',     label: 'People',     color: '#7050a8', width: 'full', renderType: 'marker', noAdd: true, visible: true, sortOrder: 4 },
+  { id: 'gatherings', label: 'Gatherings', color: '#c06848', width: 'full', renderType: 'slot', visible: true, sortOrder: 1 },
+  { id: 'tech',       label: 'Tech',       color: '#986020', width: 'half', renderType: 'bar', visible: true, sortOrder: 2 },
+  { id: 'people',     label: 'People',     color: '#7050a8', width: 'full', renderType: 'marker', noAdd: true, visible: true, sortOrder: 3 },
 ]
 
 // ═══════════════════════════════════════════════
@@ -176,7 +175,10 @@ export function loadUserColumns(): ColumnDef[] {
     const saved = localStorage.getItem(LS_COL_CONFIG)
     if (saved) {
       const parsed = JSON.parse(saved) as ColumnDef[]
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Filter out retired columns
+        return parsed.filter(c => c.id !== 'residence')
+      }
     }
   } catch { /* ignore */ }
   return DEFAULT_USER_COLS

@@ -539,42 +539,6 @@ export default function NetworkPage() {
           {totalNodes} nodes · {graphData.links.length} connections
         </span>
 
-        {/* 3rds toggle */}
-        <button
-          onClick={toggleThirds}
-          disabled={thirdsLoading}
-          style={{
-            padding: "4px 12px",
-            fontSize: "12px",
-            borderRadius: "12px",
-            border: showThirds ? "1px solid #4a5568" : "1px solid #334155",
-            background: showThirds ? "rgba(74, 85, 104, 0.25)" : "transparent",
-            color: showThirds ? "#94a3b8" : "#64748b",
-            cursor: thirdsLoading ? "wait" : "pointer",
-            transition: "all 0.2s",
-          }}
-        >
-          {thirdsLoading ? "Loading…" : showThirds ? `3rds (${thirdsNodes.length})` : "3rds"}
-        </button>
-
-        {/* World toggle */}
-        <button
-          onClick={toggleWorld}
-          disabled={worldLoading}
-          style={{
-            padding: "4px 12px",
-            fontSize: "12px",
-            borderRadius: "12px",
-            border: showWorld ? "1px solid #2d6a5a" : "1px solid #334155",
-            background: showWorld ? "rgba(45, 106, 90, 0.25)" : "transparent",
-            color: showWorld ? "#5ab89a" : "#64748b",
-            cursor: worldLoading ? "wait" : "pointer",
-            transition: "all 0.2s",
-          }}
-        >
-          {worldLoading ? "Loading…" : showWorld ? `World (${worldNodes.length})` : "World"}
-        </button>
-
         <span style={{ color: "#334155", fontSize: "11px", marginLeft: "auto" }}>
           Double-click to open · Drag to reposition
         </span>

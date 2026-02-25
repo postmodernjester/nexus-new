@@ -877,6 +877,21 @@ export default function DashboardPage() {
                       </>
                     ) : (
                       <>
+                        {item.importance && (
+                          <span
+                            style={{
+                              width: "8px",
+                              height: "8px",
+                              borderRadius: "50%",
+                              background:
+                                item.importance === "red" ? "#ef4444" :
+                                item.importance === "yellow" ? "#eab308" :
+                                item.importance === "green" ? "#22c55e" : "transparent",
+                              flexShrink: 0,
+                            }}
+                            title={`Priority: ${item.importance}`}
+                          />
+                        )}
                         <span
                           onClick={() => startEditing(item)}
                           style={{

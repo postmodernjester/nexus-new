@@ -60,11 +60,11 @@ export function lineColor(
 
 export function lineThickness(count: number): number {
   if (count === 0) return 1.2;
-  if (count <= 2) return 2;
-  if (count <= 5) return 2.5;
-  if (count <= 10) return 3.5;
-  if (count <= 20) return 4.5;
-  return 6;
+  if (count <= 2) return 2.5;
+  if (count <= 5) return 4;
+  if (count <= 10) return 6;
+  if (count <= 20) return 9;
+  return 12;
 }
 
 export function nodeSize(count: number): number {
