@@ -121,7 +121,7 @@ export function useNetworkData() {
             .select("*")
             .eq("status", "accepted")
             .or(`inviter_id.eq.${user.id},invitee_id.eq.${user.id}`),
-          supabase.from("contact_notes").select("contact_id, entry_date, content, action_text, action_due_date, action_completed, importance"),
+          supabase.from("contact_notes").select("contact_id, entry_date, content, action_text, action_due_date, action_completed, importance, context"),
           supabase
             .from("profiles")
             .select("full_name, headline")
