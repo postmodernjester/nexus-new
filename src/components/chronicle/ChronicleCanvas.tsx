@@ -1741,7 +1741,7 @@ export default function ChronicleCanvas() {
               const colW = collapsedCols.has(item.cat) ? COLLAPSED_W : (itemCol?.width === 'half' ? HALF_W : COL_W)
               const left = getColLeft(item.cat, collapsedCols, activeCols) + 3
               const w = colW - 7
-              const showDate = h > Math.round(pxm * 1.2)
+              const showDate = h >= 32 && w >= 50
               const isSelected = selectedId === item.id
 
               // Fuzzy fade zone dimensions
@@ -1829,7 +1829,7 @@ export default function ChronicleCanvas() {
                         {item.title}
                       </div>
                     )}
-                    {showDate && h >= 26 && (
+                    {showDate && (
                       <div style={{ fontSize: '6.5px', opacity: 0.55, letterSpacing: '.05em', marginTop: 2 }}>
                         {item.start}{item.end ? ' – ' + item.end : ''}
                       </div>
