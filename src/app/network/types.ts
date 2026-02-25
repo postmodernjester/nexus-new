@@ -14,7 +14,13 @@ export interface Contact {
   email: string | null;
   how_we_met: string | null;
   ai_summary: string | null;
+  mini_summary: string | null;
   next_action_note: string | null;
+  resume_data: {
+    work?: { title: string; company: string; description?: string | null; location?: string | null }[];
+    education?: { institution: string; degree?: string | null; field_of_study?: string | null }[];
+    raw_text?: string;
+  } | null;
 }
 
 export interface Connection {

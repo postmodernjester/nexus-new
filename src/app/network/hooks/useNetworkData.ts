@@ -159,8 +159,9 @@ export function useNetworkData() {
         if (n.entry_date > noteMap[n.contact_id].most_recent) {
           noteMap[n.contact_id].most_recent = n.entry_date;
         }
-        if (n.content) {
-          noteTextMap[n.contact_id] = (noteTextMap[n.contact_id] || "") + " " + n.content;
+        const noteParts = [n.content, n.action_text, n.context].filter(Boolean);
+        if (noteParts.length) {
+          noteTextMap[n.contact_id] = (noteTextMap[n.contact_id] || "") + " " + noteParts.join(" ");
         }
       }
 
@@ -267,7 +268,7 @@ export function useNetworkData() {
         ]);
 
         for (const w of (workRes.data || []) as WorkRow[]) {
-          workTextMap[w.user_id] = (workTextMap[w.user_id] || "") + ` ${w.title || ""} ${w.company || ""} ${w.description || ""} ${w.location || ""}`;
+          workTextMap[w.user_id] = (workTextMap[w.user_id] || "") + ` ${w.title || ""} ${w.company || ""} ${w.description || ""} ${w.location || ""} ${(w.ai_skills_extracted || []).join(" ")}`;
           if (!workEntriesMap[w.user_id]) workEntriesMap[w.user_id] = [];
           workEntriesMap[w.user_id].push(w);
         }
@@ -354,10 +355,22 @@ export function useNetworkData() {
           stats?.most_recent || myCard?.last_contact_date || null
         );
 
-        const cuSearchParts = [name, relType, myCard?.company, profile?.headline, myCard?.role, myCard?.location, myCard?.email, myCard?.how_we_met, myCard?.ai_summary, myCard?.next_action_note];
+        const cuSearchParts = [name, relType, myCard?.company, profile?.headline, myCard?.role, myCard?.location, myCard?.email, myCard?.how_we_met, myCard?.ai_summary, myCard?.mini_summary, myCard?.next_action_note];
         const cuNoteText = myCard ? noteTextMap[myCard.id] || "" : "";
         const cuWorkText = workTextMap[uid] || "";
         const cuEduText = eduTextMap[uid] || "";
+        const cuSkills = (skillsMap[uid] || []).join(" ");
+        const cuEnrich = profileEnrichMap[uid];
+        const cuStrengths = (cuEnrich?.ai_strengths || []).join(" ");
+        const cuInterests = (cuEnrich?.ai_interests || []).join(" ");
+        // resume_data for non-linked contacts (fallback work/edu)
+        const cuResumeText = myCard?.resume_data
+          ? [
+              ...(myCard.resume_data.work || []).map(w => [w.title, w.company, w.description, w.location].filter(Boolean).join(" ")),
+              ...(myCard.resume_data.education || []).map(e => [e.institution, e.degree, e.field_of_study].filter(Boolean).join(" ")),
+              myCard.resume_data.raw_text || "",
+            ].join(" ")
+          : "";
 
         nodes.push({
           id: nodeId,
@@ -373,7 +386,7 @@ export function useNetworkData() {
           company: myCard?.company ?? undefined,
           role: profile?.headline || (myCard?.role ?? undefined),
           recency: rec,
-          searchText: [...cuSearchParts.filter(Boolean), cuNoteText, cuWorkText, cuEduText].join(" ").toLowerCase(),
+          searchText: [...cuSearchParts.filter(Boolean), cuNoteText, cuWorkText, cuEduText, cuSkills, cuStrengths, cuInterests, cuResumeText].join(" ").toLowerCase(),
           next_action_note: myCard?.next_action_note ?? undefined,
           pending_action: myCard ? pendingActionMap[myCard.id]?.action_text : undefined,
           pending_action_due: myCard ? pendingActionMap[myCard.id]?.action_due_date : undefined,
@@ -418,10 +431,22 @@ export function useNetworkData() {
           stats?.most_recent || c.last_contact_date || null
         );
 
-        const cSearchParts = [c.full_name, relType, c.company, c.role, c.location, c.email, c.how_we_met, c.ai_summary, c.next_action_note];
+        const cSearchParts = [c.full_name, relType, c.company, c.role, c.location, c.email, c.how_we_met, c.ai_summary, c.mini_summary, c.next_action_note];
         const cNoteText = noteTextMap[c.id] || "";
         const cWorkText = c.linked_profile_id ? workTextMap[c.linked_profile_id] || "" : "";
         const cEduText = c.linked_profile_id ? eduTextMap[c.linked_profile_id] || "" : "";
+        const cSkills = c.linked_profile_id ? (skillsMap[c.linked_profile_id] || []).join(" ") : "";
+        const cEnrich = c.linked_profile_id ? profileEnrichMap[c.linked_profile_id] : undefined;
+        const cStrengths = (cEnrich?.ai_strengths || []).join(" ");
+        const cInterests = (cEnrich?.ai_interests || []).join(" ");
+        // resume_data fallback: for non-linked contacts this is their resume info
+        const cResumeText = c.resume_data
+          ? [
+              ...(c.resume_data.work || []).map(w => [w.title, w.company, w.description, w.location].filter(Boolean).join(" ")),
+              ...(c.resume_data.education || []).map(e => [e.institution, e.degree, e.field_of_study].filter(Boolean).join(" ")),
+              c.resume_data.raw_text || "",
+            ].join(" ")
+          : "";
 
         nodes.push({
           id: nodeId,
@@ -436,7 +461,7 @@ export function useNetworkData() {
           owner_id: c.owner_id,
           contactId: c.id,
           recency: rec,
-          searchText: [...cSearchParts.filter(Boolean), cNoteText, cWorkText, cEduText].join(" ").toLowerCase(),
+          searchText: [...cSearchParts.filter(Boolean), cNoteText, cWorkText, cEduText, cSkills, cStrengths, cInterests, cResumeText].join(" ").toLowerCase(),
           next_action_note: c.next_action_note ?? undefined,
           pending_action: pendingActionMap[c.id]?.action_text,
           pending_action_due: pendingActionMap[c.id]?.action_due_date,
@@ -672,7 +697,14 @@ export function useNetworkData() {
         profileId: p.id,
         role: p.headline || undefined,
         recency: 0.35,
-        searchText: [p.full_name, p.headline, p.location].filter(Boolean).join(" ").toLowerCase(),
+        searchText: [
+          p.full_name, p.headline, p.location,
+          ...(sMap[p.id] || []),
+          ...(p.ai_strengths || []),
+          ...(p.ai_interests || []),
+          ...(wMap[p.id] || []).map(w => [w.title, w.company, w.description, w.location, ...(w.ai_skills_extracted || [])].filter(Boolean).join(" ")),
+          ...(eMap[p.id] || []).map(e => [e.institution, e.degree, e.field_of_study].filter(Boolean).join(" ")),
+        ].filter(Boolean).join(" ").toLowerCase(),
       });
 
       const enrich: ProfileEnrich = {

@@ -532,7 +532,7 @@ export default function NetworkPage() {
       >
         <input
           type="text"
-          placeholder="Filter by name, company, role…"
+          placeholder="Filter by name, company, skills, notes, actions…"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
           style={{
