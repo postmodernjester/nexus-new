@@ -226,11 +226,20 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
         ? data.content[0].text
         : "";
 
-    // Strip markdown fences if present
-    const cleaned = raw
+    // Strip markdown fences and any surrounding text to extract the JSON object
+    let cleaned = raw
       .replace(/^```(?:json)?\s*/i, "")
       .replace(/\s*```\s*$/, "")
       .trim();
+
+    // If stripping fences wasn't enough, find the outermost { ... } object
+    if (!cleaned.startsWith("{")) {
+      const firstBrace = cleaned.indexOf("{");
+      const lastBrace = cleaned.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+      }
+    }
 
     let parsed: { work: ParsedWork[]; education: ParsedEducation[] };
     try {
