@@ -179,11 +179,13 @@ export default function ResumeView({
 
   const allProjects = [...projectEntries, ...otherEntries];
 
-  // When linked, show live data only. When not linked, show from parsedResume.
-  const activeWork = isLinked ? linkedWork : [];
-  const activeEducation = isLinked ? linkedEducation : [];
-  const parsedWork = isLinked ? [] : (parsedResume?.work || []);
-  const parsedEdu = isLinked ? [] : (parsedResume?.education || []);
+  // When linked, show live data only — UNLESS the user manually uploaded
+  // resume data (indicated by raw_text), in which case prefer the upload.
+  const hasManualUpload = !!parsedResume?.raw_text;
+  const activeWork = isLinked && !hasManualUpload ? linkedWork : [];
+  const activeEducation = isLinked && !hasManualUpload ? linkedEducation : [];
+  const parsedWork = isLinked && !hasManualUpload ? [] : (parsedResume?.work || []);
+  const parsedEdu = isLinked && !hasManualUpload ? [] : (parsedResume?.education || []);
 
   const hasExperience = activeWork.length > 0 || workChronicle.length > 0 || parsedWork.length > 0;
   const hasEducation = activeEducation.length > 0 || educationChronicle.length > 0 || parsedEdu.length > 0;
