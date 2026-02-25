@@ -15,8 +15,16 @@ export default function LifetimePage() {
   const [editText, setEditText] = useState('')
   const [birthday, setBirthday] = useState<string>('')
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [showTopBtn, setShowTopBtn] = useState(false)
   const yearRefs = useRef<Record<number, HTMLDivElement | null>>({})
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ─── Show/hide back-to-top button ─────────
+  useEffect(() => {
+    const onScroll = () => setShowTopBtn(window.scrollY > 300)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   // ─── Load data ──────────────────────────────
   useEffect(() => {
@@ -117,6 +125,13 @@ export default function LifetimePage() {
     }, 50)
   }, [])
 
+  // ─── Navigate to chronicle at a given year ──
+  const goToChronicle = useCallback((year: number) => {
+    localStorage.setItem('chronicle_center_year', String(year))
+    localStorage.setItem('chronicle_center_month', '6')
+    router.push('/chronicle')
+  }, [router])
+
   // ─── Year picker years (decade markers) ─────
   const firstYear = years.length > 0 ? years[0].year : new Date().getFullYear()
   const lastYear = years.length > 0 ? years[years.length - 1].year : new Date().getFullYear()
@@ -202,12 +217,15 @@ export default function LifetimePage() {
                 ref={el => { yearRefs.current[y.year] = el }}
                 style={S.yearCard}
               >
-                {/* Year header — click to toggle */}
-                <div
-                  onClick={() => toggleYear(y.year)}
-                  style={S.yearHeader}
-                >
-                  <span style={S.yearNum}>{y.year}</span>
+                {/* Year header */}
+                <div style={S.yearHeader}>
+                  <span
+                    onClick={() => goToChronicle(y.year)}
+                    title={`View ${y.year} in Chronicle`}
+                    style={S.yearNum}
+                  >
+                    {y.year}
+                  </span>
                   {y.age !== null && <span style={S.ageBadge}>(turn {y.age})</span>}
 
                   {/* Inline context preview when collapsed */}
@@ -223,9 +241,14 @@ export default function LifetimePage() {
 
                   <span style={{ flex: 1 }} />
 
-                  {hasNotes && <span style={S.hasNotesDot} />}
-
-                  <span style={{ ...S.chevron, transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
+                  {/* Toggle area — dot + chevron */}
+                  <span
+                    onClick={() => toggleYear(y.year)}
+                    style={S.toggleArea}
+                  >
+                    {hasNotes && <span style={S.hasNotesDot} />}
+                    <span style={{ ...S.chevron, transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
+                  </span>
                 </div>
 
                 {/* Expanded body */}
@@ -309,6 +332,19 @@ export default function LifetimePage() {
           })}
         </div>
       </div>
+
+      {/* Back-to-top button */}
+      {showTopBtn && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          title="Back to top"
+          style={S.topBtn}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="18 15 12 9 6 15" />
+          </svg>
+        </button>
+      )}
     </>
   )
 }
@@ -433,11 +469,16 @@ const S: Record<string, React.CSSProperties> = {
   },
   yearHeader: {
     display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0',
-    cursor: 'pointer', userSelect: 'none' as const,
+    userSelect: 'none' as const,
   },
   yearNum: {
     fontFamily: "'Libre Baskerville', serif", fontSize: 17, fontWeight: 700,
     letterSpacing: '-.02em', color: '#1a1812', minWidth: 42,
+    cursor: 'pointer', transition: 'color .15s',
+  },
+  toggleArea: {
+    display: 'flex', alignItems: 'center', gap: 6,
+    cursor: 'pointer', padding: '4px 0 4px 12px', flexShrink: 0,
   },
   ageBadge: {
     fontSize: 9, color: '#9a8e78', letterSpacing: '.04em',
@@ -483,5 +524,13 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 11.5, color: '#1a1812', outline: 'none', resize: 'vertical' as const,
     lineHeight: '1.7', letterSpacing: '.01em',
     minHeight: 80,
+  },
+  topBtn: {
+    position: 'fixed' as const, bottom: 24, right: 24, zIndex: 50,
+    width: 36, height: 36, borderRadius: '50%',
+    background: '#1a1812', color: '#f0ead8', border: 'none',
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    boxShadow: '0 2px 8px rgba(0,0,0,.2)', transition: 'opacity .2s',
+    opacity: 0.7,
   },
 }
