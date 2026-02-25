@@ -64,9 +64,9 @@ export function lineThickness(count: number): number {
   if (count <= 5) return 4;
   if (count <= 10) return 6;
   if (count <= 20) return 9;
-  return 12;
+  return 10;
 }
 
 export function nodeSize(count: number): number {
-  return 8 + Math.min(count * 1.2, 16);
+  return 8.8 + Math.min(count * 1.32, 17.6);
 }

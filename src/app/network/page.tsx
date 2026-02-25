@@ -97,11 +97,13 @@ export default function NetworkPage() {
     const g = svg.append("g");
 
     // Zoom
+    let currentZoomScale = 1;
     const zoom = d3
       .zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.2, 4])
       .on("zoom", (event) => {
         g.attr("transform", event.transform);
+        currentZoomScale = event.transform.k;
       });
     (svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>).call(zoom);
     svg.on("dblclick.zoom", null);
@@ -378,12 +380,11 @@ export default function NetworkPage() {
       .attr("stroke", "none")
       .attr("stroke-width", 0);
 
-    // Labels
-    node
+    // Labels — font size stays fixed on screen regardless of zoom
+    const labelSel = node
       .append("text")
       .text((d) => d.label)
       .attr("text-anchor", "middle")
-      .attr("dy", (d) => d.radius + 14)
       .attr("fill", (d) => {
         if (d.type === "self") return "#c9a050";
         if (d.type === "third_degree") return "#475569";
@@ -468,6 +469,12 @@ export default function NetworkPage() {
         .attr("y2", (d) => (d.target as GraphNode).y || 0);
 
       node.attr("transform", (d) => `translate(${d.x || 0},${d.y || 0})`);
+
+      // Counter-scale labels so font size stays fixed on screen
+      const inv = 1 / currentZoomScale;
+      labelSel
+        .attr("dy", (d) => (d.radius + 14) * inv)
+        .attr("transform", `scale(${inv})`);
     });
 
     // Filter highlight
