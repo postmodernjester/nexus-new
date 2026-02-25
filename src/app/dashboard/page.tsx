@@ -406,6 +406,28 @@ export default function DashboardPage() {
     }
   }
 
+  const IMPORTANCE_CYCLE: (string | null)[] = [null, "green", "yellow", "red"];
+
+  async function cycleImportance(noteId: string) {
+    const item = actionItems.find((a) => a.id === noteId);
+    if (!item) return;
+    const curIdx = IMPORTANCE_CYCLE.indexOf(item.importance);
+    const next = IMPORTANCE_CYCLE[(curIdx + 1) % IMPORTANCE_CYCLE.length];
+    setActionItems((prev) =>
+      prev.map((a) => (a.id === noteId ? { ...a, importance: next } : a))
+    );
+    const { error } = await supabase
+      .from("contact_notes")
+      .update({ importance: next })
+      .eq("id", noteId);
+    if (error) {
+      setActionItems((prev) =>
+        prev.map((a) => (a.id === noteId ? { ...a, importance: item.importance } : a))
+      );
+      console.error("Failed to update importance:", error);
+    }
+  }
+
   async function createNewAction() {
     if (!newContactId || !newActionText.trim() || !userId) return;
     setSaving(true);
@@ -877,21 +899,24 @@ export default function DashboardPage() {
                       </>
                     ) : (
                       <>
-                        {item.importance && (
-                          <span
-                            style={{
-                              width: "8px",
-                              height: "8px",
-                              borderRadius: "50%",
-                              background:
-                                item.importance === "red" ? "#ef4444" :
-                                item.importance === "yellow" ? "#eab308" :
-                                item.importance === "green" ? "#22c55e" : "transparent",
-                              flexShrink: 0,
-                            }}
-                            title={`Priority: ${item.importance}`}
-                          />
-                        )}
+                        <button
+                          onClick={() => cycleImportance(item.id)}
+                          title={item.importance ? `Priority: ${item.importance} (click to cycle)` : "Set priority (click to cycle)"}
+                          style={{
+                            width: "10px",
+                            height: "10px",
+                            borderRadius: "50%",
+                            background:
+                              item.importance === "red" ? "#ef4444" :
+                              item.importance === "yellow" ? "#eab308" :
+                              item.importance === "green" ? "#22c55e" : "#334155",
+                            border: item.importance ? "none" : "1px solid #475569",
+                            cursor: "pointer",
+                            flexShrink: 0,
+                            padding: 0,
+                            transition: "all 0.15s",
+                          }}
+                        />
                         <span
                           onClick={() => startEditing(item)}
                           style={{

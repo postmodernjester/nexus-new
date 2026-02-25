@@ -369,6 +369,10 @@ export default function NetworkPage() {
         if (d.type === "third_degree") return "#334155";
         if (d.type === "their_contact") return "#4a5568";
         if (d.type === "world") return "#2d6a5a";
+        // Color by pending action importance (muted versions)
+        if (d.pending_action_importance === "red") return "#8b4040";
+        if (d.pending_action_importance === "yellow") return "#8b7a30";
+        if (d.pending_action_importance === "green") return "#3a7a4a";
         return "#6b7f99";
       })
       .attr("stroke", "none")

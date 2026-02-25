@@ -121,7 +121,7 @@ export function useNetworkData() {
             .select("*")
             .eq("status", "accepted")
             .or(`inviter_id.eq.${user.id},invitee_id.eq.${user.id}`),
-          supabase.from("contact_notes").select("contact_id, entry_date, content, action_text, action_due_date, action_completed"),
+          supabase.from("contact_notes").select("contact_id, entry_date, content, action_text, action_due_date, action_completed, importance"),
           supabase
             .from("profiles")
             .select("full_name, headline")
@@ -134,12 +134,13 @@ export function useNetworkData() {
       const allNotes = notesRes.data || [];
 
       // Build pending action map from contact_notes: first pending action per contact
-      const pendingActionMap: Record<string, { action_text: string; action_due_date?: string }> = {};
+      const pendingActionMap: Record<string, { action_text: string; action_due_date?: string; importance?: string }> = {};
       for (const n of allNotes) {
         if (n.action_text && !n.action_completed && !pendingActionMap[n.contact_id]) {
           pendingActionMap[n.contact_id] = {
             action_text: n.action_text,
             action_due_date: n.action_due_date || undefined,
+            importance: n.importance || undefined,
           };
         }
       }
@@ -376,6 +377,7 @@ export function useNetworkData() {
           next_action_note: myCard?.next_action_note ?? undefined,
           pending_action: myCard ? pendingActionMap[myCard.id]?.action_text : undefined,
           pending_action_due: myCard ? pendingActionMap[myCard.id]?.action_due_date : undefined,
+          pending_action_importance: myCard ? pendingActionMap[myCard.id]?.importance : undefined,
         });
 
         profileToNodeId[uid] = nodeId;
@@ -438,6 +440,7 @@ export function useNetworkData() {
           next_action_note: c.next_action_note ?? undefined,
           pending_action: pendingActionMap[c.id]?.action_text,
           pending_action_due: pendingActionMap[c.id]?.action_due_date,
+          pending_action_importance: pendingActionMap[c.id]?.importance,
         });
 
         nameToNodeId[c.full_name.toLowerCase()] = nodeId;

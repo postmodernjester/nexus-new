@@ -51,6 +51,7 @@ export interface GraphNode extends d3.SimulationNodeDatum {
   next_action_note?: string;
   pending_action?: string;
   pending_action_due?: string;
+  pending_action_importance?: string;
   isLinkedProfile?: boolean;
 }
 
