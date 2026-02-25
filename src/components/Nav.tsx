@@ -23,6 +23,8 @@ export function getLastVisitedTab(): string {
   return '/dashboard';
 }
 
+export const NAV_HEIGHT = 53;
+
 export default function Nav() {
   const pathname = usePathname();
   const [pendingCount, setPendingCount] = useState(0);
@@ -73,8 +75,9 @@ export default function Nav() {
         padding: '10px 20px',
         background: '#0f172a',
         borderBottom: '1px solid #1e293b',
-        zIndex: 30,
-        position: 'relative',
+        zIndex: 50,
+        position: 'sticky',
+        top: 0,
       }}
     >
       {/* Left side: NEXUS logo + globe icon */}

@@ -8,6 +8,7 @@ import {
   type ChronicleEntry, type ChroniclePlace, type ChronicleWorkEntry,
   type ChronicleContact, type ChronicleEducationEntry,
 } from '@/lib/chronicle'
+import { NAV_HEIGHT } from '@/components/Nav'
 import ChronicleModal, { type EntryFormData } from './ChronicleModal'
 import ChronicleGeoModal, { type GeoFormData } from './ChronicleGeoModal'
 import WorkModal from '@/app/resume/components/WorkModal'
@@ -1287,7 +1288,7 @@ export default function ChronicleCanvas() {
   if (loading) {
     return (
       <div style={{
-        height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: `calc(100vh - ${NAV_HEIGHT}px)`, display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: '#f0ead8', color: '#9a8e78', fontFamily: "'DM Mono', monospace", fontSize: 12,
       }}>
         Loading chronicle…
@@ -1296,7 +1297,7 @@ export default function ChronicleCanvas() {
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f0ead8', color: '#1a1812', fontFamily: "'DM Mono', monospace", userSelect: 'none' }}>
+    <div style={{ height: `calc(100vh - ${NAV_HEIGHT}px)`, display: 'flex', flexDirection: 'column', background: '#f0ead8', color: '#1a1812', fontFamily: "'DM Mono', monospace", userSelect: 'none' }}>
 
       {/* ── TOOLBAR ───────────────────────────── */}
       <Toolbar

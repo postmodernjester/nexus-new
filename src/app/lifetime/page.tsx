@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import Nav from '@/components/Nav'
+import Nav, { NAV_HEIGHT } from '@/components/Nav'
 import { loadLifetimeData, saveLifetimeNotes, type LifetimeYear } from '@/lib/lifetime'
 
 export default function LifetimePage() {
@@ -409,14 +409,14 @@ function renderNotes(text: string) {
 // ═══════════════════════════════════════════════
 const S: Record<string, React.CSSProperties> = {
   loadingWrap: {
-    height: 'calc(100vh - 50px)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    height: `calc(100vh - ${NAV_HEIGHT}px)`, display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: '#f0ead8',
   },
   loadingText: {
     fontFamily: "'DM Mono', monospace", fontSize: 12, color: '#9a8e78',
   },
   page: {
-    minHeight: 'calc(100vh - 50px)', background: '#f0ead8',
+    minHeight: `calc(100vh - ${NAV_HEIGHT}px)`, background: '#f0ead8',
     fontFamily: "'DM Mono', monospace", color: '#1a1812',
     paddingBottom: 80,
   },
@@ -445,7 +445,7 @@ const S: Record<string, React.CSSProperties> = {
     padding: '2px 4px', outline: 'none', cursor: 'pointer',
   },
   yearPicker: {
-    position: 'sticky' as const, top: 0, zIndex: 40,
+    position: 'sticky' as const, top: NAV_HEIGHT, zIndex: 40,
     background: '#f0ead8', borderBottom: '1px solid #d8d0c0',
     padding: '8px 0',
     overflow: 'hidden',
